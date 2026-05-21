@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Uncensored YouTube",
+  "version": "0.1.0",
+  "description": "Restores deterministic censored words in YouTube captions.",
+  "permissions": [],
+  "host_permissions": [
+    "https://www.youtube.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*"
+      ],
+      "js": [
+        "src/content.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/rule-data.js",
+        "src/replacement-format.js",
+        "src/rules.js",
+        "src/timedtext.js",
+        "src/page-hook.js"
+      ],
+      "matches": [
+        "https://www.youtube.com/*"
+      ]
+    }
+  ]
+}
