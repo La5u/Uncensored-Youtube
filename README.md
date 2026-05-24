@@ -1,81 +1,49 @@
 ## Uncensored
-YouTube's censorship of captions is albeist as it discriminates against the deaf.\
-This extension aims to restore verbatim subtitles.
+YouTube's censorship of captions is ableist as it discriminates against deaf and hard-of-hearing viewers.\
+This extension restores verbatim subtitles by intercepting YouTube's `/api/timedtext?fmt=json3` caption responses.
 
-### MVP
-The current MVP is a lightweight, fully local browser extension that only applies deterministic caption fixes.
-It intercepts YouTube's `/api/timedtext?fmt=json3` caption response in the page context and replaces `[__]` only when surrounding text matches a known rule.
+### How it works
+The extension uses a two-stage, fully local approach:
 
-No audio capture, ML inference, network calls, background worker, or page-wide DOM observer are used.
-The extension also normalizes YouTube's non-breaking-space token form, such as `[ __ ]`, to `[__]` before matching.
-Rules can list candidates in likelihood order; the first candidate is inserted inline and later candidates are shown as `(or ...)`.
+1. **Deterministic rules** — When surrounding text makes the censored word unambiguous (e.g. "what the [__]" → "fuck"), it is replaced immediately with no audio needed.
 
-To add rules, edit `DETERMINISTIC_RULES` in `src/rule-data.js`:
+2. **Local audio inference** — When a rule lists multiple candidates (e.g. "oh [shit|fuck]"), the extension captures the video's audio around the censored timestamp and runs a tiny local Whisper model (`whisper-tiny.en`, quantized ONNX) to decide which candidate matches the spoken audio.
+
+No network calls, background workers, or page-wide DOM observers are used. The extension also normalizes YouTube's non-breaking-space token form, such as `[ __ ]`, to `[__]` before matching.
+
+### Adding rules
+Edit `RULE_PATTERNS` in `src/rules.js`:
 ```
-rule("give a [__]", "fuck", "shit")
-rule("oh [__]", "shit", "fuck")
+"give a [fuck|shit]"
+"oh [shit|fuck]"
 ```
 
-Repeated patterns are generated from lists. For example, `FUCKING_SUFFIXES` in `src/rule-data.js` expands entries like `[__] stupid`, `[__] awful`, and `[__] amazing` to `fucking ...`.
+Rules list candidates in likelihood order. If context makes the first candidate unambiguous, it is applied directly. Otherwise the audio stage resolves between the candidates.
 
-To test the rules:
+### Tests
 ```
 node tests/rules.test.js
 node tests/timedtext.test.js
-node tests/example-json.test.js
+node tests/json-fixtures.test.js
 ```
 
-To review a caption dump without turning every case into a test:
+### Tools
+To review a caption dump or compare against an uncensored reference:
 ```
-node tests/example-report.js british.json
-node tests/compare-captions.js gordoncreative.json gordoncreative_uncensored.json
+node tools/example-report.js british.json
+node tools/compare-captions.js mov_censored.json mov.json
+node tools/subtitle-report.js example.json
 ```
 
-To create separate zip files for Chromium and Firefox:
+### Evaluating rule coverage
+```
+node corpus/evaluate-swear-corpus.js --input reddit_comments.zip --output corpus/generated/reddit --field body
+PYTHONPATH=/tmp/uncensored-pyarrow node corpus/evaluate-opensubtitles-parquet.js --input opensubtitlesen-es.parquet --output corpus/generated/opensubtitles
+```
+
+### Build
 ```
 ./build.sh 0.1.0
 ```
 
-Proposed algorithm (FULLY LOCAL):
-1. YouTube page loads
-2. Read subtitles/transcript
-3. if [__] detected ->
-4. Extract nearby context 
-5. One candidate solution (no audio required):\
-e.g. "[__] you" is always "fuck you" since screw you is not censored in YT
-6. Extract nearby audio
-7. Few candidate solution:\
-e.g. "what the [__]" can only be fuck or shit since "hell" isn't censored
-8. Run tiny local inference such as tiny whisper.
-Top 1000 censored words account for >90% of cases.\
-YouTube likely has only up to 10k words total.\
-If there are known candidates from context, it will be more accurate.
-9. Patch subtitle DOM
-### Other Ideas:
-Show percentage points for each swear word based on context, e.g. likely: fuck, (5% shit in small text)
-
-### Proposed Architecture:
-```
-src/
-  content/
-    captions.ts
-    patcher.ts
-    youtube.ts
-
-  audio/
-    capture.ts
-    slicing.ts
-
-  ml/
-    whisper.ts
-    inference.ts
-    candidates.ts
-
-  workers/
-    transcriber.worker.ts
-
-  shared/
-    types.ts
-```
-To create two seperate zip files for chromium and firefox extension, run:\
-./build.sh (version)
+This creates separate zip files for Chromium and Firefox.

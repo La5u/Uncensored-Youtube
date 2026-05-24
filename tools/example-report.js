@@ -7,7 +7,7 @@ function fixturePath(fileName) {
     return fileName;
   }
 
-  return path.join(__dirname, "fixtures", fileName);
+  return path.join(__dirname, "..", "tests", "fixtures", fileName);
 }
 
 const inputPath = fixturePath(process.argv[2] || "example.json");

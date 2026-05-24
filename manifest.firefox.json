@@ -3,7 +3,12 @@
   "name": "Uncensored YouTube",
   "version": "0.1.0",
   "description": "Restores deterministic censored words in YouTube captions.",
-  "permissions": [],
+  "permissions": [
+    "storage"
+  ],
+  "action": {
+    "default_popup": "src/popup.html"
+  },
   "host_permissions": [
     "https://www.youtube.com/*"
   ],
@@ -19,6 +24,10 @@
         "https://www.youtube.com/*"
       ],
       "js": [
+        "src/rules.js",
+        "src/timedtext.js",
+        "src/whisper-worker-client.js",
+        "src/audio-capture.js",
         "src/content.js"
       ],
       "run_at": "document_start"
@@ -27,10 +36,18 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "src/rule-data.js",
-        "src/replacement-format.js",
         "src/rules.js",
         "src/timedtext.js",
+        "src/whisper-local.js",
+        "src/whisper-module-worker.js",
+        "src/whisper-host.html",
+        "src/whisper-host.js",
+        "src/whisper-worker-client.js",
+        "src/audio-capture.js",
+        "src/vendor/transformers.min.js",
+        "src/vendor/ort-wasm-simd-threaded.asyncify.wasm",
+        "src/vendor/ort-wasm-simd-threaded.asyncify.mjs",
+        "src/models/whisper-tiny.en/**",
         "src/page-hook.js"
       ],
       "matches": [

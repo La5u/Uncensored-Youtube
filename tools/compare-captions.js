@@ -7,7 +7,7 @@ function fixturePath(fileName) {
     return fileName;
   }
 
-  return path.join(__dirname, "fixtures", fileName);
+  return path.join(__dirname, "..", "tests", "fixtures", fileName);
 }
 
 const censoredPath = fixturePath(process.argv[2] || "mov_censored.json");
