@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Uncensored YouTube</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main>
+      <h1>Uncensored YouTube</h1>
+      <label>
+        <input id="rulesEnabled" type="checkbox">
+        <span>
+          <strong>Rules</strong>
+          <small>Turn off for audio-only inference testing.</small>
+        </span>
+      </label>
+      <label>
+        <input id="whisperEnabled" type="checkbox">
+        <span>
+          <strong>Whisper</strong>
+          <small>Use local audio inference for unresolved or ambiguous slots.</small>
+        </span>
+      </label>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
