@@ -20,6 +20,11 @@ import "./whisper-local.js";
       return;
     }
 
+    if (message.type === "warmup") {
+      post(message.id, { ok: true, ready: true });
+      return;
+    }
+
     if (message.type === "preload") {
       whisper.preload().then(function ready() {
         post(message.id, { ok: true, ready: true });

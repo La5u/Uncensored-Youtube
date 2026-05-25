@@ -1,7 +1,7 @@
 (function installUncensoredPageHook() {
   "use strict";
 
-  var VERSION = 16;
+  var VERSION = 17;
   var originalFetch = globalThis.__uncensoredOriginalFetch || globalThis.fetch;
   var originalXHROpen = globalThis.__uncensoredOriginalXHROpen || XMLHttpRequest.prototype.open;
   var audioItags = Object.freeze({
@@ -20,14 +20,11 @@
   };
   var audioReplacements = [];
   var sabrAudio = new Map();
-  var probedSabrUrls = Object.create(null);
   var sabrCarry = new Uint8Array(0);
   var sabrHeaders = Object.create(null);
   var sabrDebug = {
     fetches: 0,
     xhrs: 0,
-    probes: 0,
-    probeBytes: 0,
     responses: 0,
     parsedParts: 0,
     emptyResponses: 0,
@@ -39,7 +36,6 @@
     lastUrl: "",
     lastBufferBytes: 0,
     lastPartTypes: [],
-    lastProbeStatus: "",
     lastError: ""
   };
 
@@ -144,7 +140,7 @@
     }
 
     if (api.patchTimedTextBodyWithOverrides) {
-      return api.patchTimedTextBodyWithOverrides(body, replacementsForCurrentVideo(), settings.rulesEnabled, settings.whisperEnabled);
+      return api.patchTimedTextBodyWithOverrides(body, replacementsForCurrentVideo(), settings.rulesEnabled);
     }
 
     return settings.rulesEnabled && api.patchTimedTextBody ? api.patchTimedTextBody(body) : body;
@@ -189,161 +185,6 @@
     } catch (error) {
       sabrDebug.lastUrl = "";
     }
-  }
-
-  function parseCipher(cipher) {
-    var params;
-
-    if (!cipher) {
-      return null;
-    }
-
-    try {
-      params = new URLSearchParams(cipher);
-    } catch (error) {
-      return null;
-    }
-
-    return {
-      url: params.get("url") || "",
-      signature: params.get("s") || "",
-      signatureParam: params.get("sp") || "signature"
-    };
-  }
-
-  function formatIsAudio(format) {
-    var mimeType = format && format.mimeType || "";
-
-    return mimeType.indexOf("audio/") === 0 || Boolean(format && audioItags[String(format.itag)]);
-  }
-
-  function summarizeFormats(formats) {
-    if (!Array.isArray(formats)) {
-      return [];
-    }
-
-    return formats.filter(formatIsAudio).map(function summarize(format) {
-      var cipher = parseCipher(format.signatureCipher || format.cipher || "");
-
-      return {
-        itag: format.itag,
-        mimeType: format.mimeType || "",
-        keys: Object.keys(format).sort(),
-        hasUrl: Boolean(format.url),
-        hasCipher: Boolean(format.signatureCipher || format.cipher),
-        hasCipherUrl: Boolean(cipher && cipher.url),
-        hasCipherSignature: Boolean(cipher && cipher.signature),
-        url: format.url ? String(format.url).slice(0, 140) : "",
-        cipherUrl: cipher && cipher.url ? cipher.url.slice(0, 140) : ""
-      };
-    });
-  }
-
-  function extractBalancedObject(text, openIndex) {
-    var depth = 0;
-    var index;
-    var quote = "";
-    var escaped = false;
-
-    for (index = openIndex; index < text.length; index += 1) {
-      var character = text[index];
-
-      if (quote) {
-        if (escaped) {
-          escaped = false;
-        } else if (character === "\\") {
-          escaped = true;
-        } else if (character === quote) {
-          quote = "";
-        }
-        continue;
-      }
-
-      if (character === "\"" || character === "'") {
-        quote = character;
-      } else if (character === "{") {
-        depth += 1;
-      } else if (character === "}") {
-        depth -= 1;
-        if (depth === 0) {
-          return text.slice(openIndex, index + 1);
-        }
-      }
-    }
-
-    return "";
-  }
-
-  function scriptPlayerResponses() {
-    var responses = [];
-
-    Array.prototype.slice.call(document.scripts || []).some(function parseScript(script) {
-      var text = script && script.textContent || "";
-      var marker = text.indexOf("ytInitialPlayerResponse");
-      var openIndex;
-      var jsonText;
-
-      if (marker === -1) {
-        return false;
-      }
-
-      openIndex = text.indexOf("{", marker);
-      jsonText = openIndex === -1 ? "" : extractBalancedObject(text, openIndex);
-      if (!jsonText) {
-        return false;
-      }
-
-      try {
-        responses.push({
-          source: "script",
-          response: JSON.parse(jsonText)
-        });
-        return true;
-      } catch (error) {
-        return false;
-      }
-    });
-
-    return responses;
-  }
-
-  function playerResponses() {
-    var responses = [];
-    var raw;
-
-    if (globalThis.ytInitialPlayerResponse) {
-      responses.push({
-        source: "ytInitialPlayerResponse",
-        response: globalThis.ytInitialPlayerResponse
-      });
-    }
-
-    raw = globalThis.ytplayer && globalThis.ytplayer.config &&
-      globalThis.ytplayer.config.args && globalThis.ytplayer.config.args.player_response;
-    if (typeof raw === "string") {
-      try {
-        responses.push({
-          source: "ytplayer.config",
-          response: JSON.parse(raw)
-        });
-      } catch (error) {}
-    }
-
-    return responses.concat(scriptPlayerResponses());
-  }
-
-  function serverAbrUrlsFromResponses() {
-    var urls = [];
-
-    playerResponses().forEach(function collect(item) {
-      var url = item.response && item.response.streamingData && item.response.streamingData.serverAbrStreamingUrl;
-
-      if (url && urls.indexOf(url) === -1) {
-        urls.push(url);
-      }
-    });
-
-    return urls;
   }
 
   function readUmpVarint(bytes, offset) {
@@ -500,25 +341,6 @@
     return header;
   }
 
-  function audioMimeForItag(itag) {
-    var responses = playerResponses();
-    var found = "";
-
-    responses.some(function findInResponse(item) {
-      var formats = item.response && item.response.streamingData && item.response.streamingData.adaptiveFormats;
-
-      return Array.isArray(formats) && formats.some(function findFormat(format) {
-        if (format && format.itag === itag && formatIsAudio(format)) {
-          found = format.mimeType || "";
-          return true;
-        }
-        return false;
-      });
-    });
-
-    return found;
-  }
-
   function appendSabrAudioChunk(header, chunk) {
     var key = String(header.itag || 0);
     var entry;
@@ -531,8 +353,8 @@
     if (!entry) {
       entry = {
         itag: header.itag,
-        mimeType: audioMimeForItag(header.itag),
-        chunks: [],
+        initChunks: [],
+        activeSegments: Object.create(null),
         bytes: 0,
         dispatchedBytes: 0,
         hasInitSeg: false,
@@ -553,16 +375,27 @@
 
     if (header.isInitSeg) {
       entry.hasInitSeg = true;
-      entry.chunks.unshift(chunk);
+      entry.initChunks.push(chunk);
     } else {
+      var segmentKey = String(header.headerId);
+      var segment = entry.activeSegments[segmentKey];
+
       entry.hasMediaSeg = true;
-      entry.chunks.push(chunk);
+      if (!segment) {
+        segment = {
+          header: header,
+          chunks: [],
+          bytes: 0
+        };
+        entry.activeSegments[segmentKey] = segment;
+      }
+      segment.chunks.push(chunk);
+      segment.bytes += chunk.length;
     }
     entry.bytes += chunk.length;
     sabrDebug.audioBytes += chunk.length;
     sabrDebug.lastItag = header.itag;
     sabrDebug.lastHeaderId = header.headerId === undefined ? -1 : header.headerId;
-    dispatchSabrAudio(entry);
   }
 
   function chunksToBase64(chunks) {
@@ -586,8 +419,24 @@
     return btoa(binary);
   }
 
-  function dispatchSabrAudio(entry) {
-    if (!entry || !entry.hasInitSeg || !entry.hasMediaSeg || !entry.chunks.length || entry.bytes <= entry.dispatchedBytes) {
+  function finalizeSabrAudioSegment(headerId) {
+    var header = sabrHeaders[headerId];
+    var key = String(header && header.itag || 0);
+    var entry = sabrAudio.get(key);
+    var segment = entry && entry.activeSegments && entry.activeSegments[String(headerId)];
+
+    if (!entry || !segment) {
+      return;
+    }
+
+    delete entry.activeSegments[String(headerId)];
+    dispatchSabrAudio(entry, segment);
+  }
+
+  function dispatchSabrAudio(entry, segment) {
+    var header = segment && segment.header || {};
+
+    if (!entry || !entry.hasInitSeg || !segment || !segment.chunks || !segment.chunks.length) {
       return;
     }
 
@@ -596,9 +445,11 @@
       globalThis.dispatchEvent(new CustomEvent("uncensored-sabr-audio", {
         detail: JSON.stringify({
           itag: entry.itag,
-          mimeType: entry.mimeType,
           bytes: entry.bytes,
-          base64: chunksToBase64(entry.chunks)
+          segmentBytes: segment.bytes,
+          startMs: typeof header.startMs === "number" ? header.startMs : null,
+          durationMs: typeof header.durationMs === "number" ? header.durationMs : null,
+          base64: chunksToBase64(entry.initChunks.concat(segment.chunks))
         })
       }));
     } catch (error) {
@@ -649,6 +500,7 @@
           appendSabrAudioChunk(mediaHeader, part.data.slice(1));
         }
       } else if (part.type === 22) {
+        finalizeSabrAudioSegment(part.data[0]);
         delete sabrHeaders[part.data[0]];
       }
     });
@@ -700,160 +552,31 @@
     }
   }
 
-  function concatChunks(chunks, totalBytes) {
-    var output = new Uint8Array(totalBytes);
-    var offset = 0;
-
-    chunks.forEach(function copy(chunk) {
-      output.set(chunk, offset);
-      offset += chunk.length;
-    });
-
-    return output.buffer;
-  }
-
-  function readSabrProbe(response, url) {
-    var reader;
-    var chunks = [];
-    var totalBytes = 0;
-    var maxBytes = 6 * 1024 * 1024;
-    var maxReads = 96;
-    var reads = 0;
-
-    if (!response.body || !response.body.getReader) {
-      return response.arrayBuffer().then(function processWholeBuffer(buffer) {
-        sabrDebug.probeBytes += buffer.byteLength || 0;
-        processSabrBuffer(buffer);
-      });
-    }
-
-    reader = response.body.getReader();
-
-    function readNext() {
-      return reader.read().then(function handle(result) {
-        var value = result.value;
-
-        if (result.done || !value) {
-          sabrDebug.probeBytes += totalBytes;
-          processSabrBuffer(concatChunks(chunks, totalBytes));
-          return;
-        }
-
-        chunks.push(value);
-        totalBytes += value.length;
-        reads += 1;
-        if (totalBytes >= maxBytes || reads >= maxReads) {
-          return reader.cancel().catch(function ignoreCancel() {}).then(function processPartial() {
-            sabrDebug.probeBytes += totalBytes;
-            processSabrBuffer(concatChunks(chunks, totalBytes));
-          });
-        }
-
-        return readNext();
-      });
-    }
-
-    sabrDebug.lastProbeStatus = "reading " + url.slice(0, 120);
-    return readNext();
-  }
-
-  function probeSabrUrl(url) {
-    var controller = typeof AbortController === "function" ? new AbortController() : null;
-    var timeout = controller ? setTimeout(function abortProbe() {
-      controller.abort();
-    }, 25000) : 0;
-
-    if (!url || probedSabrUrls[url]) {
-      return;
-    }
-
-    probedSabrUrls[url] = true;
-    sabrDebug.probes += 1;
-    rememberSabrUrl(url);
-    sabrDebug.lastProbeStatus = "fetching";
-
-    originalFetch.call(globalThis, url, {
-      credentials: "include",
-      signal: controller && controller.signal
-    }).then(function gotResponse(response) {
-      if (!response || !response.ok) {
-        sabrDebug.lastProbeStatus = "http " + (response && response.status);
-        return;
-      }
-
-      return readSabrProbe(response, url).then(function done() {
-        sabrDebug.lastProbeStatus = "done";
-      });
-    }).catch(function failed(error) {
-      sabrDebug.lastProbeStatus = "failed";
-      sabrDebug.lastError = error && (error.message || String(error));
-    }).then(function cleanup() {
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-    });
-  }
-
-  function scanSabrServerUrls() {
-    serverAbrUrlsFromResponses().forEach(rememberSabrUrl);
-  }
-
   function debugAudio() {
-    scanSabrServerUrls();
-
-    var responses = playerResponses();
     var video = document.querySelector("video");
-    var audioFormats = [];
-    var streamingData = responses.map(function summarize(item) {
-      var data = item.response && item.response.streamingData || {};
-
-      summarizeFormats(data.adaptiveFormats).forEach(function add(format) {
-        audioFormats.push(Object.assign({ source: item.source }, format));
-      });
-
-      return {
-        source: item.source,
-        keys: Object.keys(data).sort(),
-        hasServerAbrStreamingUrl: Boolean(data.serverAbrStreamingUrl),
-        serverAbrStreamingUrl: data.serverAbrStreamingUrl ? String(data.serverAbrStreamingUrl).slice(0, 180) : "",
-        hasHlsManifestUrl: Boolean(data.hlsManifestUrl),
-        hasDashManifestUrl: Boolean(data.dashManifestUrl)
-      };
-    });
-    var serverAbrStreamingUrls = serverAbrUrlsFromResponses();
     var report = {
       hookVersion: VERSION,
       hasTimedTextApi: Boolean(timedTextApi()),
       currentSrc: video && video.currentSrc || "",
-      streamingData: streamingData,
-      serverAbrStreamingUrls: serverAbrStreamingUrls,
-      sabrOnly: Boolean(serverAbrStreamingUrls.length),
       sabr: sabrDebug,
       sabrAudio: Array.from(sabrAudio.values()).map(function summarizeEntry(entry) {
         return {
           itag: entry.itag,
-          mimeType: entry.mimeType,
           bytes: entry.bytes,
-          chunks: entry.chunks.length,
+          initChunks: entry.initChunks.length,
           dispatchedBytes: entry.dispatchedBytes,
           hasInitSeg: entry.hasInitSeg,
-          hasMediaSeg: entry.hasMediaSeg
+          hasMediaSeg: entry.hasMediaSeg,
+          activeSegments: Object.keys(entry.activeSegments).length
         };
-      }),
-      audioFormatCount: audioFormats.length,
-      directUrlCount: audioFormats.filter(function hasUrl(format) { return format.hasUrl; }).length,
-      cipherUrlCount: audioFormats.filter(function hasCipherUrl(format) { return format.hasCipherUrl; }).length,
-      cipherSignatureCount: audioFormats.filter(function hasCipherSignature(format) { return format.hasCipherSignature; }).length,
-      audioFormats: audioFormats
+      })
     };
 
     if (console && console.log) {
       console.log("[uncensored] audio debug", report);
       if (console.table) {
-        console.table(report.streamingData);
         console.table([report.sabr]);
         console.table(report.sabrAudio);
-        console.table(report.audioFormats.slice(0, 12));
       }
     }
 
@@ -866,16 +589,6 @@
 
   globalThis.__uncensoredDebugAudio = debugAudio;
   globalThis.__uncensoredDebugAudioText = debugAudioText;
-  globalThis.__uncensoredServerAbrUrls = function serverAbrUrls() {
-    return debugAudio().serverAbrStreamingUrls;
-  };
-  globalThis.__uncensoredProbeSabr = function uncensoredProbeSabr() {
-    serverAbrUrlsFromResponses().forEach(probeSabrUrl);
-    return debugAudio();
-  };
-  globalThis.addEventListener("uncensored-probe-sabr", function onProbeSabrRequest() {
-    serverAbrUrlsFromResponses().forEach(probeSabrUrl);
-  });
 
   globalThis.fetch = function uncensoredFetch(input, init) {
     var url = requestUrl(input);
@@ -963,17 +676,13 @@
     return result;
   };
 
-  scanSabrServerUrls();
   globalThis.addEventListener("yt-navigate-finish", function onNavigate() {
     sabrAudio.clear();
-    probedSabrUrls = Object.create(null);
     sabrCarry = new Uint8Array(0);
     sabrHeaders = Object.create(null);
     sabrDebug = {
       fetches: 0,
       xhrs: 0,
-      probes: 0,
-      probeBytes: 0,
       responses: 0,
       parsedParts: 0,
       emptyResponses: 0,
@@ -985,9 +694,7 @@
       lastUrl: "",
       lastBufferBytes: 0,
       lastPartTypes: [],
-      lastProbeStatus: "",
       lastError: ""
     };
-    scanSabrServerUrls();
   });
 })();

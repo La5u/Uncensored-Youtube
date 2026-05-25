@@ -1,12 +1,6 @@
-(function exposeWhisperLocal(root, factory) {
-  if (typeof module === "object" && module.exports) {
-    module.exports = factory(root);
-    return;
-  }
-
-  root.UncensoredWhisperLocal = factory(root);
-})(typeof globalThis !== "undefined" ? globalThis : this, function buildWhisperLocal(root) {
+(function buildWhisperLocal() {
   "use strict";
+  var root = typeof globalThis !== "undefined" ? globalThis : this;
 
   var runtime = root.browser || root.chrome;
   var currentScript = root.document && root.document.currentScript;
@@ -16,7 +10,7 @@
     : currentScript && currentScript.src
       ? currentScript.src.replace(/src\/whisper-local\.js(?:\?.*)?$/, "")
       : currentLocation
-        ? currentLocation.replace(/src\/(?:whisper-local|whisper-module-worker|whisper-worker)\.js(?:\?.*)?$/, "")
+          ? currentLocation.replace(/src\/(?:whisper-local|whisper-module-worker|whisper-worker)\.js(?:\?.*)?$/, "")
         : "";
   var DEFAULT_MODEL = "whisper-tiny.en";
   var SLOT_MARKER = "slotmarker";
@@ -300,6 +294,10 @@
       score += 4;
     }
 
+    if (candidateText === "fucking" && /(^|\s)f\s*[*-]+\s/.test(rawTranscript)) {
+      score += 8;
+    }
+
     return score;
   }
 
@@ -358,26 +356,30 @@
   function fallbackDecision(candidates, context, options) {
     var decision = decisionFromTranscript("", candidates, context, options);
 
-    if (decision.score <= 0) {
+    if (decision.score <= 0 && options && options.force) {
+      var fallbackCandidates = unique(contextCandidates(context).concat(candidates || []));
+      if (fallbackCandidates.length) {
+        decision.word = fallbackCandidates[0];
+        decision.forced = true;
+      }
+    } else if (decision.score <= 0) {
       decision.word = "";
     }
 
     return decision;
   }
 
-  function candidateFromTranscript(transcript, candidates, context) {
-    return decisionFromTranscript(transcript, candidates, context).word;
-  }
-
   function transcribeDetailed(audio, candidates, context, options) {
     if (!audio || !audio.length || !candidates || !candidates.length) {
-      return Promise.resolve({
-        word: "",
-        score: 0,
-        runnerUpScore: 0,
-        transcript: "",
-        forced: Boolean(options && options.force)
-      });
+      return Promise.resolve(options && options.force
+        ? fallbackDecision(candidates, context, options)
+        : {
+          word: "",
+          score: 0,
+          runnerUpScore: 0,
+          transcript: "",
+          forced: false
+        });
     }
 
     return getTranscriber().then(function runTranscriber(transcriber) {
@@ -405,7 +407,7 @@
     });
   }
 
-  return Object.freeze({
+  var exports = Object.freeze({
     preload: function preload() {
       return getTranscriber().then(function loaded() {
         return true;
@@ -414,10 +416,14 @@
     transcribe: transcribe,
     transcribeDetailed: transcribeDetailed,
     normalizeText: normalizeText,
-    candidateFromTranscript: candidateFromTranscript,
     decisionFromTranscript: decisionFromTranscript,
     rankedCandidatesFromTranscript: rankedCandidatesFromTranscript,
     contextCandidates: contextCandidates,
     scoreCandidate: scoreCandidate
   });
-});
+
+  root.UncensoredWhisperLocal = exports;
+  if (typeof module === "object" && module.exports) {
+    module.exports = exports;
+  }
+})();

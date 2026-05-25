@@ -1,20 +1,22 @@
-(function exposeAudioCapture(root, factory) {
-  root.UncensoredAudioInference = factory(root, root.UncensoredRules, root.UncensoredWhisperLocal);
-})(typeof globalThis !== "undefined" ? globalThis : this, function buildAudioCapture(root, rules, whisper) {
+(function buildAudioCapture() {
   "use strict";
+  var root = typeof globalThis !== "undefined" ? globalThis : this;
+  var rules = root.UncensoredRules;
+  var whisper = root.UncensoredWhisperLocal;
 
   var runtime = root.browser || root.chrome;
   var SLICE_BEFORE_SECONDS = 1.25;
   var SLICE_AFTER_SECONDS = 1.25;
   var CLEAR_WHISPER_SCORE = 10;
   var TARGET_SAMPLE_RATE = 16000;
-  var PENDING_CAPTION_TOKEN_REGEX = /\.\.\./u;
   var pendingTokens = [];
   var resolvedTokens = [];
   var liveResolverStarted = false;
   var cacheObserverStarted = false;
   var applyingCaptionPatch = false;
-  var preloadStarted = false;
+  var activeWhisperRequests = 0;
+  var whisperQueueScheduled = false;
+  var MAX_ACTIVE_WHISPER_REQUESTS = 1;
   var mediaAudio = {
     videoId: "",
     source: "",
@@ -127,28 +129,41 @@
     mediaAudio.promise = currentAudioContext().then(function decodeWithContext(context) {
       return context.decodeAudioData(base64ToArrayBuffer(detail.base64));
     }).then(function decoded(buffer) {
+      var startTime = typeof detail.startMs === "number" ? detail.startMs / 1000 : 0;
       var segment = {
-        startTime: 0,
-        endTime: buffer.duration,
+        startTime: startTime,
+        endTime: startTime + buffer.duration,
         buffer: buffer,
-        bytes: detail.bytes || 0
+        bytes: detail.segmentBytes || detail.bytes || 0
       };
+      var duplicate;
 
-      if (mediaAudio.segments.length && mediaAudio.segments[0].endTime >= segment.endTime) {
+      duplicate = mediaAudio.segments.some(function hasSegment(existing) {
+        return Math.abs(existing.startTime - segment.startTime) < 0.01 &&
+          Math.abs(existing.endTime - segment.endTime) < 0.01;
+      });
+      if (duplicate) {
         mediaAudio.loading = false;
-        return mediaAudio.segments[0].buffer;
+        return buffer;
       }
 
-      mediaAudio.segments = [segment];
+      mediaAudio.segments.push(segment);
+      mediaAudio.segments.sort(function sortSegments(left, right) {
+        return left.startTime - right.startTime;
+      });
       mediaAudio.buffer = buffer;
       mediaAudio.loading = false;
       mediaAudio.error = "";
       debugLog("sabr audio ready", {
         itag: detail.itag,
-        bytes: detail.bytes,
+        bytes: segment.bytes,
+        startTime: segment.startTime,
+        endTime: segment.endTime,
         duration: buffer.duration,
         sampleRate: buffer.sampleRate,
-        coveredSeconds: segment.endTime
+        coveredSeconds: mediaAudio.segments.reduce(function totalCovered(total, item) {
+          return total + Math.max(0, item.endTime - item.startTime);
+        }, 0)
       });
       resolvePendingTokensFromMedia();
       return buffer;
@@ -205,7 +220,6 @@
   function normalizeContext(text) {
     return String(text || "")
       .toLowerCase()
-      .replace(/\.\.\./g, rules.CENSORED_TOKEN)
       .replace(/\[\s*__\s*\]/gu, rules.CENSORED_TOKEN)
       .replace(/[^a-z0-9_\[\]\s']+/g, " ")
       .replace(/\s+/g, " ")
@@ -237,15 +251,6 @@
     }
   }
 
-  function preloadWhisper() {
-    if (preloadStarted || !options.whisperEnabled || !whisper || !whisper.preload) {
-      return;
-    }
-
-    preloadStarted = true;
-    whisper.preload().catch(function ignorePreloadError() {});
-  }
-
   function rememberResolution(token, word, source) {
     var key;
     var existing;
@@ -272,6 +277,7 @@
       existing.timeSeconds = token.timeSeconds;
       notifyTimedTextResolution(token, word, source || "unknown");
       startCaptionCacheObserver();
+      applyCachedVisibleResolutions();
       return;
     }
 
@@ -292,6 +298,7 @@
 
     startCaptionCacheObserver();
     notifyTimedTextResolution(token, word, source || "unknown");
+    applyCachedVisibleResolutions();
   }
 
   function isUsableWhisperDecision(token, decision) {
@@ -406,7 +413,7 @@
 
     return mediaAudio.segments.find(function findSegment(segment) {
       return token.timeSeconds >= segment.startTime - SLICE_BEFORE_SECONDS &&
-        token.timeSeconds <= segment.endTime + SLICE_AFTER_SECONDS;
+        token.timeSeconds <= segment.endTime;
     }) || null;
   }
 
@@ -472,28 +479,111 @@
       return;
     }
 
-    pendingTokens.forEach(function resolveMediaToken(token) {
-      if (!shouldResolveWithWhisper(token) || token.resolved || token.resolving || token.attemptedByMedia) {
-        return;
+    scheduleWhisperQueue();
+  }
+
+  function warmupWhisperHost() {
+    if (options.whisperEnabled && whisper && whisper.warmup) {
+      whisper.warmup();
+    }
+  }
+
+  function nextResolvableMediaToken() {
+    var selected = null;
+
+    pendingTokens.some(function findToken(token) {
+      var segment;
+
+      if (!shouldResolveWithWhisper(token) || token.resolved || token.resolving) {
+        return false;
       }
 
-      if (!mediaAudioCoversToken(token)) {
-        return;
+      segment = segmentForToken(token);
+      if (!segment) {
+        return false;
       }
 
-      token.resolving = true;
-      token.attemptedByMedia = true;
-      token.attempted = true;
-      resolveTokenFromMedia(token).then(function mediaResolution(resolution) {
-        applyResolvedWord(token, resolution);
-      }).catch(function ignoreMediaResolution(error) {
-        debugLog("media token unresolved", {
-          tokenIndex: token.tokenIndex,
-          error: error && (error.message || String(error))
-        });
-      }).finally(function clearMediaResolving() {
-        token.resolving = false;
+      if (token.attemptedCoverageEnd && token.attemptedCoverageEnd >= segment.endTime) {
+        return false;
+      }
+
+      selected = {
+        token: token,
+        segment: segment
+      };
+      return true;
+    });
+
+    return selected;
+  }
+
+  function compactPendingTokens() {
+    pendingTokens = pendingTokens.filter(function keepUsefulToken(token) {
+      return !token.resolved;
+    });
+    compactMediaSegments();
+  }
+
+  function compactMediaSegments() {
+    var firstNeeded = Infinity;
+
+    pendingTokens.forEach(function findFirstNeeded(token) {
+      if (!token.resolved && typeof token.timeSeconds === "number") {
+        firstNeeded = Math.min(firstNeeded, token.timeSeconds);
+      }
+    });
+
+    if (!isFinite(firstNeeded)) {
+      mediaAudio.segments = [];
+      mediaAudio.buffer = null;
+      return;
+    }
+
+    mediaAudio.segments = mediaAudio.segments.filter(function keepSegment(segment) {
+      return segment.endTime >= firstNeeded - SLICE_BEFORE_SECONDS;
+    });
+  }
+
+  function scheduleWhisperQueue() {
+    if (whisperQueueScheduled || !root.setTimeout) {
+      return;
+    }
+
+    whisperQueueScheduled = true;
+    root.setTimeout(processWhisperQueue, 0);
+  }
+
+  function processWhisperQueue() {
+    var next;
+
+    whisperQueueScheduled = false;
+    if (!options.whisperEnabled || !mediaAudio.segments.length || !pendingTokens.length || activeWhisperRequests >= MAX_ACTIVE_WHISPER_REQUESTS) {
+      return;
+    }
+
+    next = nextResolvableMediaToken();
+    if (!next) {
+      compactPendingTokens();
+      return;
+    }
+
+    next.token.resolving = true;
+    next.token.attempted = true;
+    next.token.attemptedByMedia = true;
+    next.token.attemptedCoverageEnd = next.segment.endTime;
+    activeWhisperRequests += 1;
+    resolveTokenFromMedia(next.token).then(function mediaResolution(resolution) {
+      applyResolvedWord(next.token, resolution);
+    }).catch(function ignoreMediaResolution(error) {
+      debugLog("media token unresolved", {
+        tokenIndex: next.token.tokenIndex,
+        error: error && (error.message || String(error))
       });
+    }).finally(function clearMediaResolving() {
+      activeWhisperRequests -= 1;
+      next.token.resolving = false;
+      compactPendingTokens();
+      scheduleWhisperQueue();
     });
   }
 
@@ -505,12 +595,24 @@
     }
 
     pendingTokens.forEach(function markExisting(token) {
-      existing[token.timeSeconds + "\n" + token.context] = true;
+      existing[tokenCacheKey(token)] = true;
+    });
+
+    resolvedTokens.forEach(function markResolved(resolution) {
+      existing[resolution.key] = true;
     });
 
     tokens.forEach(function addPendingToken(token) {
-      var key = token.timeSeconds + "\n" + token.context;
+      var key = tokenCacheKey(token);
       var contextWord = contextWordForToken(token);
+      var resolved = resolvedTokens.find(function findResolved(resolution) {
+        return resolution.key === key;
+      });
+
+      if (resolved && resolved.word) {
+        applyVisibleCaptionResolution(token, resolved.word);
+        return;
+      }
 
       if (options.rulesEnabled && token.deterministicWord && !deterministicIsAmbiguous(token)) {
         rememberResolution(token, token.deterministicWord, "deterministic");
@@ -545,7 +647,7 @@
     }
 
     startLiveCaptionResolver();
-    preloadWhisper();
+    warmupWhisperHost();
     if (options.whisperEnabled && mediaAudio.segments.length) {
       resolvePendingTokensFromMedia();
     } else if (options.whisperEnabled) {
@@ -620,22 +722,63 @@
     var beforeWords = contextSideWords(contextParts[0] || "", false);
     var afterWords = contextSideWords(contextParts.slice(1).join(" "), true);
     var tokenMatch = new RegExp(rules.CENSORED_TOKEN_REGEX.source, "u").exec(normalizedText);
-    var pendingMatch;
-    var beforeText;
-    var afterText;
 
     if (!tokenMatch || tokenMatch.index === undefined) {
-      pendingMatch = PENDING_CAPTION_TOKEN_REGEX.exec(normalizedText);
-      if (!pendingMatch || pendingMatch.index === undefined) {
-        return false;
-      }
-      tokenMatch = pendingMatch;
+      return false;
     }
 
-    beforeText = normalizedText.slice(0, tokenMatch.index);
-    afterText = normalizedText.slice(tokenMatch.index + tokenMatch[0].length);
+    var beforeText = normalizedText.slice(0, tokenMatch.index);
+    var afterText = normalizedText.slice(tokenMatch.index + tokenMatch[0].length);
 
     return wordsInOrder(beforeText, beforeWords) && wordsInOrder(afterText, afterWords);
+  }
+
+  function resolutionNearPlayback(resolution) {
+    var video = findVideo();
+
+    return Boolean(video && typeof resolution.timeSeconds === "number" && Math.abs(video.currentTime - resolution.timeSeconds) <= 10);
+  }
+
+  function playbackResolutions() {
+    return resolvedTokens.filter(resolutionNearPlayback).sort(function sortByDistance(left, right) {
+      var video = findVideo();
+      var currentTime = video ? video.currentTime : 0;
+
+      return Math.abs(left.timeSeconds - currentTime) - Math.abs(right.timeSeconds - currentTime);
+    });
+  }
+
+  function patchVisibleByPlaybackTime() {
+    var tokenRegex = new RegExp(rules.CENSORED_TOKEN_REGEX.source, "u");
+    var resolutions = playbackResolutions();
+    var changed = false;
+
+    if (!resolutions.length) {
+      return false;
+    }
+
+    captionRoots().forEach(function patchRoot(captionRoot) {
+      var walker = root.document.createTreeWalker(captionRoot, root.NodeFilter.SHOW_TEXT);
+      var node;
+      var index = 0;
+
+      while ((node = walker.nextNode()) && index < resolutions.length) {
+        var text = node.nodeValue || "";
+        var patched = text;
+
+        if (tokenRegex.test(patched)) {
+          patched = patched.replace(tokenRegex, resolutions[index].word);
+          index += 1;
+        }
+
+        if (patched !== text) {
+          node.nodeValue = patched;
+          changed = true;
+        }
+      }
+    });
+
+    return changed;
   }
 
   function applyVisibleCaptionResolution(token, word) {
@@ -648,7 +791,7 @@
 
     if (rules.hasCensoredToken(captionText) && !visibleSlotMatchesResolution(captionText, {
       context: token.context
-    })) {
+    }) && !resolutionNearPlayback(token)) {
       return false;
     }
 
@@ -658,8 +801,6 @@
 
       if (tokenRegex.test(patched)) {
         patched = patched.replace(tokenRegex, word);
-      } else if (PENDING_CAPTION_TOKEN_REGEX.test(patched)) {
-        patched = patched.replace(PENDING_CAPTION_TOKEN_REGEX, word);
       } else if (token.deterministicWord && patched.indexOf(token.deterministicWord) !== -1) {
         patched = replaceFirst(patched, token.deterministicWord, word);
       }
@@ -685,10 +826,8 @@
         var text = node.nodeValue || "";
         var patched = text;
 
-        if (tokenRegex.test(patched) && visibleSlotMatchesResolution(captionRoot.textContent || "", resolution)) {
+        if (tokenRegex.test(patched) && (visibleSlotMatchesResolution(captionRoot.textContent || "", resolution) || resolutionNearPlayback(resolution))) {
           patched = patched.replace(tokenRegex, resolution.word);
-        } else if (PENDING_CAPTION_TOKEN_REGEX.test(patched) && visibleSlotMatchesResolution(captionRoot.textContent || "", resolution)) {
-          patched = patched.replace(PENDING_CAPTION_TOKEN_REGEX, resolution.word);
         } else if (resolution.deterministicWord && patched.indexOf(resolution.deterministicWord) !== -1) {
           patched = replaceFirst(patched, resolution.deterministicWord, resolution.word);
         }
@@ -712,6 +851,9 @@
     }
 
     applyingCaptionPatch = true;
+    if (patchVisibleByPlaybackTime()) {
+      changed = true;
+    }
     resolvedTokens.forEach(function patchResolution(resolution) {
       var tokenRegex = new RegExp(rules.CENSORED_TOKEN_REGEX.source, "u");
       var captionText = segments.map(function segmentText(segment) {
@@ -719,7 +861,7 @@
       }).join(" ");
       var changedByResolution = false;
 
-      if (rules.hasCensoredToken(captionText) && !visibleSlotMatchesResolution(captionText, resolution)) {
+      if (rules.hasCensoredToken(captionText) && !visibleSlotMatchesResolution(captionText, resolution) && !resolutionNearPlayback(resolution)) {
         return;
       }
 
@@ -727,15 +869,13 @@
         var text = segment.textContent || "";
         var patched;
 
-        if (!tokenRegex.test(text) && !PENDING_CAPTION_TOKEN_REGEX.test(text) && (!resolution.deterministicWord || text.indexOf(resolution.deterministicWord) === -1)) {
+        if (!tokenRegex.test(text) && (!resolution.deterministicWord || text.indexOf(resolution.deterministicWord) === -1)) {
           return false;
         }
 
         patched = tokenRegex.test(text)
           ? text.replace(tokenRegex, resolution.word)
-          : PENDING_CAPTION_TOKEN_REGEX.test(text)
-            ? text.replace(PENDING_CAPTION_TOKEN_REGEX, resolution.word)
-            : replaceFirst(text, resolution.deterministicWord, resolution.word);
+          : replaceFirst(text, resolution.deterministicWord, resolution.word);
         if (patched !== text) {
           segment.textContent = patched;
           changed = true;
@@ -793,64 +933,20 @@
       }
 
       applyCachedVisibleResolutions();
-
-      pendingTokens.forEach(function maybeResolve(token) {
-        if (!mediaAudio.segments.length || !shouldResolveWithWhisper(token) || token.resolved || token.resolving || token.attempted) {
-          return;
-        }
-
-        if (!mediaAudioCoversToken(token)) {
-          return;
-        }
-
-        token.resolving = true;
-        token.attempted = true;
-        debugLog("live resolving token", {
-          tokenIndex: token.tokenIndex,
-          context: token.context
-        });
-        resolveToken(token).then(function applyResolution(resolution) {
-          var word = resolution && resolution.word;
-
-          if (word) {
-            applyResolvedWord(token, resolution);
-          }
-
-          if (word) {
-            debugLog("live patched caption", {
-              tokenIndex: token.tokenIndex,
-              word: word,
-              source: resolution.source,
-              score: resolution.score,
-              transcript: resolution.transcript
-            });
-          } else {
-            debugLog("live resolution not applied", {
-              tokenIndex: token.tokenIndex,
-              word: word || "",
-              segments: captionSegments().map(function segmentText(segment) {
-                return segment.textContent || "";
-              })
-            });
-          }
-        }).finally(function clearResolving() {
-          token.resolving = false;
-        });
-      });
-
-      pendingTokens = pendingTokens.filter(function keepUsefulToken(token) {
-        return !token.resolved && (!token.attempted || !mediaAudioCoversToken(token));
-      });
+      resolvePendingTokensFromMedia();
     }, 250);
   }
 
-  return Object.freeze({
+  var exports = Object.freeze({
     setSabrAudioData: setSabrAudioData,
     setOptions: function setOptions(nextOptions) {
       nextOptions = nextOptions || {};
       options.rulesEnabled = nextOptions.rulesEnabled !== false;
       options.whisperEnabled = nextOptions.whisperEnabled !== false;
-      preloadWhisper();
+      if (options.whisperEnabled) {
+        warmupWhisperHost();
+        scheduleWhisperQueue();
+      }
     },
     rememberTimedTextTokens: rememberTimedTextTokens,
     startVisibleCaptionResolver: startLiveCaptionResolver,
@@ -881,11 +977,17 @@
             candidates: token.candidates,
             resolved: token.resolved,
             resolving: token.resolving,
-            attempted: token.attempted
+            attempted: token.attempted,
+            attemptedCoverageEnd: token.attemptedCoverageEnd || 0
           };
         }),
         resolvedTokens: resolvedTokens.slice()
       };
     }
   });
-});
+
+  root.UncensoredAudioInference = exports;
+  if (typeof module === "object" && module.exports) {
+    module.exports = exports;
+  }
+})();

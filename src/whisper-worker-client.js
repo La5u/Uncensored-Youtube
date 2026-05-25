@@ -1,13 +1,13 @@
-(function exposeWhisperWorkerClient(root, factory) {
-  root.UncensoredWhisperLocal = factory(root);
-})(typeof globalThis !== "undefined" ? globalThis : this, function buildWhisperWorkerClient(root) {
+(function buildWhisperWorkerClient() {
   "use strict";
+  var root = typeof globalThis !== "undefined" ? globalThis : this;
 
   var runtime = root.browser || root.chrome;
   var nextId = 1;
   var hostFrame = null;
   var hostReadyPromise = null;
   var preloadPromise = null;
+  var warmupPromise = null;
   var loggedHostStatuses = Object.create(null);
 
   function debugEnabled() {
@@ -156,6 +156,19 @@
     return preloadPromise;
   }
 
+  function warmup() {
+    if (!warmupPromise) {
+      warmupPromise = hostRequest({ type: "warmup" }).then(function warmed() {
+        return true;
+      }, function failed(error) {
+        debugLog("whisper host warmup failed", error && (error.message || String(error)));
+        return false;
+      });
+    }
+
+    return warmupPromise;
+  }
+
   function transcribeDetailed(audio, candidates, context, options) {
     if (!audio || !audio.length || !candidates || !candidates.length) {
       return Promise.resolve(emptyDecision(options));
@@ -181,9 +194,15 @@
     });
   }
 
-  return Object.freeze({
+  var exports = Object.freeze({
+    warmup: warmup,
     preload: preload,
     transcribe: transcribe,
     transcribeDetailed: transcribeDetailed
   });
-});
+
+  root.UncensoredWhisperLocal = exports;
+  if (typeof module === "object" && module.exports) {
+    module.exports = exports;
+  }
+})();

@@ -60,10 +60,6 @@
     window.setTimeout(dispatchSettings, 500);
   }
 
-  function requestSabrProbe() {
-    window.dispatchEvent(new CustomEvent("uncensored-probe-sabr"));
-  }
-
   function loadSettings() {
     if (!runtime.storage || !runtime.storage.local) {
       dispatchSettingsSoon();
@@ -114,9 +110,6 @@
     tokens = timedText.collectTimedTextTokens(body, settings.rulesEnabled);
     if (settings.whisperEnabled && tokens.length && audioInference.rememberTimedTextTokens) {
       audioInference.rememberTimedTextTokens(tokens);
-      if (audioInference.debugState && !audioInference.debugState().mediaAudio.ready) {
-        requestSabrProbe();
-      }
     }
   });
 

@@ -1,12 +1,6 @@
-(function exposeRules(root, factory) {
-  if (typeof module === "object" && module.exports) {
-    module.exports = factory();
-    return;
-  }
-
-  root.UncensoredRules = factory();
-})(typeof globalThis !== "undefined" ? globalThis : this, function buildRules() {
+(function buildRules() {
   "use strict";
+  var root = typeof globalThis !== "undefined" ? globalThis : this;
 
   var CENSORED_TOKEN = "[__]";
   var CENSORED_TOKEN_REGEX = /\[\s*__\s*\]/gu;
@@ -284,6 +278,8 @@
     "absolute [shit] show",
     [["tired of your", "tired of this"], "[bullshit|shit]"],
     "bunch of [bullshit|shit|bitches]",
+    "stuck up [bitch]",
+    "stuck up little [bitch]",
     "cut the [bullshit]",
     ["[shit]", SHIT_INITIAL_SUFFIXES],
     "all [shit] themselves",
@@ -680,7 +676,7 @@
     };
   }
 
-  return Object.freeze({
+  var exports = Object.freeze({
     CENSORED_TOKEN: CENSORED_TOKEN,
     CENSORED_TOKEN_REGEX: CENSORED_TOKEN_REGEX,
     ALLOWED_WORDS: ALLOWED_WORDS,
@@ -689,4 +685,9 @@
     hasCensoredToken: hasCensoredToken,
     applyDeterministicRules: applyDeterministicRules
   });
-});
+
+  root.UncensoredRules = exports;
+  if (typeof module === "object" && module.exports) {
+    module.exports = exports;
+  }
+})();

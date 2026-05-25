@@ -1,15 +1,11 @@
-(function exposeTimedText(root, factory) {
-  if (typeof module === "object" && module.exports) {
-    module.exports = factory(require("./rules"));
-    return;
-  }
-
-  root.UncensoredTimedText = factory(root.UncensoredRules);
-})(typeof globalThis !== "undefined" ? globalThis : this, function buildTimedText(rules) {
+(function buildTimedText() {
   "use strict";
+  var root = typeof globalThis !== "undefined" ? globalThis : this;
+  var rules = root.UncensoredRules || (typeof require === "function" ? require("./rules") : null);
 
   if (!rules) {
-    return Object.freeze({});
+    root.UncensoredTimedText = Object.freeze({});
+    return;
   }
 
   function getEventText(event) {
@@ -26,10 +22,6 @@
   }
 
   function patchEventSegments(segs, replacements, tokenOffset) {
-    return patchEventSegmentsWithMask(segs, replacements, tokenOffset, false);
-  }
-
-  function patchEventSegmentsWithMask(segs, replacements, tokenOffset, maskUnresolved) {
     var tokenIndex = tokenOffset;
 
     function replacementForToken(index) {
@@ -52,7 +44,7 @@
       var patchedText = seg.utf8.replace(rules.CENSORED_TOKEN_REGEX, function replaceToken(token) {
         var replacement = replacementForToken(tokenIndex);
         tokenIndex += 1;
-        return replacement === null ? (maskUnresolved ? "..." : token) : replacement;
+        return replacement === null ? token : replacement;
       });
 
       if (patchedText !== seg.utf8) {
@@ -177,7 +169,7 @@
     return patchTimedTextJsonWithOverrides(payload, [], true);
   }
 
-  function patchTimedTextJsonWithOverrides(payload, overrides, useDeterministic, maskUnresolved) {
+  function patchTimedTextJsonWithOverrides(payload, overrides, useDeterministic) {
     if (!payload || !Array.isArray(payload.events)) {
       return {
         payload: payload,
@@ -191,7 +183,6 @@
     var result = useDeterministic ? rules.applyDeterministicRules(eventTexts.join("\n")) : { replacements: [] };
     var replacementByTokenIndex = new Map();
     var tokenOffset = 0;
-    var maskedTokens = 0;
 
     result.replacements.forEach(function mapDeterministicReplacement(replacement) {
       replacementByTokenIndex.set(replacement.tokenIndex, replacement);
@@ -229,21 +220,18 @@
         return replacement.tokenIndex < eventTokenEnd && replacementEnd > tokenOffset;
       });
 
-      if (!eventReplacements.length && !maskUnresolved) {
+      if (!eventReplacements.length) {
         tokenOffset += eventTokenCount;
         return;
       }
 
-      patchEventSegmentsWithMask(event.segs, eventReplacements, tokenOffset, maskUnresolved);
-      if (maskUnresolved) {
-        maskedTokens += eventTokenCount;
-      }
+      patchEventSegments(event.segs, eventReplacements, tokenOffset);
       tokenOffset += eventTokenCount;
     });
 
     return {
       payload: payload,
-      patchCount: replacementByTokenIndex.size + maskedTokens
+      patchCount: replacementByTokenIndex.size
     };
   }
 
@@ -256,9 +244,9 @@
     }
   }
 
-  function patchTimedTextBodyWithOverrides(body, overrides, useDeterministic, maskUnresolved) {
+  function patchTimedTextBodyWithOverrides(body, overrides, useDeterministic) {
     try {
-      var result = patchTimedTextJsonWithOverrides(JSON.parse(body), overrides, useDeterministic !== false, maskUnresolved === true);
+      var result = patchTimedTextJsonWithOverrides(JSON.parse(body), overrides, useDeterministic !== false);
       return result.patchCount > 0 ? JSON.stringify(result.payload) : body;
     } catch (error) {
       return body;
@@ -281,11 +269,16 @@
     }
   }
 
-  return Object.freeze({
+  var exports = Object.freeze({
     patchTimedTextJson: patchTimedTextJson,
     patchTimedTextJsonWithOverrides: patchTimedTextJsonWithOverrides,
     patchTimedTextBody: patchTimedTextBody,
     patchTimedTextBodyWithOverrides: patchTimedTextBodyWithOverrides,
     collectTimedTextTokens: collectTimedTextTokens
   });
-});
+
+  root.UncensoredTimedText = exports;
+  if (typeof module === "object" && module.exports) {
+    module.exports = exports;
+  }
+})();
