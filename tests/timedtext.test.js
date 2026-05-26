@@ -208,6 +208,25 @@ assert.strictEqual(ambiguousTokens.length, 1);
 assert.strictEqual(ambiguousTokens[0].deterministicWord, "shit");
 assert.deepStrictEqual(ambiguousTokens[0].deterministicCandidates, ["shit", "fuck"]);
 
+const multiTokenPayload = {
+  events: [
+    {
+      tStartMs: 1000,
+      segs: [
+        { utf8: "oh " },
+        { utf8: "[__]", tOffsetMs: 100 },
+        { utf8: " oh " },
+        { utf8: "[__]", tOffsetMs: 200 },
+        { utf8: " oh " },
+        { utf8: "[__]", tOffsetMs: 300 }
+      ]
+    }
+  ]
+};
+const multiTokens = timedText.collectTimedTextTokens(JSON.stringify(multiTokenPayload), false);
+
+assert.deepStrictEqual(multiTokens.map((token) => token.eventTokenIndex), [0, 1, 2]);
+
 const overridePayload = {
   events: [
     {

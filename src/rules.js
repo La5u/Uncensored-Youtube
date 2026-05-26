@@ -4,6 +4,7 @@
 
   var CENSORED_TOKEN = "[__]";
   var CENSORED_TOKEN_REGEX = /\[\s*__\s*\]/gu;
+  var SENTENCE_END_REGEX = /[.!?]/;
 
   // Non-censored words to note: shitty.
   var ALLOWED_WORDS = Object.freeze([
@@ -449,7 +450,7 @@
       punctuation = matchedText.charAt(match.index + match[0].length);
     }
 
-    return /[.!?]/.test(punctuation) ? punctuation : "";
+    return SENTENCE_END_REGEX.test(punctuation) ? punctuation : "";
   }
 
   function formatReplacement(rule, beforeToken, afterToken, matchedText) {
@@ -472,7 +473,7 @@
     };
   }
 
-  function compileRule(rule) {
+  function compileRule(rule, index) {
     var endsWithSpace = /\s$/.test(rule.template);
     var startsWithPunctuation = /^[.!?]/.test(rule.template);
     var escaped = escapeRegExp(rule.template)
@@ -481,12 +482,68 @@
       .replace(/ /g, "\\s+");
 
     return {
+      index: index,
       rule: rule,
       regex: new RegExp((startsWithPunctuation ? "()" : "(^|[^\\p{L}\\p{N}_])") + "(" + escaped + ")" + (endsWithSpace ? "" : "(?=$|[^\\p{L}\\p{N}_])"), "giu")
     };
   }
 
   var COMPILED_RULES = DETERMINISTIC_RULES.map(compileRule);
+
+  function trieNode() {
+    return {
+      children: new Map(),
+      rules: []
+    };
+  }
+
+  function ruleWords(text) {
+    return normalizeCensoredTokens(text).toLowerCase().replace(/\u2019/g, "'").match(/\[__\]|[\p{L}\p{N}_']+/gu) || [];
+  }
+
+  function buildRuleTrie(compiledRules) {
+    var rootNode = trieNode();
+
+    compiledRules.forEach(function addRule(compiled) {
+      var words = ruleWords(compiled.rule.template);
+      var node = rootNode;
+
+      words.forEach(function addWord(word) {
+        if (!node.children.has(word)) {
+          node.children.set(word, trieNode());
+        }
+        node = node.children.get(word);
+      });
+      node.rules.push(compiled);
+    });
+
+    return rootNode;
+  }
+
+  var RULE_TRIE = buildRuleTrie(COMPILED_RULES);
+
+  function candidateRulesForText(text) {
+    var words = ruleWords(text);
+    var selected = new Map();
+    var startIndex;
+
+    for (startIndex = 0; startIndex < words.length; startIndex += 1) {
+      var node = RULE_TRIE;
+      var wordIndex = startIndex;
+
+      while (wordIndex < words.length && node.children.has(words[wordIndex])) {
+        node = node.children.get(words[wordIndex]);
+        node.rules.forEach(function rememberRule(compiled) {
+          selected.set(compiled.index, compiled);
+        });
+        wordIndex += 1;
+      }
+    }
+
+    return Array.from(selected.values()).sort(function sortByRuleOrder(left, right) {
+      return left.index - right.index;
+    });
+  }
 
   function findTokenRange(value) {
     CENSORED_TOKEN_REGEX.lastIndex = 0;
@@ -508,7 +565,7 @@
       return null;
     }
 
-    if (/[.!?]/.test(value.charAt(end))) {
+    if (SENTENCE_END_REGEX.test(value.charAt(end))) {
       end += 1;
     }
 
@@ -591,7 +648,7 @@
     var replacements = [];
     var occupiedRanges = [];
 
-    COMPILED_RULES.forEach(function applyRule(compiled) {
+    candidateRulesForText(normalizedText).forEach(function applyRule(compiled) {
       var match;
 
       compiled.regex.lastIndex = 0;
@@ -611,7 +668,7 @@
         var tokenStart = matchStart + tokenRange.start;
         var tokenEnd = matchStart + tokenRange.end;
 
-        if (/[.!?]/.test(normalizedText.charAt(tokenEnd))) {
+        if (SENTENCE_END_REGEX.test(normalizedText.charAt(tokenEnd))) {
           tokenEnd += 1;
         }
 

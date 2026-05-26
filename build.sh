@@ -8,17 +8,35 @@ dist="$root/dist"
 mkdir -p "$dist/chromium" "$dist/firefox"
 rm -rf "$dist/chromium"/* "$dist/firefox"/*
 
+copy_tree() {
+  src="$1"
+  dest="$2"
+
+  if cp -R -l "$src" "$dest" 2>/dev/null; then
+    return
+  fi
+
+  cp -R "$src" "$dest"
+}
+
 cp "$root/manifest.chromium.json" "$dist/chromium/manifest.json"
 cp "$root/manifest.firefox.json" "$dist/firefox/manifest.json"
-cp -R "$root/src" "$dist/chromium/src"
-cp -R "$root/src" "$dist/firefox/src"
+copy_tree "$root/src" "$dist/chromium/src"
+copy_tree "$root/src" "$dist/firefox/src"
 cp "$root/LICENSE" "$dist/chromium/LICENSE"
 cp "$root/LICENSE" "$dist/firefox/LICENSE"
 cp "$root/README.md" "$dist/chromium/README.md"
 cp "$root/README.md" "$dist/firefox/README.md"
 
-(cd "$dist/chromium" && zip -qr "../uncensored-youtube-chromium-$version.zip" .)
-(cd "$dist/firefox" && zip -qr "../uncensored-youtube-firefox-$version.zip" .)
+zip_options="-qr -1"
+
+(cd "$dist/chromium" && zip $zip_options "../uncensored-youtube-chromium-$version.zip" .) &
+chromium_zip_pid=$!
+(cd "$dist/firefox" && zip $zip_options "../uncensored-youtube-firefox-$version.zip" .) &
+firefox_zip_pid=$!
+
+wait "$chromium_zip_pid"
+wait "$firefox_zip_pid"
 
 echo "Built:"
 echo "  $dist/uncensored-youtube-chromium-$version.zip"

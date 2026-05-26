@@ -2,42 +2,25 @@
   "use strict";
 
   var VERSION = 17;
+  var PATCH_CACHE_LIMIT = 16;
+  var audioItags = Object.freeze({
+    "139": true, "140": true, "141": true,
+    "249": true, "250": true, "251": true,
+    "599": true, "600": true
+  });
   var originalFetch = globalThis.__uncensoredOriginalFetch || globalThis.fetch;
   var originalXHROpen = globalThis.__uncensoredOriginalXHROpen || XMLHttpRequest.prototype.open;
-  var audioItags = Object.freeze({
-    "139": true,
-    "140": true,
-    "141": true,
-    "249": true,
-    "250": true,
-    "251": true,
-    "599": true,
-    "600": true
-  });
   var settings = {
     rulesEnabled: true,
     whisperEnabled: true
   };
-  var audioReplacements = [];
+  var audioReplacements = new Map();
+  var audioReplacementVersion = 0;
+  var patchedTimedTextCache = new Map();
   var sabrAudio = new Map();
   var sabrCarry = new Uint8Array(0);
   var sabrHeaders = Object.create(null);
-  var sabrDebug = {
-    fetches: 0,
-    xhrs: 0,
-    responses: 0,
-    parsedParts: 0,
-    emptyResponses: 0,
-    parts: {},
-    audioBytes: 0,
-    lastItag: 0,
-    lastHeaderId: -1,
-    firstMediaBytes: "",
-    lastUrl: "",
-    lastBufferBytes: 0,
-    lastPartTypes: [],
-    lastError: ""
-  };
+  var fetchedAudioUrls = Object.create(null);
 
   globalThis.__uncensoredOriginalFetch = originalFetch;
   globalThis.__uncensoredOriginalXHROpen = originalXHROpen;
@@ -75,12 +58,61 @@
     }
   }
 
+  function clearPatchedTimedTextCache() {
+    patchedTimedTextCache.clear();
+  }
+
+  function stringHash(value) {
+    var hash = 2166136261;
+    var index;
+
+    for (index = 0; index < value.length; index += 1) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+
+    return (hash >>> 0).toString(36);
+  }
+
+  function patchedTimedTextCacheKey(body) {
+    return [
+      currentVideoId(),
+      settings.rulesEnabled ? "1" : "0",
+      audioReplacementVersion,
+      body.length,
+      stringHash(body)
+    ].join(":");
+  }
+
+  function rememberPatchedTimedText(key, body, patchedBody) {
+    if (patchedTimedTextCache.has(key)) {
+      patchedTimedTextCache.delete(key);
+    }
+
+    patchedTimedTextCache.set(key, {
+      body: body,
+      patchedBody: patchedBody
+    });
+
+    while (patchedTimedTextCache.size > PATCH_CACHE_LIMIT) {
+      patchedTimedTextCache.delete(patchedTimedTextCache.keys().next().value);
+    }
+  }
+
+  function audioReplacementKey(videoId, tokenIndex) {
+    return videoId + ":" + tokenIndex;
+  }
+
   globalThis.addEventListener("uncensored-settings", function updateSettings(event) {
     var detail = safeJson(event && event.detail);
 
     if (detail) {
       settings.rulesEnabled = detail.rulesEnabled !== false;
       settings.whisperEnabled = detail.whisperEnabled !== false;
+      clearPatchedTimedTextCache();
+      if (settings.whisperEnabled) {
+        fetchGoogleAudio();
+      }
     }
   });
 
@@ -92,14 +124,14 @@
       return;
     }
 
-    audioReplacements = audioReplacements.filter(function keepDifferent(replacement) {
-      return replacement.videoId !== videoId || replacement.tokenIndex !== detail.tokenIndex;
-    });
-    audioReplacements.push({
+    audioReplacements.set(audioReplacementKey(videoId, detail.tokenIndex), {
       videoId: videoId,
       tokenIndex: detail.tokenIndex,
-      word: detail.word
+      word: detail.word,
+      source: detail.source || "unknown"
     });
+    audioReplacementVersion += 1;
+    clearPatchedTimedTextCache();
   });
 
   function isTimedTextUrl(input) {
@@ -124,53 +156,11 @@
     }
   }
 
-  function replacementsForCurrentVideo() {
-    var videoId = currentVideoId();
-
-    return audioReplacements.filter(function forVideo(replacement) {
-      return replacement.videoId === videoId;
-    });
-  }
-
-  function patchTimedTextBody(body) {
-    var api = timedTextApi();
-
-    if (!api || typeof body !== "string") {
-      return body;
-    }
-
-    if (api.patchTimedTextBodyWithOverrides) {
-      return api.patchTimedTextBodyWithOverrides(body, replacementsForCurrentVideo(), settings.rulesEnabled);
-    }
-
-    return settings.rulesEnabled && api.patchTimedTextBody ? api.patchTimedTextBody(body) : body;
-  }
-
-  function isGoogleVideoAudioUrl(value) {
-    var url;
-    var mime;
-    var itag;
-
-    try {
-      url = new URL(value, location.href);
-    } catch (error) {
-      return false;
-    }
-
-    if (!/(^|\.)googlevideo\.com$/.test(url.hostname) || url.pathname.indexOf("/videoplayback") === -1) {
-      return false;
-    }
-
-    mime = url.searchParams.get("mime") || "";
-    itag = url.searchParams.get("itag") || "";
-    return mime.indexOf("audio/") === 0 || Boolean(audioItags[itag]);
-  }
-
-  function isGoogleVideoPlaybackUrl(value) {
+  function isGoogleVideoPlaybackUrl(input) {
     var url;
 
     try {
-      url = new URL(value, location.href);
+      url = new URL(requestUrl(input), location.href);
     } catch (error) {
       return false;
     }
@@ -179,12 +169,184 @@
       url.pathname.indexOf("/videoplayback") !== -1;
   }
 
-  function rememberSabrUrl(value) {
-    try {
-      sabrDebug.lastUrl = String(value || "").slice(0, 180);
-    } catch (error) {
-      sabrDebug.lastUrl = "";
+  function arrayBufferToBase64(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var binary = "";
+    var index;
+
+    for (index = 0; index < bytes.length; index += 0x8000) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 0x8000));
     }
+
+    return btoa(binary);
+  }
+
+  function dispatchGoogleAudio(buffer, startMs) {
+    if (!buffer || !buffer.byteLength) {
+      return;
+    }
+
+    try {
+      globalThis.dispatchEvent(new CustomEvent("uncensored-sabr-audio", {
+        detail: JSON.stringify({
+          bytes: buffer.byteLength,
+          startMs: startMs || 0,
+          base64: arrayBufferToBase64(buffer)
+        })
+      }));
+    } catch (error) {}
+  }
+
+  function extractBalancedObject(text, openIndex) {
+    var depth = 0;
+    var index;
+    var quote = "";
+    var escaped = false;
+
+    for (index = openIndex; index < text.length; index += 1) {
+      var character = text[index];
+
+      if (quote) {
+        if (escaped) {
+          escaped = false;
+        } else if (character === "\\") {
+          escaped = true;
+        } else if (character === quote) {
+          quote = "";
+        }
+        continue;
+      }
+
+      if (character === "\"" || character === "'") {
+        quote = character;
+      } else if (character === "{") {
+        depth += 1;
+      } else if (character === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          return text.slice(openIndex, index + 1);
+        }
+      }
+    }
+
+    return "";
+  }
+
+  function scriptPlayerResponse() {
+    var found = null;
+
+    Array.prototype.slice.call(document.scripts || []).some(function parseScript(script) {
+      var text = script && script.textContent || "";
+      var marker = text.indexOf("ytInitialPlayerResponse");
+      var openIndex;
+      var jsonText;
+
+      if (marker === -1) {
+        return false;
+      }
+
+      openIndex = text.indexOf("{", marker);
+      jsonText = openIndex === -1 ? "" : extractBalancedObject(text, openIndex);
+      if (!jsonText) {
+        return false;
+      }
+
+      try {
+        found = JSON.parse(jsonText);
+        return true;
+      } catch (error) {
+        return false;
+      }
+    });
+
+    return found;
+  }
+
+  function playerResponse() {
+    var raw;
+
+    if (globalThis.ytInitialPlayerResponse) {
+      return globalThis.ytInitialPlayerResponse;
+    }
+
+    raw = globalThis.ytplayer && globalThis.ytplayer.config &&
+      globalThis.ytplayer.config.args && globalThis.ytplayer.config.args.player_response;
+    if (typeof raw === "string") {
+      try {
+        return JSON.parse(raw);
+      } catch (error) {}
+    }
+
+    return scriptPlayerResponse();
+  }
+
+  function formatIsAudio(format) {
+    var mimeType = format && format.mimeType || "";
+
+    return mimeType.indexOf("audio/") === 0 || Boolean(format && audioItags[String(format.itag)]);
+  }
+
+  function isFetchableGoogleAudioUrl(value) {
+    var url;
+
+    try {
+      url = new URL(value, location.href);
+    } catch (error) {
+      return false;
+    }
+
+    return (url.protocol === "https:" || url.protocol === "http:") &&
+      /(^|\.)googlevideo\.com$/.test(url.hostname) &&
+      url.pathname.indexOf("/videoplayback") !== -1;
+  }
+
+  function audioFormatScore(format) {
+    var itag = String(format && format.itag || "");
+    var bitrate = typeof format.bitrate === "number" ? format.bitrate : 0;
+
+    if (itag === "249" || itag === "250" || itag === "251") {
+      return 1000000 - bitrate;
+    }
+
+    return 2000000 - bitrate;
+  }
+
+  function bestGoogleAudioUrl() {
+    var response = playerResponse();
+    var formats = response && response.streamingData && response.streamingData.adaptiveFormats;
+
+    if (!Array.isArray(formats)) {
+      return "";
+    }
+
+    formats = formats.filter(function hasDirectAudioUrl(format) {
+      return format && format.url && formatIsAudio(format) && isFetchableGoogleAudioUrl(format.url);
+    }).sort(function sortAudioFormats(left, right) {
+      return audioFormatScore(left) - audioFormatScore(right);
+    });
+
+    return formats[0] && formats[0].url || "";
+  }
+
+  function fetchGoogleAudio() {
+    var url = bestGoogleAudioUrl();
+
+    if (!settings.whisperEnabled || !url || fetchedAudioUrls[url]) {
+      return;
+    }
+
+    fetchedAudioUrls[url] = true;
+    originalFetch.call(globalThis, url, {
+      credentials: "include"
+    }).then(function gotAudio(response) {
+      if (!response || !response.ok) {
+        return null;
+      }
+
+      return response.arrayBuffer();
+    }).then(function gotAudioBuffer(buffer) {
+      dispatchGoogleAudio(buffer, 0);
+    }, function ignoreAudioFetchError() {});
   }
 
   function readUmpVarint(bytes, offset) {
@@ -229,26 +391,17 @@
       var dataStart;
 
       if (!type) {
-        return {
-          parts: parts,
-          offset: offset
-        };
+        return { parts: parts, offset: offset };
       }
 
       size = readUmpVarint(bytes, type.offset);
       if (!size) {
-        return {
-          parts: parts,
-          offset: offset
-        };
+        return { parts: parts, offset: offset };
       }
 
       dataStart = size.offset;
       if (dataStart + size.value > bytes.length) {
-        return {
-          parts: parts,
-          offset: offset
-        };
+        return { parts: parts, offset: offset };
       }
 
       parts.push({
@@ -258,9 +411,17 @@
       offset = dataStart + size.value;
     }
 
+    return { parts: parts, offset: offset };
+  }
+
+  function readSabrHeaderId(data) {
+    return readUmpVarint(data, 0);
+  }
+
+  function newSabrParseState() {
     return {
-      parts: parts,
-      offset: offset
+      carry: new Uint8Array(0),
+      headers: Object.create(null)
     };
   }
 
@@ -316,8 +477,6 @@
           header.headerId = value.value;
         } else if (field === 8) {
           header.isInitSeg = Boolean(value.value);
-        } else if (field === 9) {
-          header.sequenceNumber = value.value;
         } else if (field === 11) {
           header.startMs = value.value;
         } else if (field === 12) {
@@ -341,63 +500,6 @@
     return header;
   }
 
-  function appendSabrAudioChunk(header, chunk) {
-    var key = String(header.itag || 0);
-    var entry;
-
-    if (!header.itag || !audioItags[key]) {
-      return;
-    }
-
-    entry = sabrAudio.get(key);
-    if (!entry) {
-      entry = {
-        itag: header.itag,
-        initChunks: [],
-        activeSegments: Object.create(null),
-        bytes: 0,
-        dispatchedBytes: 0,
-        hasInitSeg: false,
-        hasMediaSeg: false
-      };
-      sabrAudio.set(key, entry);
-    }
-
-    if (!chunk.length) {
-      return;
-    }
-
-    if (!sabrDebug.firstMediaBytes) {
-      sabrDebug.firstMediaBytes = Array.prototype.slice.call(chunk.slice(0, 12)).map(function hex(byte) {
-        return byte.toString(16).padStart(2, "0");
-      }).join(" ");
-    }
-
-    if (header.isInitSeg) {
-      entry.hasInitSeg = true;
-      entry.initChunks.push(chunk);
-    } else {
-      var segmentKey = String(header.headerId);
-      var segment = entry.activeSegments[segmentKey];
-
-      entry.hasMediaSeg = true;
-      if (!segment) {
-        segment = {
-          header: header,
-          chunks: [],
-          bytes: 0
-        };
-        entry.activeSegments[segmentKey] = segment;
-      }
-      segment.chunks.push(chunk);
-      segment.bytes += chunk.length;
-    }
-    entry.bytes += chunk.length;
-    sabrDebug.audioBytes += chunk.length;
-    sabrDebug.lastItag = header.itag;
-    sabrDebug.lastHeaderId = header.headerId === undefined ? -1 : header.headerId;
-  }
-
   function chunksToBase64(chunks) {
     var length = chunks.reduce(function sum(total, chunk) {
       return total + chunk.length;
@@ -419,89 +521,114 @@
     return btoa(binary);
   }
 
-  function finalizeSabrAudioSegment(headerId) {
-    var header = sabrHeaders[headerId];
-    var key = String(header && header.itag || 0);
-    var entry = sabrAudio.get(key);
+  function appendSabrAudioChunk(header, chunk) {
+    var key = String(header.itag || 0);
+    var entry;
+    var segment;
+
+    if (!header.itag || !audioItags[key] || !chunk.length) {
+      return;
+    }
+
+    entry = sabrAudio.get(key);
+    if (!entry) {
+      entry = {
+        itag: header.itag,
+        initChunks: [],
+        activeSegments: Object.create(null)
+      };
+      sabrAudio.set(key, entry);
+    }
+
+    if (header.isInitSeg) {
+      entry.initChunks.push(chunk);
+      return;
+    }
+
+    segment = entry.activeSegments[String(header.headerId)];
+    if (!segment) {
+      segment = {
+        header: header,
+        chunks: [],
+        bytes: 0
+      };
+      entry.activeSegments[String(header.headerId)] = segment;
+    }
+    segment.chunks.push(chunk);
+    segment.bytes += chunk.length;
+  }
+
+  function dispatchSabrAudioSegment(headerId, header) {
+    header = header || sabrHeaders[headerId];
+    var entry = sabrAudio.get(String(header && header.itag || 0));
     var segment = entry && entry.activeSegments && entry.activeSegments[String(headerId)];
 
-    if (!entry || !segment) {
+    if (!entry || !entry.initChunks.length || !segment || !segment.chunks.length) {
       return;
     }
 
     delete entry.activeSegments[String(headerId)];
-    dispatchSabrAudio(entry, segment);
-  }
-
-  function dispatchSabrAudio(entry, segment) {
-    var header = segment && segment.header || {};
-
-    if (!entry || !entry.hasInitSeg || !segment || !segment.chunks || !segment.chunks.length) {
-      return;
-    }
-
-    entry.dispatchedBytes = entry.bytes;
     try {
       globalThis.dispatchEvent(new CustomEvent("uncensored-sabr-audio", {
         detail: JSON.stringify({
           itag: entry.itag,
-          bytes: entry.bytes,
+          bytes: segment.bytes,
           segmentBytes: segment.bytes,
-          startMs: typeof header.startMs === "number" ? header.startMs : null,
-          durationMs: typeof header.durationMs === "number" ? header.durationMs : null,
+          startMs: typeof segment.header.startMs === "number" ? segment.header.startMs : null,
+          durationMs: typeof segment.header.durationMs === "number" ? segment.header.durationMs : null,
           base64: chunksToBase64(entry.initChunks.concat(segment.chunks))
         })
       }));
-    } catch (error) {
-      sabrDebug.lastError = error && (error.message || String(error));
-    }
+    } catch (error) {}
   }
 
-  function processSabrBuffer(buffer) {
+  function processSabrBuffer(buffer, state) {
     var bytes;
     var combined;
     var parsed;
-    var parts;
 
     if (!buffer) {
       return;
     }
 
-    sabrDebug.responses += 1;
-    sabrDebug.lastBufferBytes = buffer.byteLength || 0;
+    state = state || {
+      carry: sabrCarry,
+      headers: sabrHeaders
+    };
     bytes = new Uint8Array(buffer);
-    combined = new Uint8Array(sabrCarry.length + bytes.length);
-    combined.set(sabrCarry, 0);
-    combined.set(bytes, sabrCarry.length);
+    combined = new Uint8Array(state.carry.length + bytes.length);
+    combined.set(state.carry, 0);
+    combined.set(bytes, state.carry.length);
     parsed = parseUmpParts(combined);
-    parts = parsed.parts;
-    sabrCarry = combined.slice(parsed.offset);
-    sabrDebug.parsedParts += parts.length;
-    sabrDebug.lastPartTypes = parts.slice(0, 24).map(function mapType(part) {
-      return part.type;
-    });
-
-    if (!parts.length) {
-      sabrDebug.emptyResponses += 1;
-      return;
+    state.carry = combined.slice(parsed.offset);
+    if (state.headers === sabrHeaders) {
+      sabrCarry = state.carry;
     }
 
-    parts.forEach(function handlePart(part) {
-      sabrDebug.parts[part.type] = (sabrDebug.parts[part.type] || 0) + 1;
+    parsed.parts.forEach(function handlePart(part) {
+      var headerId;
+      var header;
+
       if (part.type === 20) {
-        var header = parseMediaHeader(part.data);
+        header = parseMediaHeader(part.data);
         if (header.headerId !== undefined) {
-          sabrHeaders[header.headerId] = header;
+          state.headers[header.headerId] = header;
         }
       } else if (part.type === 21 && part.data.length) {
-        var headerId = part.data[0];
-        var mediaHeader = sabrHeaders[headerId];
-        if (mediaHeader) {
-          appendSabrAudioChunk(mediaHeader, part.data.slice(1));
+        headerId = readSabrHeaderId(part.data);
+        if (!headerId) {
+          return;
+        }
+        if (state.headers[headerId.value]) {
+          appendSabrAudioChunk(state.headers[headerId.value], part.data.slice(headerId.offset));
         }
       } else if (part.type === 22) {
-        finalizeSabrAudioSegment(part.data[0]);
-        delete sabrHeaders[part.data[0]];
+        headerId = readSabrHeaderId(part.data);
+        if (!headerId) {
+          return;
+        }
+        dispatchSabrAudioSegment(headerId.value, state.headers[headerId.value]);
+        delete state.headers[headerId.value];
       }
     });
   }
@@ -509,13 +636,12 @@
   function processSabrResponse(response) {
     var clone = response.clone();
     var reader;
+    var state = newSabrParseState();
 
     if (!clone.body || !clone.body.getReader) {
-      clone.arrayBuffer().then(function parseResponse(buffer) {
-        processSabrBuffer(buffer);
-      }).catch(function failed(error) {
-        sabrDebug.lastError = error && (error.message || String(error));
-      });
+      clone.arrayBuffer().then(function parseBuffer(buffer) {
+        processSabrBuffer(buffer, state);
+      }, function ignoreAudioError() {});
       return;
     }
 
@@ -526,30 +652,68 @@
           return;
         }
 
-        processSabrBuffer(result.value.buffer.slice(result.value.byteOffset, result.value.byteOffset + result.value.byteLength));
+        processSabrBuffer(result.value.buffer.slice(result.value.byteOffset, result.value.byteOffset + result.value.byteLength), state);
         return readNext();
       });
     }
 
-    readNext().catch(function failed(error) {
-      sabrDebug.lastError = error && (error.message || String(error));
-    });
+    readNext().catch(function ignoreAudioError() {});
   }
 
   function processSabrXhr(xhr) {
-    var response = xhr.response;
+    var state = newSabrParseState();
 
     try {
-      if (response instanceof ArrayBuffer) {
-        processSabrBuffer(response);
-      } else if (response instanceof Blob) {
-        response.arrayBuffer().then(processSabrBuffer).catch(function failed(error) {
-          sabrDebug.lastError = error && (error.message || String(error));
-        });
+      if (xhr.response instanceof ArrayBuffer) {
+        processSabrBuffer(xhr.response, state);
+      } else if (xhr.response instanceof Blob) {
+        xhr.response.arrayBuffer().then(function parseBuffer(buffer) {
+          processSabrBuffer(buffer, state);
+        }, function ignoreAudioError() {});
       }
-    } catch (error) {
-      sabrDebug.lastError = error && (error.message || String(error));
+    } catch (error) {}
+  }
+
+  function replacementsForCurrentVideo() {
+    var videoId = currentVideoId();
+    var keyPrefix = videoId + ":";
+    var replacements = [];
+
+    audioReplacements.forEach(function collectReplacement(replacement, key) {
+      if (key.indexOf(keyPrefix) === 0 && (settings.rulesEnabled || replacement.source === "media")) {
+        replacements.push(replacement);
+      }
+    });
+    return replacements;
+  }
+
+  function patchTimedTextBody(body) {
+    var api = timedTextApi();
+    var cacheKey;
+    var cached;
+    var patchedBody;
+
+    if (!api || typeof body !== "string") {
+      return body;
     }
+
+    cacheKey = patchedTimedTextCacheKey(body);
+    cached = patchedTimedTextCache.get(cacheKey);
+    if (cached && cached.body === body) {
+      patchedTimedTextCache.delete(cacheKey);
+      patchedTimedTextCache.set(cacheKey, cached);
+      return cached.patchedBody;
+    }
+
+    if (api.patchTimedTextBodyWithOverrides) {
+      patchedBody = api.patchTimedTextBodyWithOverrides(body, replacementsForCurrentVideo(), settings.rulesEnabled);
+      rememberPatchedTimedText(cacheKey, body, patchedBody);
+      return patchedBody;
+    }
+
+    patchedBody = settings.rulesEnabled && api.patchTimedTextBody ? api.patchTimedTextBody(body) : body;
+    rememberPatchedTimedText(cacheKey, body, patchedBody);
+    return patchedBody;
   }
 
   function debugAudio() {
@@ -557,27 +721,11 @@
     var report = {
       hookVersion: VERSION,
       hasTimedTextApi: Boolean(timedTextApi()),
-      currentSrc: video && video.currentSrc || "",
-      sabr: sabrDebug,
-      sabrAudio: Array.from(sabrAudio.values()).map(function summarizeEntry(entry) {
-        return {
-          itag: entry.itag,
-          bytes: entry.bytes,
-          initChunks: entry.initChunks.length,
-          dispatchedBytes: entry.dispatchedBytes,
-          hasInitSeg: entry.hasInitSeg,
-          hasMediaSeg: entry.hasMediaSeg,
-          activeSegments: Object.keys(entry.activeSegments).length
-        };
-      })
+      currentSrc: video && video.currentSrc || ""
     };
 
     if (console && console.log) {
       console.log("[uncensored] audio debug", report);
-      if (console.table) {
-        console.table([report.sabr]);
-        console.table(report.sabrAudio);
-      }
     }
 
     return report;
@@ -589,58 +737,53 @@
 
   globalThis.__uncensoredDebugAudio = debugAudio;
   globalThis.__uncensoredDebugAudioText = debugAudioText;
+  globalThis.setTimeout(fetchGoogleAudio, 0);
+  globalThis.setTimeout(fetchGoogleAudio, 1500);
+  globalThis.addEventListener("load", fetchGoogleAudio);
+  globalThis.addEventListener("pageshow", fetchGoogleAudio);
 
   globalThis.fetch = function uncensoredFetch(input, init) {
-    var url = requestUrl(input);
-
     return originalFetch.apply(this, arguments).then(function maybePatch(response) {
-      if (isGoogleVideoPlaybackUrl(url)) {
-        sabrDebug.fetches += 1;
-        rememberSabrUrl(url);
+      if (isGoogleVideoPlaybackUrl(input)) {
         processSabrResponse(response);
       }
 
-      if (!isTimedTextUrl(input)) {
-        return response;
+      if (isTimedTextUrl(input)) {
+        return response.clone().text().then(function rewriteTimedText(body) {
+          var patchedBody;
+
+          notifyTimedText(body);
+          patchedBody = patchTimedTextBody(body);
+          if (patchedBody === body) {
+            return response;
+          }
+
+          return new Response(patchedBody, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers
+          });
+        }, function keepOriginal() {
+          return response;
+        });
       }
 
-      return response.clone().text().then(function rewriteTimedText(body) {
-        var patchedBody;
-
-        notifyTimedText(body);
-        patchedBody = patchTimedTextBody(body);
-        if (patchedBody === body) {
-          return response;
-        }
-
-        return new Response(patchedBody, {
-          status: response.status,
-          statusText: response.statusText,
-          headers: response.headers
-        });
-      }, function keepOriginal() {
-        return response;
-      });
+      return response;
     });
   };
 
   XMLHttpRequest.prototype.open = function uncensoredOpen(method, url) {
     var result;
-    var isPlaybackUrl = isGoogleVideoPlaybackUrl(url);
 
     this.__uncensoredTimedTextUrl = isTimedTextUrl(url);
-    this.__uncensoredSabrUrl = isPlaybackUrl;
+    this.__uncensoredSabrUrl = isGoogleVideoPlaybackUrl(url);
     result = originalXHROpen.apply(this, arguments);
 
-    if (isPlaybackUrl) {
-      rememberSabrUrl(url);
+    if (this.__uncensoredSabrUrl) {
       this.addEventListener("loadend", function onSabrLoadEnd() {
-        if (!this.__uncensoredSabrUrl) {
-          return;
+        if (this.__uncensoredSabrUrl) {
+          processSabrXhr(this);
         }
-
-        sabrDebug.xhrs += 1;
-        processSabrXhr(this);
       });
     }
 
@@ -677,24 +820,13 @@
   };
 
   globalThis.addEventListener("yt-navigate-finish", function onNavigate() {
+    clearPatchedTimedTextCache();
+    audioReplacementVersion += 1;
     sabrAudio.clear();
     sabrCarry = new Uint8Array(0);
     sabrHeaders = Object.create(null);
-    sabrDebug = {
-      fetches: 0,
-      xhrs: 0,
-      responses: 0,
-      parsedParts: 0,
-      emptyResponses: 0,
-      parts: {},
-      audioBytes: 0,
-      lastItag: 0,
-      lastHeaderId: -1,
-      firstMediaBytes: "",
-      lastUrl: "",
-      lastBufferBytes: 0,
-      lastPartTypes: [],
-      lastError: ""
-    };
+    fetchedAudioUrls = Object.create(null);
+    globalThis.setTimeout(fetchGoogleAudio, 0);
+    globalThis.setTimeout(fetchGoogleAudio, 1500);
   });
 })();

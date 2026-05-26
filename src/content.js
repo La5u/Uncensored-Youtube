@@ -55,47 +55,49 @@
   }
 
   function dispatchSettingsSoon() {
-    dispatchSettings();
-    window.setTimeout(dispatchSettings, 100);
-    window.setTimeout(dispatchSettings, 500);
+    window.setTimeout(dispatchSettings, 0);
   }
 
   function loadSettings() {
     if (!runtime.storage || !runtime.storage.local) {
-      dispatchSettingsSoon();
-      return;
+      return Promise.resolve();
     }
 
-    runtime.storage.local.get({
+    return runtime.storage.local.get({
       rulesEnabled: true,
       whisperEnabled: true
     }).then(function gotSettings(values) {
       settings.rulesEnabled = values.rulesEnabled !== false;
       settings.whisperEnabled = values.whisperEnabled !== false;
-      dispatchSettingsSoon();
-    }, dispatchSettingsSoon);
-
-    if (runtime.storage.onChanged) {
-      runtime.storage.onChanged.addListener(function onSettingsChanged(changes, areaName) {
-        if (areaName !== "local") {
-          return;
-        }
-
-        if (changes.rulesEnabled) {
-          settings.rulesEnabled = changes.rulesEnabled.newValue !== false;
-        }
-
-        if (changes.whisperEnabled) {
-          settings.whisperEnabled = changes.whisperEnabled.newValue !== false;
-        }
-
-        dispatchSettingsSoon();
-      });
-    }
+    }, function keepDefaults() {});
   }
 
-  injectScriptsSequentially(scripts).then(dispatchSettingsSoon);
-  loadSettings();
+  function watchSettings() {
+    if (!runtime.storage || !runtime.storage.onChanged) {
+      return;
+    }
+
+    runtime.storage.onChanged.addListener(function onSettingsChanged(changes, areaName) {
+      if (areaName !== "local") {
+        return;
+      }
+
+      if (changes.rulesEnabled) {
+        settings.rulesEnabled = changes.rulesEnabled.newValue !== false;
+      }
+
+      if (changes.whisperEnabled) {
+        settings.whisperEnabled = changes.whisperEnabled.newValue !== false;
+      }
+
+      dispatchSettingsSoon();
+    });
+  }
+
+  watchSettings();
+  loadSettings().then(function injectAfterSettings() {
+    return injectScriptsSequentially(scripts);
+  }).then(dispatchSettingsSoon, dispatchSettingsSoon);
 
   window.addEventListener("uncensored-timedtext", function rememberTimedText(event) {
     var body = event && event.detail;
@@ -103,7 +105,7 @@
     var audioInference = globalThis.UncensoredAudioInference;
     var tokens;
 
-    if (typeof body !== "string" || !timedText || !audioInference || !timedText.collectTimedTextTokens) {
+    if (typeof body !== "string" || !audioInference || !timedText.collectTimedTextTokens) {
       return;
     }
 
@@ -121,4 +123,23 @@
       audioInference.setSabrAudioData(detail);
     }
   });
+
+  if (runtime.runtime && runtime.runtime.onMessage) {
+    runtime.runtime.onMessage.addListener(function onRuntimeMessage(message) {
+      var audioInference = globalThis.UncensoredAudioInference;
+
+      message = message || {};
+      if (!settings.whisperEnabled || !message.uncensoredBackgroundAudioStream || !audioInference) {
+        return;
+      }
+
+      if (message.type === "start" && audioInference.startAudioChunkStream) {
+        audioInference.startAudioChunkStream(message);
+      } else if (message.type === "chunk" && audioInference.appendAudioStreamChunk) {
+        audioInference.appendAudioStreamChunk(message);
+      } else if ((message.type === "end" || message.type === "error") && audioInference.endAudioChunkStream) {
+        audioInference.endAudioChunkStream(message);
+      }
+    });
+  }
 })();

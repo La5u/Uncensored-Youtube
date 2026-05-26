@@ -8,6 +8,9 @@
     return;
   }
 
+  var CENSORED_TOKEN_REGEX = rules.CENSORED_TOKEN_REGEX;
+  var CENSORED_TOKEN_COUNT_REGEX = new RegExp(rules.CENSORED_TOKEN_REGEX.source, "gu");
+
   function getEventText(event) {
     return event.segs.map(function collectText(seg) {
       return seg && typeof seg.utf8 === "string" ? seg.utf8 : "";
@@ -15,8 +18,8 @@
   }
 
   function countCensoredTokens(text) {
-    var tokenRegex = new RegExp(rules.CENSORED_TOKEN_REGEX.source, "gu");
-    var matches = text.match(tokenRegex);
+    CENSORED_TOKEN_COUNT_REGEX.lastIndex = 0;
+    var matches = text.match(CENSORED_TOKEN_COUNT_REGEX);
 
     return matches ? matches.length : 0;
   }
@@ -41,7 +44,7 @@
         return;
       }
 
-      var patchedText = seg.utf8.replace(rules.CENSORED_TOKEN_REGEX, function replaceToken(token) {
+      var patchedText = seg.utf8.replace(CENSORED_TOKEN_REGEX, function replaceToken(token) {
         var replacement = replacementForToken(tokenIndex);
         tokenIndex += 1;
         return replacement === null ? token : replacement;
@@ -109,7 +112,7 @@
   function contextForToken(eventText, targetTokenIndex, firstEventTokenIndex, deterministicByTokenIndex) {
     var relativeTokenIndex = 0;
 
-    return eventText.replace(rules.CENSORED_TOKEN_REGEX, function replaceOtherToken() {
+    return eventText.replace(CENSORED_TOKEN_REGEX, function replaceOtherToken() {
       var absoluteTokenIndex = firstEventTokenIndex + relativeTokenIndex;
       var deterministic;
 
@@ -135,17 +138,19 @@
 
       var eventText = getEventText(event);
       var firstEventTokenIndex = tokenIndex;
+      var eventTokenIndex = 0;
 
       event.segs.forEach(function collectSegmentTokens(seg, segIndex) {
         if (!seg || typeof seg.utf8 !== "string") {
           return;
         }
 
-        seg.utf8.replace(rules.CENSORED_TOKEN_REGEX, function collectToken() {
+        seg.utf8.replace(CENSORED_TOKEN_REGEX, function collectToken() {
           var deterministic = deterministicByTokenIndex.get(tokenIndex);
 
           tokens.push({
             tokenIndex: tokenIndex,
+            eventTokenIndex: eventTokenIndex,
             eventIndex: eventIndex,
             segIndex: segIndex,
             timeSeconds: tokenTimeSeconds(event, seg),
@@ -157,6 +162,7 @@
               : rules.ALLOWED_WORDS
           });
           tokenIndex += 1;
+          eventTokenIndex += 1;
           return rules.CENSORED_TOKEN;
         });
       });

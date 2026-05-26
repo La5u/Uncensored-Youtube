@@ -14,6 +14,49 @@
         : "";
   var DEFAULT_MODEL = "whisper-tiny.en";
   var SLOT_MARKER = "slotmarker";
+  var SLOT_TOKEN_REGEX = /\[\s*__\s*\]/gu;
+  var CONTEXT_PATTERNS = Object.freeze([
+    [new RegExp("what the " + SLOT_MARKER), ["fuck"]],
+    [new RegExp("why the " + SLOT_MARKER), ["fuck"]],
+    [new RegExp("how the " + SLOT_MARKER), ["fuck"]],
+    [new RegExp("who the " + SLOT_MARKER), ["fuck"]],
+    [new RegExp("where the " + SLOT_MARKER), ["fuck"]],
+    [new RegExp("the " + SLOT_MARKER + " (?:is|are|was|were|did|does|do|you|am|can)"), ["fuck"]],
+    [new RegExp("shut the " + SLOT_MARKER + " up"), ["fuck"]],
+    [new RegExp("shut the " + SLOT_MARKER + "$"), ["fuck"]],
+    [new RegExp("get the " + SLOT_MARKER), ["fuck"]],
+    [new RegExp("for " + SLOT_MARKER + " sake"), ["fuck's", "fuck"]],
+    [new RegExp(SLOT_MARKER + " sake"), ["fuck's", "fuck"]],
+    [new RegExp("holy " + SLOT_MARKER), ["shit", "fuck"]],
+    [new RegExp("oh " + SLOT_MARKER), ["shit", "fuck"]],
+    [new RegExp("a lot of " + SLOT_MARKER), ["shit"]],
+    [new RegExp("piece of " + SLOT_MARKER), ["shit"]],
+    [new RegExp("your " + SLOT_MARKER), ["shit", "fucking", "bullshit"]],
+    [new RegExp("my " + SLOT_MARKER), ["fucking", "shit"]],
+    [new RegExp("every .* " + SLOT_MARKER + " seconds?"), ["fucking"]],
+    [new RegExp("so " + SLOT_MARKER), ["fucking"]],
+    [new RegExp("did you just " + SLOT_MARKER), ["fucking"]],
+    [new RegExp("not " + SLOT_MARKER + " \\w+"), ["fucking"]],
+    [new RegExp("being " + SLOT_MARKER + " \\w+"), ["fucking"]],
+    [new RegExp(SLOT_MARKER + " (?:filter|awesome|convert|pirate|installs|look|watch|seconds?)"), ["fucking", "bullshit"]],
+    [new RegExp(SLOT_MARKER + " (?:tsundere|nonchalant)"), ["fucking"]],
+    [new RegExp(SLOT_MARKER + " it"), ["fuck"]],
+    [new RegExp(SLOT_MARKER + " instead"), ["shit"]],
+    [new RegExp(SLOT_MARKER + " to do"), ["shit"]],
+    [new RegExp("beat the " + SLOT_MARKER + " out"), ["shit"]],
+    [new RegExp(SLOT_MARKER + " explain"), ["fucking"]],
+    [new RegExp(SLOT_MARKER + " pirate"), ["fucking"]],
+    [new RegExp("stupid ass " + SLOT_MARKER), ["bitch", "motherfucker", "fucker"]],
+    [new RegExp(SLOT_MARKER + " family"), ["fucking"]],
+    [new RegExp(SLOT_MARKER + " cringe"), ["fucking"]]
+  ]);
+  var GIVE_A_SLOT_REGEX = new RegExp("give[s]? a " + SLOT_MARKER);
+  var THE_SLOT_REGEX = new RegExp("the " + SLOT_MARKER);
+  var SHUT_THE_SLOT_REGEX = new RegExp("shut the " + SLOT_MARKER + "(?: up)?$|shut the " + SLOT_MARKER + " up");
+  var SLOT_OBJECT_REGEX = new RegExp(SLOT_MARKER + " (?:filter|convert|pirate|installs|look|seconds?)");
+  var SLOT_INTENSIFIER_REGEX = new RegExp("did you just " + SLOT_MARKER + "|not " + SLOT_MARKER + " \\w+|being " + SLOT_MARKER + " \\w+|" + SLOT_MARKER + " (?:tsundere|nonchalant)");
+  var SLOT_SHIT_REGEX = new RegExp(SLOT_MARKER + " to do|a lot of " + SLOT_MARKER + "|beat the " + SLOT_MARKER + " out");
+  var OH_HOLY_SLOT_REGEX = new RegExp("oh " + SLOT_MARKER + "|holy " + SLOT_MARKER);
   var transformersPromise = null;
   var transcriberPromise = null;
 
@@ -161,44 +204,10 @@
   }
 
   function contextCandidates(context) {
-    var normalized = normalizeText(String(context || "").replace(/\[\s*__\s*\]/gu, " " + SLOT_MARKER + " "));
+    var normalized = normalizeText(String(context || "").replace(SLOT_TOKEN_REGEX, " " + SLOT_MARKER + " "));
     var candidates = [];
 
-    [
-      [new RegExp("what the " + SLOT_MARKER), ["fuck"]],
-      [new RegExp("why the " + SLOT_MARKER), ["fuck"]],
-      [new RegExp("how the " + SLOT_MARKER), ["fuck"]],
-      [new RegExp("who the " + SLOT_MARKER), ["fuck"]],
-      [new RegExp("where the " + SLOT_MARKER), ["fuck"]],
-      [new RegExp("the " + SLOT_MARKER + " (?:is|are|was|were|did|does|do|you|am|can)"), ["fuck"]],
-      [new RegExp("shut the " + SLOT_MARKER + " up"), ["fuck"]],
-      [new RegExp("shut the " + SLOT_MARKER + "$"), ["fuck"]],
-      [new RegExp("get the " + SLOT_MARKER), ["fuck"]],
-      [new RegExp("for " + SLOT_MARKER + " sake"), ["fuck's", "fuck"]],
-      [new RegExp(SLOT_MARKER + " sake"), ["fuck's", "fuck"]],
-      [new RegExp("holy " + SLOT_MARKER), ["shit", "fuck"]],
-      [new RegExp("oh " + SLOT_MARKER), ["shit", "fuck"]],
-      [new RegExp("a lot of " + SLOT_MARKER), ["shit"]],
-      [new RegExp("piece of " + SLOT_MARKER), ["shit"]],
-      [new RegExp("your " + SLOT_MARKER), ["shit", "fucking", "bullshit"]],
-      [new RegExp("my " + SLOT_MARKER), ["fucking", "shit"]],
-      [new RegExp("every .* " + SLOT_MARKER + " seconds?"), ["fucking"]],
-      [new RegExp("so " + SLOT_MARKER), ["fucking"]],
-      [new RegExp("did you just " + SLOT_MARKER), ["fucking"]],
-      [new RegExp("not " + SLOT_MARKER + " \\w+"), ["fucking"]],
-      [new RegExp("being " + SLOT_MARKER + " \\w+"), ["fucking"]],
-      [new RegExp(SLOT_MARKER + " (?:filter|awesome|convert|pirate|installs|look|watch|seconds?)"), ["fucking", "bullshit"]],
-      [new RegExp(SLOT_MARKER + " (?:tsundere|nonchalant)"), ["fucking"]],
-      [new RegExp(SLOT_MARKER + " it"), ["fuck"]],
-      [new RegExp(SLOT_MARKER + " instead"), ["shit"]],
-      [new RegExp(SLOT_MARKER + " to do"), ["shit"]],
-      [new RegExp("beat the " + SLOT_MARKER + " out"), ["shit"]],
-      [new RegExp(SLOT_MARKER + " explain"), ["fucking"]],
-      [new RegExp(SLOT_MARKER + " pirate"), ["fucking"]],
-      [new RegExp("stupid ass " + SLOT_MARKER), ["bitch", "motherfucker", "fucker"]],
-      [new RegExp(SLOT_MARKER + " family"), ["fucking"]],
-      [new RegExp(SLOT_MARKER + " cringe"), ["fucking"]]
-    ].forEach(function testPattern(entry) {
+    CONTEXT_PATTERNS.forEach(function testPattern(entry) {
       if (entry[0].test(normalized)) {
         candidates = candidates.concat(entry[1]);
       }
@@ -208,7 +217,7 @@
   }
 
   function wordsAroundSlot(context) {
-    var normalized = normalizeText(String(context || "").replace(/\[\s*__\s*\]/gu, " " + SLOT_MARKER + " "));
+    var normalized = normalizeText(String(context || "").replace(SLOT_TOKEN_REGEX, " " + SLOT_MARKER + " "));
     var words = normalized.split(/\s+/);
     var slotIndex = words.indexOf(SLOT_MARKER);
 
@@ -230,34 +239,34 @@
   }
 
   function phrasePrior(candidate, context) {
-    var normalized = normalizeText(String(context || "").replace(/\[\s*__\s*\]/gu, " " + SLOT_MARKER + " "));
+    var normalized = normalizeText(String(context || "").replace(SLOT_TOKEN_REGEX, " " + SLOT_MARKER + " "));
     var candidateText = normalizeText(candidate);
 
-    if (new RegExp("give[s]? a " + SLOT_MARKER).test(normalized)) {
+    if (GIVE_A_SLOT_REGEX.test(normalized)) {
       return candidateText === "fuck" || candidateText === "shit" ? 4 : 0;
     }
 
-    if (/what|why|how|who|where/.test(normalized) && new RegExp("the " + SLOT_MARKER).test(normalized)) {
+    if (/what|why|how|who|where/.test(normalized) && THE_SLOT_REGEX.test(normalized)) {
       return candidateText === "fuck" ? 5 : 0;
     }
 
-    if (new RegExp("shut the " + SLOT_MARKER + "(?: up)?$|shut the " + SLOT_MARKER + " up").test(normalized)) {
+    if (SHUT_THE_SLOT_REGEX.test(normalized)) {
       return candidateText === "fuck" ? 4 : 0;
     }
 
-    if (new RegExp(SLOT_MARKER + " (?:filter|convert|pirate|installs|look|seconds?)").test(normalized)) {
+    if (SLOT_OBJECT_REGEX.test(normalized)) {
       return candidateText === "fucking" ? 4 : 0;
     }
 
-    if (new RegExp("did you just " + SLOT_MARKER + "|not " + SLOT_MARKER + " \\w+|being " + SLOT_MARKER + " \\w+|" + SLOT_MARKER + " (?:tsundere|nonchalant)").test(normalized)) {
+    if (SLOT_INTENSIFIER_REGEX.test(normalized)) {
       return candidateText === "fucking" ? 5 : 0;
     }
 
-    if (new RegExp(SLOT_MARKER + " to do|a lot of " + SLOT_MARKER + "|beat the " + SLOT_MARKER + " out").test(normalized)) {
+    if (SLOT_SHIT_REGEX.test(normalized)) {
       return candidateText === "shit" ? 4 : 0;
     }
 
-    if (new RegExp("oh " + SLOT_MARKER + "|holy " + SLOT_MARKER).test(normalized)) {
+    if (OH_HOLY_SLOT_REGEX.test(normalized)) {
       return candidateText === "shit" ? 3 : candidateText === "fuck" ? 2 : 0;
     }
 
