@@ -28,7 +28,7 @@
       "js": [
         "src/rules.js",
         "src/timedtext.js",
-        "src/whisper-worker-client.js",
+        "src/sabr-parser.js",
         "src/audio-capture.js",
         "src/content.js"
       ],
@@ -43,9 +43,6 @@
         "src/sabr-parser.js",
         "src/whisper-local.js",
         "src/whisper-module-worker.js",
-        "src/whisper-host.html",
-        "src/whisper-host.js",
-        "src/whisper-worker-client.js",
         "src/audio-capture.js",
         "src/vendor/transformers.min.js",
         "src/vendor/ort-wasm-simd-threaded.asyncify.wasm",

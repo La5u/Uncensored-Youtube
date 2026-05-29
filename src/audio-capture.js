@@ -2,7 +2,8 @@
   "use strict";
   var root = typeof globalThis !== "undefined" ? globalThis : this;
   var rules = root.UncensoredRules;
-  var whisper = root.UncensoredWhisperLocal;
+  var sabrParser = root.UncensoredSabrParser;
+  var runtime = root.browser || root.chrome;
 
   var SLICE_BEFORE_SECONDS = 1.25;
   var SLICE_AFTER_SECONDS = 1.25;
@@ -21,9 +22,8 @@
   var activeWhisperRequests = 0;
   var whisperQueueScheduled = false;
   var audioContext = null;
-  var lastWaitingCoverageKey = "";
   var MAX_ACTIVE_WHISPER_REQUESTS = 1;
-  var backgroundAudioStreamIds = new Set();
+  var globalSabrParser = null;
   var mediaAudio = {
     videoId: "",
     source: "",
@@ -77,7 +77,6 @@
         token.attemptedCoverageEnd = 0;
       });
       activeWhisperRequests = 0;
-      lastWaitingCoverageKey = "";
       scheduleWhisperQueue();
       return;
     }
@@ -90,7 +89,79 @@
     mediaAudio.buffer = null;
     mediaAudio.segments = [];
     mediaAudio.error = "";
-    backgroundAudioStreamIds.clear();
+    globalSabrParser = null;
+  }
+
+  // ── Whisper via background relay ──
+
+  function bgMessage(type, data) {
+    return new Promise(function bg(resolve) {
+      try {
+        runtime.runtime.sendMessage(Object.assign({ uncensoredWhisper: true, type: type }, data ? { data: data } : {}), function handleResponse(response) {
+          resolve(response || {});
+        });
+      } catch (error) {
+        resolve({});
+      }
+    });
+  }
+
+  function whisperTranscribe(audio, candidates, context, options) {
+    if (!audio || !audio.length || !candidates || !candidates.length) {
+      return Promise.resolve({ word: "", score: 0, runnerUpScore: 0, transcript: "", forced: Boolean(options && options.force) });
+    }
+    var copy = audio.slice();
+    return bgMessage("transcribe", {
+      audio: copy.buffer,
+      candidates: candidates,
+      context: context,
+      options: options
+    }).then(function onDecision(response) {
+      return response && response.decision ? response.decision : response;
+    });
+  }
+
+  function warmupWhisper() {
+    bgMessage("warmup");
+  }
+
+  function preloadWhisper() {
+    bgMessage("preload");
+  }
+
+  // ── Shared audio segment helpers ──
+
+  function addAudioSegment(startTime, buffer, bytes) {
+    var segment = {
+      startTime: startTime,
+      endTime: startTime + buffer.duration,
+      buffer: buffer,
+      bytes: bytes || 0
+    };
+    var duplicate = mediaAudio.segments.some(function hasSegment(existing) {
+      return Math.abs(existing.startTime - segment.startTime) < 0.01 &&
+        Math.abs(existing.endTime - segment.endTime) < 0.01;
+    });
+    if (duplicate) return;
+    mediaAudio.segments.push(segment);
+    mediaAudio.segments.sort(function sortSegments(left, right) {
+      return left.startTime - right.startTime;
+    });
+    compactMediaSegments(false);
+    resolvePendingTokensFromMedia();
+  }
+
+  function decodeSabrSegment(segment) {
+    if (!sabrParser || !sabrParser.chunksToArrayBuffer || !segment || !segment.chunks) return;
+    var encoded = sabrParser.chunksToArrayBuffer(segment.chunks);
+    currentAudioContext().then(function decode(context) {
+      return context.decodeAudioData(encoded.slice(0));
+    }).then(function decoded(buffer) {
+      var startTime = typeof segment.header.startMs === "number" ? segment.header.startMs / 1000 : 0;
+      addAudioSegment(startTime, buffer, encoded.byteLength);
+    }, function decodeFailed(error) {
+      debugLog("audio decode failed", error && (error.message || String(error)));
+    });
   }
 
   function resampleLinear(input, sourceRate, targetRate) {
@@ -189,7 +260,6 @@
       mediaAudio.buffer = buffer;
       mediaAudio.loading = false;
       mediaAudio.error = "";
-      lastWaitingCoverageKey = "";
       compactMediaSegments(false);
       debugLog("sabr audio ready", {
         itag: detail.itag,
@@ -425,7 +495,7 @@
       force: force
     });
 
-    return whisper.transcribeDetailed(pcm16, candidatesForToken(token), token.context, {
+    return whisperTranscribe(pcm16, candidatesForToken(token), token.context, {
       force: force
     }).then(function resolvedDecision(decision) {
       var rejectionReason = whisperRejectionReason(token, decision);
@@ -518,88 +588,40 @@
     scheduleWhisperQueue();
   }
 
-  function scheduleHostTokens() {
-    var tokens;
-
-    if (!whisper || !whisper.rememberAudioTokens || !options.whisperEnabled || !pendingTokens.size) {
-      return;
-    }
-
-    tokens = pendingTokenValues().filter(shouldResolveWithWhisper);
-    if (!tokens.length) {
-      return;
-    }
-
-    whisper.rememberAudioTokens(tokens, {
-      rulesEnabled: options.rulesEnabled,
-      whisperEnabled: options.whisperEnabled
-    });
-  }
-
   function startAudioChunkStream(message) {
-    if (!whisper || !whisper.startAudioChunkStream || !options.whisperEnabled || !message) {
-      return;
+    if (!options.whisperEnabled || !message || !message.streamId) return;
+    var videoId = message.videoId || currentVideoId();
+    if (videoId && mediaAudio.videoId && mediaAudio.videoId !== videoId) {
+      globalSabrParser = null;
+      mediaAudio.videoId = videoId;
+    } else if (videoId && !mediaAudio.videoId) {
+      mediaAudio.videoId = videoId;
     }
-
-    whisper.startAudioChunkStream(message.streamId, message.videoId || currentVideoId(), message.url || "");
-    backgroundAudioStreamIds.add(message.streamId);
+    if (sabrParser && sabrParser.createParser && !globalSabrParser) {
+      globalSabrParser = sabrParser.createParser({
+        onSegment: decodeSabrSegment
+      });
+    }
     debugLog("background audio stream start", {
       streamId: message.streamId,
       url: String(message.url || "").slice(0, 120)
     });
-    scheduleHostTokens();
   }
 
   function appendAudioStreamChunk(message) {
-    if (!whisper || !whisper.appendAudioStreamChunk || !options.whisperEnabled || !message || !message.buffer) {
-      return;
-    }
-
-    whisper.appendAudioStreamChunk(message.streamId, message.buffer);
+    if (!options.whisperEnabled || !message || !message.buffer || !globalSabrParser) return;
+    globalSabrParser.push(message.buffer);
   }
 
   function endAudioChunkStream(message) {
-    if (!whisper || !whisper.endAudioChunkStream || !message) {
-      return;
+    if (!message || message.error) {
+      debugLog("background audio stream error", message && message.error);
     }
-
-    whisper.endAudioChunkStream(message.streamId, message.error || "");
-    backgroundAudioStreamIds.delete(message.streamId);
-    debugLog("background audio stream end", {
-      streamId: message.streamId,
-      error: message.error || ""
-    });
-  }
-
-  function applyHostResolution(detailJson) {
-    var detail;
-    var token;
-
-    try {
-      detail = JSON.parse(detailJson);
-    } catch (error) {
-      return;
-    }
-
-    if (!detail || !detail.token || !detail.word) {
-      return;
-    }
-
-    token = pendingTokens.get(tokenCacheKey(detail.token)) || detail.token;
-    applyResolvedWord(token, {
-      tokenIndex: detail.token.tokenIndex,
-      word: detail.word,
-      source: "media",
-      score: detail.score || 0,
-      runnerUpScore: detail.runnerUpScore || 0,
-      transcript: detail.transcript || "",
-      forced: Boolean(detail.forced)
-    });
   }
 
   function warmupWhisperHost() {
-    if (options.whisperEnabled && whisper && whisper.warmup) {
-      whisper.warmup();
+    if (options.whisperEnabled) {
+      warmupWhisper();
     }
   }
 
@@ -710,11 +732,6 @@
 
   function processWhisperQueue() {
     var next;
-    var firstPending;
-    var video;
-    var playbackTime;
-    var playbackPending;
-    var waitingCoverageKey;
 
     whisperQueueScheduled = false;
     if (!options.whisperEnabled || !mediaAudio.segments.length || !pendingTokens.size || activeWhisperRequests >= MAX_ACTIVE_WHISPER_REQUESTS) {
@@ -723,38 +740,6 @@
 
     next = nextResolvableMediaToken();
     if (!next) {
-      video = findVideo();
-      playbackTime = video ? video.currentTime : NaN;
-      playbackPending = isFinite(playbackTime) ? pendingTokenValues().find(function findPlaybackPending(token) {
-        return !token.resolved && !token.resolving &&
-          typeof token.timeSeconds === "number" &&
-          token.timeSeconds <= playbackTime + 1 &&
-          playbackTime - token.timeSeconds <= PLAYBACK_PRIORITY_SECONDS;
-      }) : null;
-      firstPending = pendingTokenValues().find(function findPending(token) {
-        return !token.resolved && !token.resolving;
-      });
-      waitingCoverageKey = [
-        pendingTokens.size,
-        playbackPending ? playbackPending.tokenIndex : -1,
-        playbackPending ? playbackPending.timeSeconds : -1,
-        firstPending ? firstPending.tokenIndex : -1,
-        firstPending ? firstPending.timeSeconds : -1,
-        mediaAudio.segments.length ? mediaAudio.segments[mediaAudio.segments.length - 1].endTime : -1
-      ].join(":");
-      if (waitingCoverageKey !== lastWaitingCoverageKey) {
-        lastWaitingCoverageKey = waitingCoverageKey;
-        debugLog("pending tokens waiting for media coverage", {
-          pending: pendingTokens.size,
-          playbackTime: isFinite(playbackTime) ? playbackTime : -1,
-          playbackTokenIndex: playbackPending ? playbackPending.tokenIndex : -1,
-          playbackTokenTime: playbackPending ? playbackPending.timeSeconds : -1,
-          nextTokenIndex: firstPending ? firstPending.tokenIndex : -1,
-          nextTokenTime: firstPending ? firstPending.timeSeconds : -1,
-          segmentStart: mediaAudio.segments[0] ? mediaAudio.segments[0].startTime : -1,
-          segmentEnd: mediaAudio.segments.length ? mediaAudio.segments[mediaAudio.segments.length - 1].endTime : -1
-        });
-      }
       compactPendingTokens();
       return;
     }
@@ -788,7 +773,7 @@
   function rememberTimedTextTokens(tokens) {
     var existing = Object.create(null);
 
-    if (!rules || !whisper || !tokens || !tokens.length) {
+    if (!rules || !tokens || !tokens.length) {
       return;
     }
 
@@ -841,18 +826,16 @@
     }
 
     startLiveCaptionResolver();
-    warmupWhisperHost();
-    if (options.whisperEnabled && mediaAudio.segments.length) {
-      resolvePendingTokensFromMedia();
-    } else if (options.whisperEnabled && backgroundAudioStreamIds.size) {
-      scheduleHostTokens();
-      debugLog("queued tokens waiting for decoded media audio", {
-        pending: pendingTokens.size
-      });
-    } else if (options.whisperEnabled) {
-      debugLog("pending tokens waiting for page audio", {
-        pending: pendingTokens.size
-      });
+    if (options.whisperEnabled) {
+      warmupWhisperHost();
+      preloadWhisper();
+      if (mediaAudio.segments.length) {
+        resolvePendingTokensFromMedia();
+      } else {
+        debugLog("pending tokens waiting for page audio", {
+          pending: pendingTokens.size
+        });
+      }
     }
   }
 
@@ -1169,11 +1152,6 @@
   root.UncensoredAudioInference = exports;
   if (root.addEventListener) {
     root.addEventListener("yt-navigate-finish", resetForNavigation);
-    root.addEventListener("uncensored-host-resolution", function onHostResolution(event) {
-      if (typeof event.detail === "string") {
-        applyHostResolution(event.detail);
-      }
-    });
   }
   if (typeof module === "object" && module.exports) {
     module.exports = exports;

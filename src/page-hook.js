@@ -13,6 +13,7 @@
   var audioReplacements = new Map();
   var audioReplacementVersion = 0;
   var patchedTimedTextCache = new Map();
+  var sabrParserInstance = null;
 
   globalThis.__uncensoredOriginalFetch = originalFetch;
   globalThis.__uncensoredOriginalXHROpen = originalXHROpen;
@@ -163,7 +164,11 @@
       return null;
     }
 
-    return sabrParser.createParser({
+    if (sabrParserInstance) {
+      return sabrParserInstance;
+    }
+
+    sabrParserInstance = sabrParser.createParser({
       onSegment: function onSegment(segment) {
         try {
           globalThis.dispatchEvent(new CustomEvent("uncensored-sabr-audio", {
@@ -179,6 +184,7 @@
         } catch (error) {}
       }
     });
+    return sabrParserInstance;
   }
 
   function processSabrResponse(response) {
@@ -379,5 +385,6 @@
     clearPatchedTimedTextCache();
     audioReplacements.clear();
     audioReplacementVersion += 1;
+    sabrParserInstance = null;
   });
 })();
