@@ -1,5 +1,7 @@
 dist/
-tests/
+tests/*
+!tests/extension-wiring.test.js
+!tests/sabr-parser.test.js
 .zip
 .parquet
 corpus/

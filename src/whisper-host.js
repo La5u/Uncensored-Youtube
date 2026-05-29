@@ -3,35 +3,24 @@
 
   var runtime = root.browser || root.chrome;
   var rules = root.UncensoredRules;
+  var sabrParser = root.UncensoredSabrParser;
   var worker = null;
   var pending = new Map();
   var nextInternalId = 1000000;
   var audioContext = null;
   var activeVideoId = "";
-  var activeChunkStreamId = 0;
+  var streamParsers = new Map();
   var audioSegments = [];
   var tokenQueue = new Map();
   var activeTranscribes = 0;
   var transcribeScheduled = false;
-  var sabrCarry = new Uint8Array(0);
-  var sabrHeaders = Object.create(null);
-  var sabrAudio = new Map();
-  var audioItags = Object.freeze({
-    "139": true,
-    "140": true,
-    "141": true,
-    "249": true,
-    "250": true,
-    "251": true,
-    "599": true,
-    "600": true
-  });
   var SLICE_BEFORE_SECONDS = 1.25;
   var SLICE_AFTER_SECONDS = 1.25;
   var TARGET_SAMPLE_RATE = 16000;
   var CLEAR_WHISPER_SCORE = 10;
   var MAX_ACTIVE_TRANSCRIBES = 2;
   var MAX_SEGMENTS = 18;
+  var TRANSCRIBE_TIMEOUT_MS = 60000;
 
   function workerUrl() {
     return runtime && runtime.runtime && runtime.runtime.getURL
@@ -56,6 +45,9 @@
   function rejectAll(message) {
     pending.forEach(function rejectPending(record, id) {
       if (record && record.reject) {
+        if (record.timeout) {
+          root.clearTimeout(record.timeout);
+        }
         record.reject(new Error(message));
       } else {
         postToParent({
@@ -83,6 +75,9 @@
 
       pending.delete(message.id);
       if (record && record.resolve) {
+        if (record.timeout) {
+          root.clearTimeout(record.timeout);
+        }
         if (message.ok) {
           record.resolve(message.decision || message);
         } else {
@@ -121,204 +116,6 @@
     return Promise.resolve(audioContext);
   }
 
-  function readUmpVarint(bytes, offset) {
-    var first = bytes[offset];
-    var length;
-    var value;
-
-    if (first === undefined) {
-      return null;
-    }
-
-    length = first < 128 ? 1 : first < 192 ? 2 : first < 224 ? 3 : first < 240 ? 4 : 5;
-    if (offset + length > bytes.length) {
-      return null;
-    }
-
-    if (length === 1) {
-      value = first;
-    } else if (length === 2) {
-      value = (first & 0x3f) + 64 * bytes[offset + 1];
-    } else if (length === 3) {
-      value = (first & 0x1f) + 32 * (bytes[offset + 1] + 256 * bytes[offset + 2]);
-    } else if (length === 4) {
-      value = (first & 0x0f) + 16 * (bytes[offset + 1] + 256 * (bytes[offset + 2] + 256 * bytes[offset + 3]));
-    } else {
-      value = bytes[offset + 1] + 256 * (bytes[offset + 2] + 256 * (bytes[offset + 3] + 256 * bytes[offset + 4]));
-    }
-
-    return {
-      value: value,
-      offset: offset + length
-    };
-  }
-
-  function parseUmpParts(bytes) {
-    var offset = 0;
-    var parts = [];
-
-    while (offset < bytes.length) {
-      var type = readUmpVarint(bytes, offset);
-      var size;
-      var dataStart;
-
-      if (!type) {
-        return { parts: parts, offset: offset };
-      }
-
-      size = readUmpVarint(bytes, type.offset);
-      if (!size) {
-        return { parts: parts, offset: offset };
-      }
-
-      dataStart = size.offset;
-      if (dataStart + size.value > bytes.length) {
-        return { parts: parts, offset: offset };
-      }
-
-      parts.push({
-        type: type.value,
-        data: bytes.slice(dataStart, dataStart + size.value)
-      });
-      offset = dataStart + size.value;
-    }
-
-    return { parts: parts, offset: offset };
-  }
-
-  function readSabrHeaderId(data) {
-    return readUmpVarint(data, 0);
-  }
-
-  function readProtoVarint(bytes, offset) {
-    var shift = 0;
-    var value = 0;
-
-    while (offset < bytes.length) {
-      var byte = bytes[offset];
-
-      value += (byte & 0x7f) * Math.pow(2, shift);
-      offset += 1;
-      if (!(byte & 0x80)) {
-        return {
-          value: value,
-          offset: offset
-        };
-      }
-      shift += 7;
-    }
-
-    return null;
-  }
-
-  function parseMediaHeader(bytes) {
-    var offset = 0;
-    var header = {};
-
-    while (offset < bytes.length) {
-      var tag = readProtoVarint(bytes, offset);
-      var field;
-      var wire;
-      var value;
-      var length;
-
-      if (!tag || tag.value === 0) {
-        break;
-      }
-
-      offset = tag.offset;
-      field = tag.value >> 3;
-      wire = tag.value & 7;
-
-      if (wire === 0) {
-        value = readProtoVarint(bytes, offset);
-        if (!value) {
-          break;
-        }
-        offset = value.offset;
-        if (field === 3) {
-          header.itag = value.value;
-        } else if (field === 1) {
-          header.headerId = value.value;
-        } else if (field === 8) {
-          header.isInitSeg = Boolean(value.value);
-        } else if (field === 11) {
-          header.startMs = value.value;
-        } else if (field === 12) {
-          header.durationMs = value.value;
-        }
-      } else if (wire === 2) {
-        length = readProtoVarint(bytes, offset);
-        if (!length) {
-          break;
-        }
-        offset = length.offset + length.value;
-      } else if (wire === 5) {
-        offset += 4;
-      } else if (wire === 1) {
-        offset += 8;
-      } else {
-        break;
-      }
-    }
-
-    return header;
-  }
-
-  function appendAudioChunk(header, chunk) {
-    var key = String(header.itag || 0);
-    var entry;
-    var segmentKey;
-    var segment;
-
-    if (!header.itag || !audioItags[key] || !chunk.length) {
-      return;
-    }
-
-    entry = sabrAudio.get(key);
-    if (!entry) {
-      entry = {
-        itag: header.itag,
-        initChunks: [],
-        activeSegments: Object.create(null)
-      };
-      sabrAudio.set(key, entry);
-    }
-
-    if (header.isInitSeg) {
-      entry.initChunks.push(chunk);
-      return;
-    }
-
-    segmentKey = String(header.headerId);
-    segment = entry.activeSegments[segmentKey];
-    if (!segment) {
-      segment = {
-        header: header,
-        chunks: [],
-        bytes: 0
-      };
-      entry.activeSegments[segmentKey] = segment;
-    }
-    segment.chunks.push(chunk);
-    segment.bytes += chunk.length;
-  }
-
-  function chunksToArrayBuffer(chunks) {
-    var length = chunks.reduce(function sum(total, chunk) {
-      return total + chunk.length;
-    }, 0);
-    var bytes = new Uint8Array(length);
-    var offset = 0;
-
-    chunks.forEach(function copy(chunk) {
-      bytes.set(chunk, offset);
-      offset += chunk.length;
-    });
-
-    return bytes.buffer;
-  }
-
   function rememberDecodedSegment(header, encodedBytes, buffer) {
     var startTime = typeof header.startMs === "number" ? header.startMs / 1000 : 0;
     var segment = {
@@ -346,72 +143,40 @@
     scheduleTranscribeQueue();
   }
 
-  function finalizeAudioSegment(headerId) {
-    var header = sabrHeaders[headerId];
-    var key = String(header && header.itag || 0);
-    var entry = sabrAudio.get(key);
-    var segment = entry && entry.activeSegments && entry.activeSegments[String(headerId)];
-    var chunks;
+  function decodeAudioSegment(segment) {
     var encoded;
 
-    if (!entry || !entry.initChunks.length || !segment || !segment.chunks.length) {
+    if (!sabrParser || !sabrParser.chunksToArrayBuffer || !segment || !segment.chunks) {
       return;
     }
 
-    delete entry.activeSegments[String(headerId)];
-    chunks = entry.initChunks.concat(segment.chunks);
-    encoded = chunksToArrayBuffer(chunks);
+    encoded = sabrParser.chunksToArrayBuffer(segment.chunks);
     currentAudioContext().then(function decode(context) {
       return context.decodeAudioData(encoded.slice(0));
     }).then(function decoded(buffer) {
-      rememberDecodedSegment(segment.header || header || {}, encoded.byteLength, buffer);
+      rememberDecodedSegment(segment.header || {}, encoded.byteLength, buffer);
     }, function failed(error) {
       postStatus("audio decode failed: " + (error && (error.message || String(error))));
     });
   }
 
-  function processSabrBuffer(buffer) {
-    var bytes = new Uint8Array(buffer);
-    var combined = new Uint8Array(sabrCarry.length + bytes.length);
-    var parsed;
+  function createStreamParser() {
+    if (!sabrParser || !sabrParser.createParser) {
+      return null;
+    }
 
-    combined.set(sabrCarry, 0);
-    combined.set(bytes, sabrCarry.length);
-    parsed = parseUmpParts(combined);
-    sabrCarry = combined.slice(parsed.offset);
-
-    parsed.parts.forEach(function handlePart(part) {
-      var headerId;
-
-      if (part.type === 20) {
-        var header = parseMediaHeader(part.data);
-        if (header.headerId !== undefined) {
-          sabrHeaders[header.headerId] = header;
-        }
-      } else if (part.type === 21 && part.data.length) {
-        headerId = readSabrHeaderId(part.data);
-        if (!headerId) {
-          return;
-        }
-        if (sabrHeaders[headerId.value]) {
-          appendAudioChunk(sabrHeaders[headerId.value], part.data.slice(headerId.offset));
-        }
-      } else if (part.type === 22) {
-        headerId = readSabrHeaderId(part.data);
-        if (!headerId) {
-          return;
-        }
-        finalizeAudioSegment(headerId.value);
-        delete sabrHeaders[headerId.value];
-      }
+    return sabrParser.createParser({
+      onSegment: decodeAudioSegment
     });
   }
 
   function resetStreamParser() {
-    activeChunkStreamId = 0;
-    sabrCarry = new Uint8Array(0);
-    sabrHeaders = Object.create(null);
-    sabrAudio.clear();
+    streamParsers.forEach(function resetParser(parser) {
+      if (parser && parser.reset) {
+        parser.reset();
+      }
+    });
+    streamParsers.clear();
   }
 
   function resetAudioState(videoId) {
@@ -422,6 +187,8 @@
   }
 
   function startAudioChunkStream(streamId, videoId, url) {
+    var parser;
+
     if (!streamId) {
       return;
     }
@@ -432,27 +199,33 @@
       activeVideoId = videoId;
     }
 
-    resetStreamParser();
-    activeChunkStreamId = streamId;
+    parser = createStreamParser();
+    if (parser) {
+      streamParsers.set(streamId, parser);
+    }
   }
 
   function appendAudioStreamChunk(streamId, buffer) {
-    if (!buffer || !streamId || activeChunkStreamId !== streamId) {
+    var parser = streamParsers.get(streamId);
+
+    if (!buffer || !parser) {
       return;
     }
 
-    processSabrBuffer(buffer);
+    if (parser.push(buffer) === false) {
+      streamParsers.delete(streamId);
+    }
   }
 
   function endAudioChunkStream(streamId, error) {
-    if (!streamId || activeChunkStreamId !== streamId) {
+    if (!streamId || !streamParsers.has(streamId)) {
       return;
     }
 
     if (error) {
       postStatus("audio stream failed: " + error);
     }
-    activeChunkStreamId = 0;
+    streamParsers.delete(streamId);
   }
 
   function normalizeContext(text) {
@@ -575,10 +348,15 @@
     nextInternalId += 1;
     return new Promise(function wait(resolve, reject) {
       var audio = pcm.slice();
+      var timeout = root.setTimeout(function transcribeTimedOut() {
+        pending.delete(id);
+        reject(new Error("Whisper worker timed out"));
+      }, TRANSCRIBE_TIMEOUT_MS);
 
       pending.set(id, {
         resolve: resolve,
-        reject: reject
+        reject: reject,
+        timeout: timeout
       });
       ensureWorker().postMessage({
         id: id,
@@ -658,8 +436,11 @@
               forced: decision.forced
             }
           });
+        } else {
+          tokenQueue.delete(key);
         }
       }).catch(function failed(error) {
+        tokenQueue.delete(key);
         postStatus("audio transcribe failed: " + (error && (error.message || String(error))));
       }).finally(function done() {
         activeTranscribes -= 1;

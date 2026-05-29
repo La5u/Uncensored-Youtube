@@ -40,6 +40,7 @@
       "resources": [
         "src/rules.js",
         "src/timedtext.js",
+        "src/sabr-parser.js",
         "src/whisper-local.js",
         "src/whisper-module-worker.js",
         "src/whisper-host.html",

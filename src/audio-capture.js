@@ -23,6 +23,7 @@
   var audioContext = null;
   var lastWaitingCoverageKey = "";
   var MAX_ACTIVE_WHISPER_REQUESTS = 1;
+  var backgroundAudioStreamIds = new Set();
   var mediaAudio = {
     videoId: "",
     source: "",
@@ -89,6 +90,7 @@
     mediaAudio.buffer = null;
     mediaAudio.segments = [];
     mediaAudio.error = "";
+    backgroundAudioStreamIds.clear();
   }
 
   function resampleLinear(input, sourceRate, targetRate) {
@@ -540,6 +542,7 @@
     }
 
     whisper.startAudioChunkStream(message.streamId, message.videoId || currentVideoId(), message.url || "");
+    backgroundAudioStreamIds.add(message.streamId);
     debugLog("background audio stream start", {
       streamId: message.streamId,
       url: String(message.url || "").slice(0, 120)
@@ -561,6 +564,7 @@
     }
 
     whisper.endAudioChunkStream(message.streamId, message.error || "");
+    backgroundAudioStreamIds.delete(message.streamId);
     debugLog("background audio stream end", {
       streamId: message.streamId,
       error: message.error || ""
@@ -840,9 +844,13 @@
     warmupWhisperHost();
     if (options.whisperEnabled && mediaAudio.segments.length) {
       resolvePendingTokensFromMedia();
-    } else if (options.whisperEnabled) {
+    } else if (options.whisperEnabled && backgroundAudioStreamIds.size) {
       scheduleHostTokens();
       debugLog("queued tokens waiting for decoded media audio", {
+        pending: pendingTokens.size
+      });
+    } else if (options.whisperEnabled) {
+      debugLog("pending tokens waiting for page audio", {
         pending: pendingTokens.size
       });
     }
@@ -992,13 +1000,6 @@
     }
 
     return false;
-  }
-
-  function tokenNearPlayback(token, maxDistanceSeconds) {
-    var video = findVideo();
-
-    return Boolean(video && token && typeof token.timeSeconds === "number" &&
-      Math.abs(video.currentTime - token.timeSeconds) <= maxDistanceSeconds);
   }
 
   function applyVisibleCaptionResolution(token, word, source) {

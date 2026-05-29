@@ -8,6 +8,7 @@
   };
   var INJECT_VERSION = String(Date.now());
   var scripts = [
+    "src/sabr-parser.js",
     "src/page-hook.js",
     "src/rules.js",
     "src/timedtext.js"
@@ -95,9 +96,8 @@
   }
 
   watchSettings();
-  loadSettings().then(function injectAfterSettings() {
-    return injectScriptsSequentially(scripts);
-  }).then(dispatchSettingsSoon, dispatchSettingsSoon);
+  injectScriptsSequentially(scripts).then(dispatchSettingsSoon, dispatchSettingsSoon);
+  loadSettings().then(dispatchSettingsSoon, dispatchSettingsSoon);
 
   window.addEventListener("uncensored-timedtext", function rememberTimedText(event) {
     var body = event && event.detail;

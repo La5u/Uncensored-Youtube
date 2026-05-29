@@ -1,0 +1,51 @@
+[
+  {
+    "name": "goit2",
+    "videoId": "Ro0Q4ehyGQc",
+    "url": "https://www.youtube.com/watch?v=Ro0Q4ehyGQc&t=8s",
+    "censored": "goit2.json",
+    "uncensored": "goit2_uncensored.json"
+  },
+  {
+    "name": "goit3",
+    "videoId": "bcvxz2IrtA4",
+    "url": "https://www.youtube.com/watch?v=bcvxz2IrtA4",
+    "censored": "goit3.json",
+    "uncensored": "goit3_uncensored.json"
+  },
+  {
+    "name": "goit4",
+    "videoId": "A7_3IvchOhk",
+    "url": "https://www.youtube.com/watch?v=A7_3IvchOhk",
+    "censored": "goit4.json",
+    "uncensored": "goit4_uncensored.json"
+  },
+  {
+    "name": "goit6",
+    "videoId": "OC9_1UwzWlQ",
+    "url": "https://www.youtube.com/watch?v=OC9_1UwzWlQ",
+    "censored": "goit6.json",
+    "uncensored": "goit6_uncensored.json"
+  },
+  {
+    "name": "goit7",
+    "videoId": "KQz9LftS6ls",
+    "url": "https://www.youtube.com/watch?v=KQz9LftS6ls",
+    "censored": "goit7.json",
+    "uncensored": "goit7_uncensored.json"
+  },
+  {
+    "name": "goit8",
+    "videoId": "AP1Scjdy_Kc",
+    "url": "https://www.youtube.com/watch?v=AP1Scjdy_Kc",
+    "censored": "goit8.json",
+    "uncensored": "goit8_uncensored.json"
+  },
+  {
+    "name": "mov",
+    "videoId": "5CMyz-iVw1g",
+    "url": "https://www.youtube.com/watch?v=5CMyz-iVw1g",
+    "censored": "mov_censored.json",
+    "uncensored": "mov.json"
+  }
+]
