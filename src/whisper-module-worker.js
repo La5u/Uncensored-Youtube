@@ -1,7 +1,10 @@
+import * as transformers from "./vendor/transformers.min.js";
 import "./whisper-local.js";
 
 (function runWhisperModuleWorker(root) {
   "use strict";
+
+  root.transformers = transformers;
 
   var whisper = root.UncensoredWhisperLocal;
 

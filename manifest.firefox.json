@@ -20,8 +20,16 @@
   ],
   "browser_specific_settings": {
     "gecko": {
-      "id": "uncensored-youtube@lasu.dev",
-      "strict_min_version": "109.0"
+      "id": "uncensored@lasu.dev",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      },
+      "strict_min_version": "140.0"
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
     }
   },
   "background": {

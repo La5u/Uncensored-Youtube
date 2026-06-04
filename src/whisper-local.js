@@ -57,7 +57,6 @@
   var SLOT_INTENSIFIER_REGEX = new RegExp("did you just " + SLOT_MARKER + "|not " + SLOT_MARKER + " \\w+|being " + SLOT_MARKER + " \\w+|" + SLOT_MARKER + " (?:tsundere|nonchalant)");
   var SLOT_SHIT_REGEX = new RegExp(SLOT_MARKER + " to do|a lot of " + SLOT_MARKER + "|beat the " + SLOT_MARKER + " out");
   var OH_HOLY_SLOT_REGEX = new RegExp("oh " + SLOT_MARKER + "|holy " + SLOT_MARKER);
-  var transformersPromise = null;
   var transcriberPromise = null;
 
   function debugEnabled() {
@@ -94,16 +93,7 @@
       return Promise.resolve(root.transformers);
     }
 
-    if (!transformersPromise) {
-      transformersPromise = import(baseUrl + "src/vendor/transformers.min.js").then(function imported(module) {
-        return module && module.pipeline ? module : root.transformers;
-      }).catch(function importFailed(error) {
-        debugLog("transformers import failed", errorDetails(error));
-        throw error;
-      });
-    }
-
-    return transformersPromise;
+    return Promise.reject(new Error("Transformers.js module is unavailable"));
   }
 
   function getTranscriber() {
