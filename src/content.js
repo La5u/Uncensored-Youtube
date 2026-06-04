@@ -59,6 +59,10 @@
     window.setTimeout(dispatchSettings, 0);
   }
 
+  function requestSabrAudioReplay() {
+    window.dispatchEvent(new CustomEvent("uncensored-request-sabr-audio"));
+  }
+
   function loadSettings() {
     if (!runtime.storage || !runtime.storage.local) {
       return Promise.resolve();
@@ -96,7 +100,10 @@
   }
 
   watchSettings();
-  injectScriptsSequentially(scripts).then(dispatchSettingsSoon, dispatchSettingsSoon);
+  injectScriptsSequentially(scripts).then(function injected() {
+    dispatchSettingsSoon();
+    requestSabrAudioReplay();
+  }, dispatchSettingsSoon);
   loadSettings().then(dispatchSettingsSoon, dispatchSettingsSoon);
 
   window.addEventListener("uncensored-timedtext", function rememberTimedText(event) {
@@ -123,6 +130,8 @@
       audioInference.setSabrAudioData(detail);
     }
   });
+
+  requestSabrAudioReplay();
 
   if (runtime.runtime && runtime.runtime.onMessage) {
     runtime.runtime.onMessage.addListener(function onRuntimeMessage(message) {

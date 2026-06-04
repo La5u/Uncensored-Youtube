@@ -60,7 +60,6 @@
         "src/sabr-parser.js",
         "src/whisper-local.js",
         "src/whisper-module-worker.js",
-        "src/audio-capture.js",
         "src/vendor/transformers.min.js",
         "src/vendor/ort-wasm-simd-threaded.asyncify.wasm",
         "src/vendor/ort-wasm-simd-threaded.asyncify.mjs",

@@ -1,7 +1,7 @@
 (function installUncensoredPageHook() {
   "use strict";
 
-  var VERSION = 17;
+  var VERSION = 18;
   var PATCH_CACHE_LIMIT = 16;
   var sabrParser = globalThis.UncensoredSabrParser;
   var originalFetch = globalThis.__uncensoredOriginalFetch || globalThis.fetch;
@@ -14,6 +14,7 @@
   var audioReplacementVersion = 0;
   var patchedTimedTextCache = new Map();
   var sabrParserInstance = null;
+  var lastSabrAudioDetail = "";
 
   globalThis.__uncensoredOriginalFetch = originalFetch;
   globalThis.__uncensoredOriginalXHROpen = originalXHROpen;
@@ -146,6 +147,22 @@
     }
   }
 
+  function notifySabrAudio(detailJson) {
+    try {
+      globalThis.dispatchEvent(new CustomEvent("uncensored-sabr-audio", {
+        detail: detailJson
+      }));
+    } catch (error) {
+      return;
+    }
+  }
+
+  globalThis.addEventListener("uncensored-request-sabr-audio", function replaySabrAudio() {
+    if (lastSabrAudioDetail) {
+      notifySabrAudio(lastSabrAudioDetail);
+    }
+  });
+
   function isGoogleVideoPlaybackUrl(input) {
     var url;
 
@@ -170,18 +187,15 @@
 
     sabrParserInstance = sabrParser.createParser({
       onSegment: function onSegment(segment) {
-        try {
-          globalThis.dispatchEvent(new CustomEvent("uncensored-sabr-audio", {
-            detail: JSON.stringify({
-              itag: segment.itag,
-              bytes: segment.bytes,
-              segmentBytes: segment.bytes,
-              startMs: typeof segment.header.startMs === "number" ? segment.header.startMs : null,
-              durationMs: typeof segment.header.durationMs === "number" ? segment.header.durationMs : null,
-              base64: sabrParser.chunksToBase64(segment.chunks)
-            })
-          }));
-        } catch (error) {}
+        lastSabrAudioDetail = JSON.stringify({
+          itag: segment.itag,
+          bytes: segment.bytes,
+          segmentBytes: segment.bytes,
+          startMs: typeof segment.header.startMs === "number" ? segment.header.startMs : null,
+          durationMs: typeof segment.header.durationMs === "number" ? segment.header.durationMs : null,
+          base64: sabrParser.chunksToBase64(segment.chunks)
+        });
+        notifySabrAudio(lastSabrAudioDetail);
       }
     });
     return sabrParserInstance;

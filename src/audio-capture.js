@@ -143,11 +143,25 @@
         Math.abs(existing.endTime - segment.endTime) < 0.01;
     });
     if (duplicate) return;
+    mediaAudio.videoId = mediaAudio.videoId || currentVideoId();
+    mediaAudio.source = mediaAudio.source || "sabr";
+    mediaAudio.loading = false;
+    mediaAudio.error = "";
     mediaAudio.segments.push(segment);
     mediaAudio.segments.sort(function sortSegments(left, right) {
       return left.startTime - right.startTime;
     });
     compactMediaSegments(false);
+    debugLog("sabr audio ready", {
+      bytes: segment.bytes,
+      startTime: segment.startTime,
+      endTime: segment.endTime,
+      duration: buffer.duration,
+      sampleRate: buffer.sampleRate,
+      coveredSeconds: mediaAudio.segments.reduce(function totalCovered(total, item) {
+        return total + Math.max(0, item.endTime - item.startTime);
+      }, 0)
+    });
     resolvePendingTokensFromMedia();
   }
 
