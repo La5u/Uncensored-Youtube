@@ -18,7 +18,7 @@ assert.ok(!pageHook.includes("fetchGoogleAudio"));
 assert.ok(!pageHook.includes("bestGoogleAudioUrl"));
 
 assert.ok(audioCapture.includes("bgMessage(\"transcribe\""));
-assert.ok(audioCapture.includes("var streamParsers = new Map();"));
+assert.ok(audioCapture.includes("var globalSabrParser = null;"));
 assert.ok(audioCapture.includes("pending tokens waiting for page audio"));
 assert.ok(audioCapture.includes("decodeSabrSegment"));
 

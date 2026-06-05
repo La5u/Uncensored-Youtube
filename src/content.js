@@ -132,23 +132,4 @@
   });
 
   requestSabrAudioReplay();
-
-  if (runtime.runtime && runtime.runtime.onMessage) {
-    runtime.runtime.onMessage.addListener(function onRuntimeMessage(message) {
-      var audioInference = globalThis.UncensoredAudioInference;
-
-      message = message || {};
-      if (!settings.whisperEnabled || !message.uncensoredBackgroundAudioStream || !audioInference) {
-        return;
-      }
-
-      if (message.type === "start" && audioInference.startAudioChunkStream) {
-        audioInference.startAudioChunkStream(message);
-      } else if (message.type === "chunk" && audioInference.appendAudioStreamChunk) {
-        audioInference.appendAudioStreamChunk(message);
-      } else if ((message.type === "end" || message.type === "error") && audioInference.endAudioChunkStream) {
-        audioInference.endAudioChunkStream(message);
-      }
-    });
-  }
 })();

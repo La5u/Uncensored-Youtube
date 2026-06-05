@@ -196,7 +196,18 @@
     var headers = Object.create(null);
     var audio = new Map();
     var onSegment = options && options.onSegment;
-    var stopped = false;
+    var onInitSegment = options && options.onInitSegment;
+
+    function resetState() {
+      carry = new Uint8Array(0);
+      headers = Object.create(null);
+      audio.clear();
+    }
+
+    function resetScratch() {
+      carry = new Uint8Array(0);
+      headers = Object.create(null);
+    }
 
     function appendAudioChunk(header, chunk) {
       var key = String(header.itag || 0);
@@ -219,6 +230,9 @@
 
       if (header.isInitSeg) {
         entry.initChunks.push(chunk);
+        if (onInitSegment) {
+          onInitSegment(header.itag, chunk);
+        }
         return;
       }
 
@@ -241,15 +255,15 @@
       var segment = entry && entry.activeSegments && entry.activeSegments[String(headerId)];
       var chunks;
 
-      if (!entry || !entry.initChunks.length || !segment || !segment.chunks.length) {
+      if (!segment || !segment.chunks.length) {
         return;
       }
 
       delete entry.activeSegments[String(headerId)];
-      chunks = entry.initChunks.concat(segment.chunks);
+      chunks = (entry ? entry.initChunks : []).concat(segment.chunks);
       if (onSegment) {
         onSegment({
-          itag: entry.itag,
+          itag: segment.header.itag || (header && header.itag) || 0,
           header: segment.header || header || {},
           bytes: segment.bytes,
           chunks: chunks
@@ -263,8 +277,8 @@
         var combined;
         var parsed;
 
-        if (stopped || !buffer) {
-          return !stopped;
+        if (!buffer) {
+          return true;
         }
 
         bytes = new Uint8Array(buffer);
@@ -273,15 +287,13 @@
         combined.set(bytes, carry.length);
         parsed = parseUmpParts(combined);
         if (parsed.invalid) {
-          carry = new Uint8Array(0);
-          stopped = true;
+          resetScratch();
           return false;
         }
 
         carry = combined.slice(parsed.offset);
         if (carry.length > MAX_CARRY_BYTES) {
-          carry = new Uint8Array(0);
-          stopped = true;
+          resetScratch();
           return false;
         }
 
@@ -310,10 +322,7 @@
         return true;
       },
       reset: function reset() {
-        carry = new Uint8Array(0);
-        headers = Object.create(null);
-        audio.clear();
-        stopped = false;
+        resetState();
       }
     };
   }

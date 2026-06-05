@@ -2,12 +2,10 @@
   "use strict";
   var root = typeof globalThis !== "undefined" ? globalThis : this;
   var rules = root.UncensoredRules;
-  var sabrParser = root.UncensoredSabrParser;
   var runtime = root.browser || root.chrome;
 
   var SLICE_BEFORE_SECONDS = 1.25;
   var SLICE_AFTER_SECONDS = 1.25;
-  var PLAYBACK_PRIORITY_SECONDS = 12;
   var VISIBLE_RESOLUTION_SECONDS = 12;
   var CLEAR_WHISPER_SCORE = 10;
   var TARGET_SAMPLE_RATE = 16000;
@@ -23,7 +21,6 @@
   var whisperQueueScheduled = false;
   var audioContext = null;
   var MAX_ACTIVE_WHISPER_REQUESTS = 1;
-  var globalSabrParser = null;
   var mediaAudio = {
     videoId: "",
     source: "",
@@ -89,7 +86,6 @@
     mediaAudio.buffer = null;
     mediaAudio.segments = [];
     mediaAudio.error = "";
-    globalSabrParser = null;
   }
 
   // ── Whisper via background relay ──
@@ -152,30 +148,7 @@
       return left.startTime - right.startTime;
     });
     compactMediaSegments(false);
-    debugLog("sabr audio ready", {
-      bytes: segment.bytes,
-      startTime: segment.startTime,
-      endTime: segment.endTime,
-      duration: buffer.duration,
-      sampleRate: buffer.sampleRate,
-      coveredSeconds: mediaAudio.segments.reduce(function totalCovered(total, item) {
-        return total + Math.max(0, item.endTime - item.startTime);
-      }, 0)
-    });
     resolvePendingTokensFromMedia();
-  }
-
-  function decodeSabrSegment(segment) {
-    if (!sabrParser || !sabrParser.chunksToArrayBuffer || !segment || !segment.chunks) return;
-    var encoded = sabrParser.chunksToArrayBuffer(segment.chunks);
-    currentAudioContext().then(function decode(context) {
-      return context.decodeAudioData(encoded.slice(0));
-    }).then(function decoded(buffer) {
-      var startTime = typeof segment.header.startMs === "number" ? segment.header.startMs / 1000 : 0;
-      addAudioSegment(startTime, buffer, encoded.byteLength);
-    }, function decodeFailed(error) {
-      debugLog("audio decode failed", error && (error.message || String(error)));
-    });
   }
 
   function resampleLinear(input, sourceRate, targetRate) {
@@ -239,54 +212,12 @@
       return;
     }
 
-    compactMediaSegments(false);
-    mediaAudio.videoId = currentVideoId();
-    mediaAudio.source = "sabr";
-    mediaAudio.loading = true;
-    if (!mediaAudio.segments) {
-      mediaAudio.segments = [];
-    }
-    mediaAudio.promise = currentAudioContext().then(function decodeWithContext(context) {
+    currentAudioContext().then(function decodeWithContext(context) {
       return context.decodeAudioData(base64ToArrayBuffer(detail.base64));
     }).then(function decoded(buffer) {
       var startTime = typeof detail.startMs === "number" ? detail.startMs / 1000 : 0;
-      var segment = {
-        startTime: startTime,
-        endTime: startTime + buffer.duration,
-        buffer: buffer,
-        bytes: detail.segmentBytes || detail.bytes || 0
-      };
-      var duplicate;
 
-      duplicate = mediaAudio.segments.some(function hasSegment(existing) {
-        return Math.abs(existing.startTime - segment.startTime) < 0.01 &&
-          Math.abs(existing.endTime - segment.endTime) < 0.01;
-      });
-      if (duplicate) {
-        mediaAudio.loading = false;
-        return buffer;
-      }
-
-      mediaAudio.segments.push(segment);
-      mediaAudio.segments.sort(function sortSegments(left, right) {
-        return left.startTime - right.startTime;
-      });
-      mediaAudio.buffer = buffer;
-      mediaAudio.loading = false;
-      mediaAudio.error = "";
-      compactMediaSegments(false);
-      debugLog("sabr audio ready", {
-        itag: detail.itag,
-        bytes: segment.bytes,
-        startTime: segment.startTime,
-        endTime: segment.endTime,
-        duration: buffer.duration,
-        sampleRate: buffer.sampleRate,
-        coveredSeconds: mediaAudio.segments.reduce(function totalCovered(total, item) {
-          return total + Math.max(0, item.endTime - item.startTime);
-        }, 0)
-      });
-      resolvePendingTokensFromMedia();
+      addAudioSegment(startTime, buffer, detail.segmentBytes || detail.bytes || 0);
       return buffer;
     }).catch(function failed(error) {
       mediaAudio.loading = false;
@@ -523,8 +454,7 @@
         transcript: decision && decision.transcript || "",
         forced: Boolean(decision && decision.forced),
         rejected: Boolean(rejectionReason),
-        rejectionReason: rejectionReason,
-        decision: decision
+        rejectionReason: rejectionReason
       });
 
       if (rejectionReason) {
@@ -543,19 +473,23 @@
     });
   }
 
-  function segmentForToken(token) {
+  function segmentForToken(token, afterEndTime) {
     if (!token || !mediaAudio.segments || !mediaAudio.segments.length) {
       return null;
     }
 
     return mediaAudio.segments.find(function findSegment(segment) {
+      if (afterEndTime && segment.endTime <= afterEndTime) {
+        return false;
+      }
+
       return token.timeSeconds >= segment.startTime - SLICE_BEFORE_SECONDS &&
         token.timeSeconds <= segment.endTime;
     }) || null;
   }
 
-  function resolveTokenFromMedia(token) {
-    return Promise.resolve(segmentForToken(token)).then(function mediaReady(segment) {
+  function resolveTokenFromMedia(token, selectedSegment) {
+    return Promise.resolve(selectedSegment || segmentForToken(token)).then(function mediaReady(segment) {
       if (!segment) {
         throw new Error("No decoded media audio");
       }
@@ -602,37 +536,6 @@
     scheduleWhisperQueue();
   }
 
-  function startAudioChunkStream(message) {
-    if (!options.whisperEnabled || !message || !message.streamId) return;
-    var videoId = message.videoId || currentVideoId();
-    if (videoId && mediaAudio.videoId && mediaAudio.videoId !== videoId) {
-      globalSabrParser = null;
-      mediaAudio.videoId = videoId;
-    } else if (videoId && !mediaAudio.videoId) {
-      mediaAudio.videoId = videoId;
-    }
-    if (sabrParser && sabrParser.createParser && !globalSabrParser) {
-      globalSabrParser = sabrParser.createParser({
-        onSegment: decodeSabrSegment
-      });
-    }
-    debugLog("background audio stream start", {
-      streamId: message.streamId,
-      url: String(message.url || "").slice(0, 120)
-    });
-  }
-
-  function appendAudioStreamChunk(message) {
-    if (!options.whisperEnabled || !message || !message.buffer || !globalSabrParser) return;
-    globalSabrParser.push(message.buffer);
-  }
-
-  function endAudioChunkStream(message) {
-    if (!message || message.error) {
-      debugLog("background audio stream error", message && message.error);
-    }
-  }
-
   function warmupWhisperHost() {
     if (options.whisperEnabled) {
       warmupWhisper();
@@ -653,20 +556,12 @@
         return;
       }
 
-      segment = segmentForToken(token);
+      segment = segmentForToken(token, token.attemptedCoverageEnd || 0);
       if (!segment) {
         return;
       }
 
-      if (token.attemptedCoverageEnd && token.attemptedCoverageEnd >= segment.endTime) {
-        return;
-      }
-
       distance = hasPlaybackTime ? Math.abs(playbackTime - token.timeSeconds) : Infinity;
-      if (hasPlaybackTime && distance > PLAYBACK_PRIORITY_SECONDS) {
-        return;
-      }
-
       if (!selected || distance < selected.distance) {
         selected = {
           token: token,
@@ -763,7 +658,7 @@
     next.token.attemptedByMedia = true;
     next.token.attemptedCoverageEnd = next.segment.endTime;
     activeWhisperRequests += 1;
-    resolveTokenFromMedia(next.token).then(function mediaResolution(resolution) {
+    resolveTokenFromMedia(next.token, next.segment).then(function mediaResolution(resolution) {
       applyResolvedWord(next.token, resolution);
     }).catch(function ignoreMediaResolution(error) {
       debugLog("media token unresolved", {
@@ -773,7 +668,7 @@
     }).finally(function clearMediaResolving() {
       activeWhisperRequests = Math.max(0, activeWhisperRequests - 1);
       next.token.resolving = false;
-      if (!next.token.resolved) {
+      if (!next.token.resolved && next.token.timeSeconds + SLICE_AFTER_SECONDS <= next.segment.endTime) {
         pendingTokens.delete(tokenCacheKey(next.token));
       }
       compactPendingTokens();
@@ -830,11 +725,6 @@
       }
     });
 
-    debugLog("remembered timedtext tokens", {
-      added: tokens.length,
-      pending: pendingTokens.size
-    });
-
     if (!pendingTokens.size) {
       return;
     }
@@ -845,10 +735,6 @@
       preloadWhisper();
       if (mediaAudio.segments.length) {
         resolvePendingTokensFromMedia();
-      } else {
-        debugLog("pending tokens waiting for page audio", {
-          pending: pendingTokens.size
-        });
       }
     }
   }
@@ -1104,9 +990,6 @@
 
   var exports = Object.freeze({
     setSabrAudioData: setSabrAudioData,
-    startAudioChunkStream: startAudioChunkStream,
-    appendAudioStreamChunk: appendAudioStreamChunk,
-    endAudioChunkStream: endAudioChunkStream,
     setOptions: function setOptions(nextOptions) {
       var previousRulesEnabled = options.rulesEnabled;
 

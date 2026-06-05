@@ -46,12 +46,18 @@ const parser = sabr.createParser({
 
 const initHeader = header({ headerId: 1, itag: 140, isInitSeg: true });
 const mediaHeader = header({ headerId: 2, itag: 140, startMs: 1200, durationMs: 300 });
-const payload = concat([
+const initPayload = concat([
   part(20, initHeader),
-  part(21, Uint8Array.from([1, 10, 11])),
+  part(21, Uint8Array.from([1, 10, 11]))
+]);
+const mediaPayload = concat([
   part(20, mediaHeader),
   part(21, Uint8Array.from([2, 20, 21, 22])),
   part(22, Uint8Array.from([2]))
+]);
+const payload = concat([
+  initPayload,
+  mediaPayload
 ]);
 
 parser.push(payload.buffer.slice(0, 7));
@@ -82,9 +88,19 @@ const invalidSegments = [];
 const invalidParser = sabr.createParser({ onSegment: (segment) => invalidSegments.push(segment) });
 
 assert.strictEqual(invalidParser.push(Uint8Array.from([20, 255, 255, 255, 255, 255]).buffer), false);
-assert.strictEqual(invalidParser.push(Uint8Array.from([20, 0]).buffer), false);
+assert.strictEqual(invalidParser.push(payload.buffer), true);
 
-assert.strictEqual(invalidSegments.length, 0);
+assert.strictEqual(invalidSegments.length, 1);
+
+const preservedInitSegments = [];
+const preservedInitParser = sabr.createParser({ onSegment: (segment) => preservedInitSegments.push(segment) });
+
+preservedInitParser.push(initPayload.buffer);
+assert.strictEqual(preservedInitParser.push(Uint8Array.from([20, 255, 255, 255, 255, 255]).buffer), false);
+preservedInitParser.push(mediaPayload.buffer);
+
+assert.strictEqual(preservedInitSegments.length, 1);
+assert.deepStrictEqual(Array.from(new Uint8Array(sabr.chunksToArrayBuffer(preservedInitSegments[0].chunks))), [10, 11, 20, 21, 22]);
 
 const partialSegments = [];
 const partialParser = sabr.createParser({ onSegment: (segment) => partialSegments.push(segment) });

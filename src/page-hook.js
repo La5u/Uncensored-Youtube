@@ -13,8 +13,8 @@
   var audioReplacements = new Map();
   var audioReplacementVersion = 0;
   var patchedTimedTextCache = new Map();
-  var sabrParserInstance = null;
   var lastSabrAudioDetail = "";
+  var initChunksByItag = Object.create(null);
 
   globalThis.__uncensoredOriginalFetch = originalFetch;
   globalThis.__uncensoredOriginalXHROpen = originalXHROpen;
@@ -157,6 +157,22 @@
     }
   }
 
+  function debugEnabled() {
+    try {
+      return globalThis.localStorage && globalThis.localStorage.getItem("uncensoredDebug") === "1";
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function debugLog() {
+    if (!debugEnabled() || !globalThis.console || !globalThis.console.debug) {
+      return;
+    }
+
+    globalThis.console.debug.apply(globalThis.console, ["[uncensored]"].concat(Array.prototype.slice.call(arguments)));
+  }
+
   globalThis.addEventListener("uncensored-request-sabr-audio", function replaySabrAudio() {
     if (lastSabrAudioDetail) {
       notifySabrAudio(lastSabrAudioDetail);
@@ -176,69 +192,72 @@
       url.pathname.indexOf("/videoplayback") !== -1;
   }
 
-  function createSabrParser() {
+  function makeSabrParser() {
     if (!sabrParser || !sabrParser.createParser) {
       return null;
     }
 
-    if (sabrParserInstance) {
-      return sabrParserInstance;
-    }
-
-    sabrParserInstance = sabrParser.createParser({
+    return sabrParser.createParser({
+      onInitSegment: function onInitSegment(itag, chunk) {
+        var key = String(itag);
+        if (!initChunksByItag[key]) {
+          initChunksByItag[key] = [];
+        }
+        initChunksByItag[key].push(chunk);
+      },
       onSegment: function onSegment(segment) {
+        var key = String(segment.itag);
+        var cached = initChunksByItag[key];
+        var chunks = segment.chunks;
+
+        if (cached && cached.length) {
+          var totalBytes = chunks.reduce(function sum(len, c) { return len + c.byteLength; }, 0);
+          if (totalBytes <= segment.bytes) {
+            chunks = cached.concat(chunks);
+          }
+        }
+
         lastSabrAudioDetail = JSON.stringify({
           itag: segment.itag,
           bytes: segment.bytes,
           segmentBytes: segment.bytes,
           startMs: typeof segment.header.startMs === "number" ? segment.header.startMs : null,
           durationMs: typeof segment.header.durationMs === "number" ? segment.header.durationMs : null,
-          base64: sabrParser.chunksToBase64(segment.chunks)
+          base64: sabrParser.chunksToBase64(chunks)
         });
         notifySabrAudio(lastSabrAudioDetail);
       }
     });
-    return sabrParserInstance;
   }
 
-  function processSabrResponse(response) {
-    var clone = response.clone();
-    var reader;
-    var parser = createSabrParser();
+  function processSabrResponse(input, response) {
+    var parser = makeSabrParser();
+    if (!parser) return;
 
-    if (!parser) {
-      return;
-    }
-
-    if (!clone.body || !clone.body.getReader) {
-      clone.arrayBuffer().then(function parseBuffer(buffer) {
+    var cloned = response.clone();
+    if (!cloned.body || typeof cloned.body.getReader !== "function") {
+      cloned.arrayBuffer().then(function processFullBuffer(buffer) {
         parser.push(buffer);
-      }, function ignoreAudioError() {});
+      }, function ignoreAudioErrorFallback() {});
       return;
     }
 
-    reader = clone.body.getReader();
-    function readNext() {
-      return reader.read().then(function handle(result) {
-        if (result.done || !result.value) {
-          return;
-        }
+    var reader = cloned.body.getReader();
 
-        if (parser.push(result.value.buffer.slice(result.value.byteOffset, result.value.byteOffset + result.value.byteLength)) === false) {
-          try {
-            reader.cancel();
-          } catch (error) {}
-          return;
-        }
-        return readNext();
-      });
+    function pump() {
+      return reader.read().then(function pumpResult(result) {
+        if (result.done) return;
+
+        parser.push(result.value);
+        return pump();
+      }, function pumpError() {});
     }
 
-    readNext().catch(function ignoreAudioError() {});
+    pump();
   }
 
   function processSabrXhr(xhr) {
-    var parser = createSabrParser();
+    var parser = makeSabrParser();
 
     if (!parser) {
       return;
@@ -318,10 +337,10 @@
 
   globalThis.__uncensoredDebugAudio = debugAudio;
   globalThis.__uncensoredDebugAudioText = debugAudioText;
-  globalThis.fetch = function uncensoredFetch(input, init) {
+  function uncensoredFetch(input, init) {
     return originalFetch.apply(this, arguments).then(function maybePatch(response) {
       if (isGoogleVideoPlaybackUrl(input)) {
-        processSabrResponse(response);
+        processSabrResponse(input, response);
       }
 
       if (isTimedTextUrl(input)) {
@@ -346,13 +365,13 @@
 
       return response;
     });
-  };
+  }
 
-  XMLHttpRequest.prototype.open = function uncensoredOpen(method, url) {
+  function uncensoredOpen(method, url) {
     var result;
 
     this.__uncensoredTimedTextUrl = isTimedTextUrl(url);
-    this.__uncensoredSabrUrl = isGoogleVideoPlaybackUrl(url);
+    this.__uncensoredSabrUrl = isGoogleVideoPlaybackUrl(url) ? requestUrl(url) : "";
     result = originalXHROpen.apply(this, arguments);
 
     if (this.__uncensoredSabrUrl) {
@@ -393,12 +412,27 @@
     }
 
     return result;
-  };
+  }
+
+  function installNetworkHooks() {
+    if (globalThis.fetch !== uncensoredFetch) {
+      globalThis.fetch = uncensoredFetch;
+    }
+
+    if (XMLHttpRequest.prototype.open !== uncensoredOpen) {
+      XMLHttpRequest.prototype.open = uncensoredOpen;
+    }
+  }
+
+  installNetworkHooks();
+  if (globalThis.setInterval) {
+    globalThis.setInterval(installNetworkHooks, 1000);
+  }
 
   globalThis.addEventListener("yt-navigate-finish", function onNavigate() {
     clearPatchedTimedTextCache();
     audioReplacements.clear();
     audioReplacementVersion += 1;
-    sabrParserInstance = null;
+    lastSabrAudioDetail = "";
   });
 })();

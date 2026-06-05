@@ -4,9 +4,7 @@
   "version": "0.9.0",
   "description": "Restores deterministic censored words in YouTube captions.",
   "permissions": [
-    "storage",
-    "webRequest",
-    "webRequestBlocking"
+    "storage"
   ],
   "action": {
     "default_popup": "src/popup.html"
@@ -14,10 +12,6 @@
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
   },
-  "host_permissions": [
-    "https://www.youtube.com/*",
-    "https://*.googlevideo.com/*"
-  ],
   "browser_specific_settings": {
     "gecko": {
       "id": "uncensored@lasu.dev",
