@@ -6,9 +6,11 @@
     rulesEnabled: true,
     whisperEnabled: true
   };
+  var sabrWorker = null;
+  var sabrWorkerPending = new Map();
+  var useBackgroundSabr = Boolean(globalThis.browser);
   var INJECT_VERSION = String(Date.now());
   var scripts = [
-    "src/sabr-parser.js",
     "src/page-hook.js",
     "src/rules.js",
     "src/timedtext.js"
@@ -59,8 +61,68 @@
     window.setTimeout(dispatchSettings, 0);
   }
 
-  function requestSabrAudioReplay() {
-    window.dispatchEvent(new CustomEvent("uncensored-request-sabr-audio"));
+  function handleSabrSegments(segments) {
+    var audioInference = globalThis.UncensoredAudioInference;
+
+    if (settings.whisperEnabled && audioInference && audioInference.setSabrAudioData) {
+      return Promise.all((segments || []).map(audioInference.setSabrAudioData));
+    }
+
+    return Promise.resolve();
+  }
+
+  function acknowledgeSabrMessage(message) {
+    window.postMessage({
+      uncensoredSabrAck: true,
+      messageId: message.messageId
+    }, "*");
+  }
+
+  function getSabrWorker() {
+    if (!sabrWorker) {
+      sabrWorker = new Worker(runtime.runtime.getURL("src/sabr-worker.js"));
+      sabrWorker.onmessage = function onSabrSegments(event) {
+        var response = event.data || {};
+        var pending = sabrWorkerPending.get(response.id);
+
+        if (pending) {
+          pending(response);
+        }
+      };
+      sabrWorker.onerror = function onSabrWorkerError() {
+        sabrWorkerPending.forEach(function releasePending(pending) {
+          pending({ segments: [] });
+        });
+        sabrWorker = null;
+      };
+    }
+
+    return sabrWorker;
+  }
+
+  function relaySabrMessage(message) {
+    if (!useBackgroundSabr) {
+      return new Promise(function waitForWorker(resolve) {
+        var timeout = window.setTimeout(function sabrWorkerTimedOut() {
+          sabrWorkerPending.delete(message.messageId);
+          resolve({ segments: [] });
+        }, 60000);
+
+        sabrWorkerPending.set(message.messageId, function resolveWorker(response) {
+          window.clearTimeout(timeout);
+          sabrWorkerPending.delete(message.messageId);
+          resolve(response);
+        });
+        getSabrWorker().postMessage(Object.assign({ id: message.messageId }, message), message.buffer ? [message.buffer] : []);
+      });
+    }
+
+    return runtime.runtime.sendMessage({
+      uncensoredSabr: true,
+      data: message
+    }).then(function returnSegments(response) {
+      return response || { segments: [] };
+    });
   }
 
   function loadSettings() {
@@ -93,6 +155,11 @@
 
       if (changes.whisperEnabled) {
         settings.whisperEnabled = changes.whisperEnabled.newValue !== false;
+        if (!settings.whisperEnabled && sabrWorker) {
+          var worker = sabrWorker;
+          sabrWorker.onerror();
+          worker.terminate();
+        }
       }
 
       dispatchSettingsSoon();
@@ -102,7 +169,6 @@
   watchSettings();
   injectScriptsSequentially(scripts).then(function injected() {
     dispatchSettingsSoon();
-    requestSabrAudioReplay();
   }, dispatchSettingsSoon);
   loadSettings().then(dispatchSettingsSoon, dispatchSettingsSoon);
 
@@ -122,14 +188,24 @@
     }
   });
 
-  window.addEventListener("uncensored-sabr-audio", function rememberSabrAudio(event) {
-    var audioInference = globalThis.UncensoredAudioInference;
-    var detail = event && event.detail;
+  window.addEventListener("message", function relaySabrAudio(event) {
+    var message = event && event.data;
 
-    if (settings.whisperEnabled && typeof detail === "string" && audioInference && audioInference.setSabrAudioData) {
-      audioInference.setSabrAudioData(detail);
+    if (event.source !== window || !message || message.uncensoredSabrAudio !== true) {
+      return;
     }
-  });
 
-  requestSabrAudioReplay();
+    if (!settings.whisperEnabled) {
+      acknowledgeSabrMessage(message);
+      return;
+    }
+
+    relaySabrMessage(message).then(function decodeSegments(response) {
+      return handleSabrSegments(response.segments);
+    }).then(function relayed() {
+      acknowledgeSabrMessage(message);
+    }, function relayFailed() {
+      acknowledgeSabrMessage(message);
+    });
+  });
 })();

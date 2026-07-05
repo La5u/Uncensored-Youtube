@@ -25,6 +25,7 @@
     [new RegExp("shut the " + SLOT_MARKER + " up"), ["fuck"]],
     [new RegExp("shut the " + SLOT_MARKER + "$"), ["fuck"]],
     [new RegExp("get the " + SLOT_MARKER), ["fuck"]],
+    [new RegExp(SLOT_MARKER + " you"), ["fuck"]],
     [new RegExp("for " + SLOT_MARKER + " sake"), ["fuck's", "fuck"]],
     [new RegExp(SLOT_MARKER + " sake"), ["fuck's", "fuck"]],
     [new RegExp("holy " + SLOT_MARKER), ["shit", "fuck"]],
@@ -162,12 +163,14 @@
   function normalizeTranscriptText(text) {
     return normalizeText(text)
       .replace(/\bmother\s+fucker\b/g, " motherfucker ")
+      .replace(/\bcock\s+sucker\b/g, " cocksucker ")
       .replace(/\bdip\s*shits?\b/g, " dip shit ")
       .replace(/\bship\s+storm\b/g, " shit storm ")
       .replace(/\bship\b/g, " shit ")
       .replace(/\bsheet\b/g, " shit ")
       .replace(/\bshoot\b/g, " shit ")
       .replace(/\bshuck(?:ing)?\b/g, " fuck ")
+      .replace(/\bfuck(?:y|ie)\b/g, " fuck ")
       .replace(/\bfork\b/g, " fuck ")
       .replace(/\bduck\b/g, " fuck ")
       .replace(/\bbeach\b/g, " bitch ")
@@ -300,9 +303,18 @@
     return score;
   }
 
+  function transcriptCandidates(transcript, candidates) {
+    var allowed = (candidates || []).map(normalizeText);
+
+    return normalizeTranscriptText(transcript).split(" ").filter(function allowedCandidate(word) {
+      return allowed.indexOf(word) !== -1;
+    });
+  }
+
   function rankedCandidatesFromTranscript(transcript, candidates, context) {
     var contextDerived = contextCandidates(context);
     var candidatePool = unique(contextDerived.concat(candidates || []));
+
     return candidatePool.map(function normalizeCandidate(candidate) {
       return {
         original: candidate,
@@ -315,13 +327,28 @@
   }
 
   function decisionFromTranscript(transcript, candidates, context, options) {
+    var force = options && options.force;
+
+    if (options && options.slotCount > 1) {
+      var words = transcriptCandidates(transcript, candidates);
+      var positional = words[options.slotOrdinal || 0];
+
+      return {
+        word: positional || "",
+        words: words,
+        score: positional ? scoreCandidate(transcript, positional, context) : 0,
+        runnerUpScore: 0,
+        transcript: transcript || "",
+        forced: Boolean(force)
+      };
+    }
+
     var ranked = rankedCandidatesFromTranscript(transcript, candidates, context);
     var positive = ranked.filter(function hasScore(candidate) {
       return candidate.score > 0;
     });
     var best = positive[0] || ranked[0];
     var runnerUp = positive[1] || ranked[1] || null;
-    var force = options && options.force;
 
     if (!best) {
       return {
@@ -333,7 +360,7 @@
       };
     }
 
-    if (force || positive.length === 1 || best.score > (runnerUp ? runnerUp.score : 0)) {
+    if (positive.length && (force || positive.length === 1 || best.score > (runnerUp ? runnerUp.score : 0))) {
       return {
         word: best.original,
         score: best.score,
@@ -382,7 +409,9 @@
     }
 
     return getTranscriber().then(function runTranscriber(transcriber) {
-      return transcriber(audio);
+      return transcriber(audio, {
+        max_new_tokens: 32
+      });
     }).then(function chooseCandidate(result) {
       var transcript = typeof result === "string" ? result : result && result.text;
       return decisionFromTranscript(transcript, candidates, context, options);
@@ -400,25 +429,15 @@
     });
   }
 
-  function transcribe(audio, candidates, context) {
-    return transcribeDetailed(audio, candidates, context).then(function wordOnly(decision) {
-      return decision.word;
-    });
-  }
-
   var exports = Object.freeze({
     preload: function preload() {
       return getTranscriber().then(function loaded() {
         return true;
       });
     },
-    transcribe: transcribe,
     transcribeDetailed: transcribeDetailed,
     normalizeText: normalizeText,
-    decisionFromTranscript: decisionFromTranscript,
-    rankedCandidatesFromTranscript: rankedCandidatesFromTranscript,
-    contextCandidates: contextCandidates,
-    scoreCandidate: scoreCandidate
+    decisionFromTranscript: decisionFromTranscript
   });
 
   root.UncensoredWhisperLocal = exports;

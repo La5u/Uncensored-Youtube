@@ -10,6 +10,7 @@
 
   var CENSORED_TOKEN_REGEX = rules.CENSORED_TOKEN_REGEX;
   var CENSORED_TOKEN_COUNT_REGEX = new RegExp(rules.CENSORED_TOKEN_REGEX.source, "gu");
+  var deterministicAnalysisCache = null;
 
   function getEventText(event) {
     return event.segs.map(function collectText(seg) {
@@ -123,8 +124,31 @@
       }
 
       deterministic = deterministicByTokenIndex.get(absoluteTokenIndex);
-      return deterministic && deterministic.word ? deterministic.word : "something";
+      return deterministic && deterministic.word ? deterministic.word : "";
     });
+  }
+
+  function adjacentTokenGroups(eventText) {
+    var gaps = eventText.split(CENSORED_TOKEN_REGEX);
+    var groups = [];
+    var start = 0;
+    var end;
+    var index;
+
+    for (end = 0; end < gaps.length - 1; end += 1) {
+      if (end < gaps.length - 2 && !/\S/u.test(gaps[end + 1])) {
+        continue;
+      }
+      for (index = start; index <= end; index += 1) {
+        groups[index] = {
+          index: index - start,
+          count: end - start + 1
+        };
+      }
+      start = end + 1;
+    }
+
+    return groups;
   }
 
   function collectCensoredTokens(payload, deterministicByTokenIndex) {
@@ -137,6 +161,7 @@
       }
 
       var eventText = getEventText(event);
+      var eventTokenGroups = adjacentTokenGroups(eventText);
       var firstEventTokenIndex = tokenIndex;
       var eventTokenIndex = 0;
 
@@ -151,6 +176,8 @@
           tokens.push({
             tokenIndex: tokenIndex,
             eventTokenIndex: eventTokenIndex,
+            adjacentTokenIndex: eventTokenGroups[eventTokenIndex].index,
+            adjacentTokenCount: eventTokenGroups[eventTokenIndex].count,
             eventIndex: eventIndex,
             segIndex: segIndex,
             timeSeconds: tokenTimeSeconds(event, seg),
@@ -171,11 +198,44 @@
     return tokens;
   }
 
+  function deterministicAnalysis(payload, body, useDeterministic) {
+    var deterministic = useDeterministic === true;
+    var eventTexts;
+    var result;
+
+    if (typeof body === "string" &&
+        deterministicAnalysisCache &&
+        deterministicAnalysisCache.body === body &&
+        deterministicAnalysisCache.deterministic === deterministic) {
+      return deterministicAnalysisCache;
+    }
+
+    eventTexts = payload.events.map(function mapEventText(event) {
+      return event && Array.isArray(event.segs) ? getEventText(event) : "";
+    });
+    result = deterministic ? rules.applyDeterministicRules(eventTexts.join("\n")) : { replacements: [] };
+
+    if (typeof body === "string") {
+      deterministicAnalysisCache = {
+        body: body,
+        deterministic: deterministic,
+        eventTexts: eventTexts,
+        result: result
+      };
+      return deterministicAnalysisCache;
+    }
+
+    return {
+      eventTexts: eventTexts,
+      result: result
+    };
+  }
+
   function patchTimedTextJson(payload) {
     return patchTimedTextJsonWithOverrides(payload, [], true);
   }
 
-  function patchTimedTextJsonWithOverrides(payload, overrides, useDeterministic) {
+  function patchTimedTextJsonWithOverrides(payload, overrides, useDeterministic, body) {
     if (!payload || !Array.isArray(payload.events)) {
       return {
         payload: payload,
@@ -183,10 +243,9 @@
       };
     }
 
-    var eventTexts = payload.events.map(function mapEventText(event) {
-      return event && Array.isArray(event.segs) ? getEventText(event) : "";
-    });
-    var result = useDeterministic ? rules.applyDeterministicRules(eventTexts.join("\n")) : { replacements: [] };
+    var analysis = deterministicAnalysis(payload, body, useDeterministic === true);
+    var eventTexts = analysis.eventTexts;
+    var result = analysis.result;
     var replacementByTokenIndex = new Map();
     var tokenOffset = 0;
 
@@ -252,7 +311,7 @@
 
   function patchTimedTextBodyWithOverrides(body, overrides, useDeterministic) {
     try {
-      var result = patchTimedTextJsonWithOverrides(JSON.parse(body), overrides, useDeterministic !== false);
+      var result = patchTimedTextJsonWithOverrides(JSON.parse(body), overrides, useDeterministic !== false, body);
       return result.patchCount > 0 ? JSON.stringify(result.payload) : body;
     } catch (error) {
       return body;
@@ -262,12 +321,7 @@
   function collectTimedTextTokens(body, useDeterministic) {
     try {
       var payload = JSON.parse(body);
-      var eventTexts = payload.events.map(function mapEventText(event) {
-        return event && Array.isArray(event.segs) ? getEventText(event) : "";
-      });
-      var result = useDeterministic !== false
-        ? rules.applyDeterministicRules(eventTexts.join("\n"))
-        : { replacements: [] };
+      var result = deterministicAnalysis(payload, body, useDeterministic !== false).result;
 
       return collectCensoredTokens(payload, deterministicTokenMap(result.replacements));
     } catch (error) {

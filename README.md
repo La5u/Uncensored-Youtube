@@ -38,7 +38,7 @@ npm install --prefix /tmp/uncensored-transformers @huggingface/transformers
 node tools/evaluate-whisper-only.js
 ```
 
-Audio downloads go to `tests/fixtures/audio/`, and reports go to `corpus/generated/`; both are intentionally ignored by git.
+Audio downloads go to `tests/fixtures/audio/`, and reports go to `corpus/generated/`; both are intentionally ignored by git. `yt-dlp` is used to inspect and download YouTube audio during playback testing.
 
 ### Tools
 To review a caption dump or compare against an uncensored reference:
@@ -56,7 +56,25 @@ PYTHONPATH=/tmp/uncensored-pyarrow node corpus/evaluate-opensubtitles-parquet.js
 
 ### Build
 ```
-./build.sh 0.9.0
+./build.sh 1.0.1
 ```
 
 This creates separate zip files for Chromium and Firefox.
+
+### Performance roadmap
+
+- [x] Capture playback audio only while Whisper is enabled.
+- [x] Transfer binary audio buffers instead of Base64 JSON.
+- [x] Parse SABR media outside YouTube's main thread.
+- [x] Serialize audio decoding and Whisper inference.
+- [x] Release decoded segments after their covered tokens are processed.
+- [x] Keep only the latest complete WebM init segment for each itag.
+- [ ] Replace permanent caption polling with event-driven updates.
+- [ ] Terminate and recreate Whisper workers after a timeout.
+- [ ] Add navigation generation IDs to reject stale asynchronous results.
+- [ ] Prevent duplicate page-hook installation.
+- [x] Stop periodically reinstalling network hooks.
+
+Lookahead follows the audio range YouTube naturally preloads, including the
+player's buffered white-bar range. Completed word resolutions are retained;
+decoded PCM is not.

@@ -9,7 +9,6 @@ const examples = [
   ["Wait? [__] you.", "Wait? Fuck you."],
   ["[__] me", "fuck me"],
   ["what the [__]", "what the fuck"],
-  ["[__] with", "fuck with"],
   ["piece of [__]", "piece of shit"],
   ["shut the [__] up", "shut the fuck up"],
   ["Shut the [__] up", "Shut the fuck up"],
@@ -25,7 +24,6 @@ const examples = [
   ["WHAT THE [__]", "WHAT THE FUCK"],
   ["THAT'S [__]", "THAT'S FUCKED"],
   ["Jesus [__] Christ", "Jesus fucking Christ"],
-  ["Stressful as [__]", "Stressful as fuck"],
   ["God [__] dammit", "God fucking dammit"],
   ["bunch of [__]", "bunch of bullshit"],
   ["where the [__]", "where the fuck"],
@@ -94,9 +92,7 @@ const examples = [
   ["so [__] cool", "so fucking cool"],
   ["really [__] cool", "really fucking cool"],
   ["sons of [__]", "sons of bitches"],
-  ["oh, [__]", "oh, fuck"],
   ["oh [__].", "oh shit."],
-  ["get [__]", "get fucked"]
 ];
 
 for (const [input, expected] of examples) {

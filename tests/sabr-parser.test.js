@@ -92,6 +92,9 @@ assert.strictEqual(invalidParser.push(payload.buffer), true);
 
 assert.strictEqual(invalidSegments.length, 1);
 
+const highFiveByteSizeParser = sabr.createParser({});
+assert.strictEqual(highFiveByteSizeParser.push(Uint8Array.from([20, 0xf1, 0, 0, 0, 0]).buffer), false);
+
 const preservedInitSegments = [];
 const preservedInitParser = sabr.createParser({ onSegment: (segment) => preservedInitSegments.push(segment) });
 

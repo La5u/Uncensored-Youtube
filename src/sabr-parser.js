@@ -38,7 +38,8 @@
     } else if (length === 4) {
       value = (first & 0x0f) + 16 * (bytes[offset + 1] + 256 * (bytes[offset + 2] + 256 * bytes[offset + 3]));
     } else {
-      value = bytes[offset + 1] + 256 * (bytes[offset + 2] + 256 * (bytes[offset + 3] + 256 * bytes[offset + 4]));
+      value = (first & 0x07) * Math.pow(2, 32) +
+        bytes[offset + 1] + 256 * (bytes[offset + 2] + 256 * (bytes[offset + 3] + 256 * bytes[offset + 4]));
     }
 
     return {
@@ -77,7 +78,7 @@
 
       parts.push({
         type: type.value,
-        data: bytes.slice(dataStart, dataStart + size.value)
+        data: bytes.subarray(dataStart, dataStart + size.value)
       });
       offset = dataStart + size.value;
     }
@@ -179,18 +180,6 @@
     return bytes.buffer;
   }
 
-  function chunksToBase64(chunks) {
-    var bytes = new Uint8Array(chunksToArrayBuffer(chunks));
-    var binary = "";
-    var index;
-
-    for (index = 0; index < bytes.length; index += 0x8000) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(index, index + 0x8000));
-    }
-
-    return root.btoa ? root.btoa(binary) : Buffer.from(binary, "binary").toString("base64");
-  }
-
   function createParser(options) {
     var carry = new Uint8Array(0);
     var headers = Object.create(null);
@@ -229,7 +218,7 @@
       }
 
       if (header.isInitSeg) {
-        entry.initChunks.push(chunk);
+        entry.initChunks = [chunk];
         if (onInitSegment) {
           onInitSegment(header.itag, chunk);
         }
@@ -330,7 +319,6 @@
   var exports = Object.freeze({
     createParser: createParser,
     chunksToArrayBuffer: chunksToArrayBuffer,
-    chunksToBase64: chunksToBase64,
     parseMediaHeader: parseMediaHeader
   });
 

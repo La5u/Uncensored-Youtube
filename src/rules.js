@@ -21,6 +21,7 @@
     "fucker",
     "fuckers",
     "motherfucker",
+    "cocksucker",
     "fucked",
     "pussy",
     "cock",
@@ -46,7 +47,7 @@
   var QUESTION_WORDS = Object.freeze(["what", "how", "where", "when", "who", "why"]);
   var FUCK_THE_SUFFIXES = Object.freeze(["up", "is", "are", "did", "do", "does", "am", "on", "you", "was", "were", "say", "want", "know", "can", "have", "outta"]);
   var FUCK_YOU_PREFIXES = Object.freeze([".", "!", "?", "and", "or", "yeah", "yeah,", "oh", "oh,", "no", "no,", "so", "dude", "dude,", "big"]);
-  var FUCK_VERB_PREFIXES = Object.freeze(["I can", "can I", "wanting to", "wanted to", "wants to", "would rather", "would you rather", "would you rather we", "did you", "do you want to"]);
+  var FUCK_VERB_PREFIXES = Object.freeze(["I can", "can I", "wanting to", "wanted to", "wants to", "would rather", "would you rather", "would you rather we", "do you want to"]);
   var FUCK_UP_VERB_PREFIXES = Object.freeze([
     "don't",
     "do not",
@@ -92,9 +93,9 @@
     "the test",
     "the exam"
   ]);
-  var FUCKING_WITH_PREFIXES = Object.freeze(["are you", "you", "I'm", "I'm just", "you're", "who's"]);
+  var FUCKING_WITH_PREFIXES = Object.freeze(["are you", "I'm", "I'm just", "you're", "who's"]);
   var FUCKED_UP_PREFIXES = Object.freeze(["that's so", "so", "it's so", "really", "massively", "most", "kind of", "special kind of", "too", "real", "completely"]);
-  var SHIT_NOUN_PREFIXES = Object.freeze(["full of", "jack", "eat", "beat the", "my own", "taking a", "do some", "cheap", "funny", "same", "some"]);
+  var SHIT_NOUN_PREFIXES = Object.freeze(["full of", "jack", "eat", "beat the", "my own", "taking a", "do some", "cheap", "funny"]);
   var SHIT_OUT_PREFIXES = Object.freeze(["scaring", "scared", "freaked", "freaks", "irritates"]);
   var SHIT_TOGETHER_PREFIXES = Object.freeze(["get your", "get our", "get my", "pull your", "pull my", "got your", "got my"]);
   var SHIT_INITIAL_SUFFIXES = Object.freeze(["quality", "starts getting", "started getting", "hits the fan", "happens", "his pants"]);
@@ -113,7 +114,6 @@
     "genuinely",
     "properly",
     "straight up",
-    "kind of",
     "sort of",
     "kinda",
     "sorta",
@@ -122,8 +122,8 @@
     "it is",
     "were"
   ]);
-  var BULLSHIT_PREFIXES = Object.freeze(["sounds like", "seems like", "feels like", "what a", "such", "complete", "total", "absolute", "pure", "corporate", "political", "marketing", "legal", "fake", "made up"]);
-  var BULLSHIT_SUFFIXES = Object.freeze(["excuse", "claim", "argument", "reason", "rule", "policy", "story", "answer", "explanation", "logic", "system", "again"]);
+  var BULLSHIT_PREFIXES = Object.freeze(["sounds like", "seems like", "feels like", "such", "pure", "corporate", "political", "marketing", "legal", "fake", "made up"]);
+  var BULLSHIT_SUFFIXES = Object.freeze(["excuse", "claim", "argument", "reason", "rule", "policy", "explanation", "logic", "system"]);
   var FUCKING_ADVERB_PREFIXES = Object.freeze([
     "no one",
     "do not",
@@ -135,7 +135,6 @@
     "no",
     "I can't",
     "can't",
-    "can",
     "I'm",
     "I'm not",
     "we're",
@@ -171,8 +170,6 @@
     "haven't even",
     "doesn't",
     "might",
-    "got",
-    "getting",
     "going to",
     "have to",
     "let's",
@@ -189,8 +186,6 @@
     "all",
     "more",
     "big",
-    "little",
-    "bad",
     "great",
     "whole",
     "entire",
@@ -212,11 +207,10 @@
     "oh god oh [fuck]",
     [["fancy", "basic", "holy", "oh"], "[shit|fuck]"],
     "this [shit] is",
-    "is this [shit]",
     "this [shit] happened",
     "all the [fucking] time",
     "all the [shit]",
-    [["that", "none of that", "that kind of", "this kind of", "this type of", "that type of"], "[shit]"],
+    [["none of that", "that kind of", "this kind of", "this type of", "that type of"], "[shit]"],
     [["a load", "a crock", "pile", "sack"], "of [shit]"],
     "the actual [fuck]",
     "what in the [fuck]",
@@ -240,7 +234,7 @@
     [["was", "were"], "[fucked] with"],
     "don't you [fuck] with",
     "don't [fuck] with",
-    ["[fuck]", ["yourself", "this", "me", "off", "it", "with"]],
+    ["[fuck]", ["yourself", "this", "me", "off", "it"]],
     [FUCK_UP_VERB_PREFIXES, SWEAR_SLOT.PHRASAL_VERB + " up"],
     [SWEAR_SLOT.PHRASAL_VERB + " up", FUCK_UP_OBJECTS],
     ["to", "[fuck] up"],
@@ -266,7 +260,6 @@
     [FUCK_YOU_PREFIXES, "[fuck] you"],
     [FUCK_VERB_PREFIXES, "[fuck] "],
     ["[fuck]", ["yeah."]],
-    "as [fuck]",
     "flying [fuck]",
     "[fuck] all",
     "the [fuck] man",
@@ -281,7 +274,6 @@
     "bunch of [bullshit|shit|bitches]",
     "stuck up [bitch]",
     "stuck up little [bitch]",
-    "cut the [bullshit]",
     ["[shit]", SHIT_INITIAL_SUFFIXES],
     "all [shit] themselves",
     "getting the [shit] kicked",
@@ -291,7 +283,6 @@
     "of [fucking] control",
     " [fucking|fuck] around",
     [SUBJECT_PRONOUNS, "[fucked] up"],
-    "get [fucked]",
     [FUCKED_UP_PREFIXES, "[fucked] up"],
     [THIRD_PERSON_TARGETS, "[fucked] my"],
     [BE_FORMS.concat(["all", "kept", "team", "station", "fish station"]), "[fucked] up"],
@@ -306,9 +297,8 @@
     "[bitch] and moan",
     "an [asshole|arsehole]",
     "sick [fuck|fucker].",
-    "such a [bitch|pussy]",
     "don't be a [pussy|bitch]",
-    [["am I the", "not the", "you are the", "he was a", "call them a"], "[asshole]"]
+    [["am I the", "not the", "you are the", "call them a"], "[asshole]"]
   ]);
 
   var INTENSIFIER_RULE_PATTERNS = Object.freeze([
@@ -333,7 +323,6 @@
   var FALLBACK_SAFE_RULE_PATTERNS = Object.freeze([
     [INTERJECTION_PREFIXES, SWEAR_SLOT.INTERJECTION],
     [SWEAR_SLOT.INTERJECTION, INTERJECTION_SUFFIXES],
-    "oh, [fuck]",
     [[".", "!", "?"], "[fuck|shit]."],
     [["ah", "aw", "ahh"], "[shit|fuck]"],
     [["chill", "knocked", "leave me"], "the [fuck]"],

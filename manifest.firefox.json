@@ -1,12 +1,24 @@
 {
   "manifest_version": 3,
   "name": "Uncensored YouTube",
-  "version": "0.9.0",
+  "version": "1.0.1",
   "description": "Restores deterministic censored words in YouTube captions.",
+  "icons": {
+    "16": "src/icons/icon-16.png",
+    "32": "src/icons/icon-32.png",
+    "48": "src/icons/icon-48.png",
+    "128": "src/icons/icon-128.png"
+  },
   "permissions": [
     "storage"
   ],
   "action": {
+    "default_icon": {
+      "16": "src/icons/icon-16.png",
+      "32": "src/icons/icon-32.png",
+      "48": "src/icons/icon-48.png",
+      "128": "src/icons/icon-128.png"
+    },
     "default_popup": "src/popup.html"
   },
   "content_security_policy": {
@@ -39,7 +51,6 @@
       "js": [
         "src/rules.js",
         "src/timedtext.js",
-        "src/sabr-parser.js",
         "src/audio-capture.js",
         "src/content.js"
       ],
@@ -52,6 +63,7 @@
         "src/rules.js",
         "src/timedtext.js",
         "src/sabr-parser.js",
+        "src/sabr-worker.js",
         "src/whisper-local.js",
         "src/whisper-module-worker.js",
         "src/vendor/transformers.min.js",
