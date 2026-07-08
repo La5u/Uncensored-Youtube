@@ -8,13 +8,13 @@ without a bundler by copying the checked-in files into `dist/` and zipping them.
 Use:
 
 ```sh
-./build.sh 1.0.1
+./build.sh 1.1.0
 ```
 
 This creates:
 
-- `dist/uncensored-youtube-firefox-1.0.1.zip`
-- `dist/uncensored-youtube-chromium-1.0.1.zip`
+- `dist/uncensored-youtube-firefox-1.1.0.zip`
+- `dist/uncensored-youtube-chromium-1.1.0.zip`
 
 ## Generated or minified files
 

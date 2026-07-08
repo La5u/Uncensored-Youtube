@@ -24,7 +24,6 @@ Rules list candidates in likelihood order. If context makes the first candidate 
 ```
 node tests/rules.test.js
 node tests/timedtext.test.js
-node tests/json-fixtures.test.js
 node tests/whisper-local.test.js
 node tests/sabr-parser.test.js
 node tests/extension-wiring.test.js
@@ -56,7 +55,7 @@ PYTHONPATH=/tmp/uncensored-pyarrow node corpus/evaluate-opensubtitles-parquet.js
 
 ### Build
 ```
-./build.sh 1.0.1
+./build.sh 1.1.0
 ```
 
 This creates separate zip files for Chromium and Firefox.

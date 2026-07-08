@@ -140,7 +140,9 @@
       }
 
       if (message.type === "preload" || message.type === "transcribe") {
-        postToWorker(message.type, message.data, message.data && message.data.audio ? [message.data.audio] : null,
+        var transfer = message.type === "transcribe" && message.data && message.data.audio
+          ? [message.data.audio] : null;
+        postToWorker(message.type, message.data, transfer,
           message.type === "preload" ? 30000 : 60000
         ).then(function resolved(result) {
           sendResponse(result);

@@ -24,9 +24,15 @@
     return globalThis.UncensoredTimedText;
   }
 
+  function extractPathVideoId(pathname) {
+    var match = pathname.match(/\/(live|shorts)\/([^/]+)/);
+    return match ? match[2] : "";
+  }
+
   function currentVideoId() {
     try {
-      return new URL(location.href).searchParams.get("v") || "";
+      var url = new URL(location.href);
+      return url.searchParams.get("v") || extractPathVideoId(url.pathname) || "";
     } catch (error) {
       return "";
     }
@@ -107,6 +113,28 @@
     }
   });
 
+  function applyResolution(tokenIndex, word, source, videoId) {
+    var id = videoId || currentVideoId();
+
+    if (typeof tokenIndex !== "number" || !word) {
+      return;
+    }
+
+    audioReplacements.set(audioReplacementKey(id, tokenIndex), {
+      videoId: id,
+      tokenIndex: tokenIndex,
+      word: word,
+      source: source || "unknown"
+    });
+    audioReplacementVersion += 1;
+    clearPatchedTimedTextCache();
+  }
+
+  globalThis.__uncensoredResolveToken = function(tokenIndex, word, source, videoId) {
+    var id = videoId || currentVideoId();
+    applyResolution(tokenIndex, word, source, id);
+  };
+
   globalThis.addEventListener("uncensored-whisper-resolution", function rememberResolution(event) {
     var detail = safeJson(event && event.detail);
     var videoId = currentVideoId();
@@ -115,14 +143,7 @@
       return;
     }
 
-    audioReplacements.set(audioReplacementKey(videoId, detail.tokenIndex), {
-      videoId: videoId,
-      tokenIndex: detail.tokenIndex,
-      word: detail.word,
-      source: detail.source || "unknown"
-    });
-    audioReplacementVersion += 1;
-    clearPatchedTimedTextCache();
+    applyResolution(detail.tokenIndex, detail.word, detail.source, videoId);
   });
 
   function isTimedTextUrl(input) {
@@ -223,6 +244,10 @@
     return !mime || mime.indexOf("video/") !== 0;
   }
 
+  function shouldCaptureAudio() {
+    return settings.whisperEnabled && currentVideoId() && !(document && document.hidden);
+  }
+
   function relaySabrBuffer(streamId, bufferPromise) {
     bufferPromise.then(function relayBuffer(buffer) {
       return postAudioMessage({ type: "chunk", streamId: streamId, buffer: buffer }, [buffer]);
@@ -251,7 +276,7 @@
       return reader.read().then(function pumpResult(result) {
         var chunk;
 
-        if (result.done || !settings.whisperEnabled) {
+        if (result.done || !shouldCaptureAudio()) {
           if (!result.done) {
             reader.cancel().catch(function ignoreCancelError() {});
           }
@@ -288,6 +313,7 @@
     var cacheKey;
     var cached;
     var patchedBody;
+    var startTime;
 
     if (!api || typeof body !== "string") {
       return body;
@@ -298,16 +324,25 @@
     if (cached && cached.body === body) {
       patchedTimedTextCache.delete(cacheKey);
       patchedTimedTextCache.set(cacheKey, cached);
+      debugLog("patchTimedTextBody cache hit", { cacheKey: cacheKey });
       return cached.patchedBody;
     }
 
+    startTime = Date.now();
+    debugLog("patchTimedTextBody start", { bodyLen: body.length, replacements: audioReplacements.size, version: audioReplacementVersion });
+
     if (api.patchTimedTextBodyWithOverrides) {
       patchedBody = api.patchTimedTextBodyWithOverrides(body, replacementsForCurrentVideo(), settings.rulesEnabled);
-      rememberPatchedTimedText(cacheKey, body, patchedBody);
-      return patchedBody;
+    } else {
+      patchedBody = settings.rulesEnabled && api.patchTimedTextBody ? api.patchTimedTextBody(body) : body;
     }
 
-    patchedBody = settings.rulesEnabled && api.patchTimedTextBody ? api.patchTimedTextBody(body) : body;
+    debugLog("patchTimedTextBody done", {
+      elapsed: Date.now() - startTime,
+      changed: patchedBody !== body,
+      patchedLen: patchedBody.length
+    });
+
     rememberPatchedTimedText(cacheKey, body, patchedBody);
     return patchedBody;
   }
@@ -335,20 +370,36 @@
   globalThis.__uncensoredDebugAudioText = debugAudioText;
   function uncensoredFetch(input, init) {
     return originalFetch.apply(this, arguments).then(function maybePatch(response) {
-      if (settings.whisperEnabled && isGoogleVideoPlaybackUrl(input)) {
+      if (shouldCaptureAudio() && isGoogleVideoPlaybackUrl(input)) {
         processSabrResponse(response);
       }
 
       if (isTimedTextUrl(input)) {
         return response.clone().text().then(function rewriteTimedText(body) {
           var patchedBody;
+          var startTime = Date.now();
 
-          notifyTimedText(body);
-          patchedBody = patchTimedTextBody(body);
-          if (patchedBody === body) {
+          debugLog("fetch timedtext intercepted", { bodyLen: body.length, inputUrl: String(input).slice(0, 120) });
+
+          try {
+            notifyTimedText(body);
+            debugLog("fetch timedtext notifyTimedText done", { elapsed: Date.now() - startTime });
+            patchedBody = patchTimedTextBody(body);
+            debugLog("fetch timedtext patchTimedTextBody done", { elapsed: Date.now() - startTime, changed: patchedBody !== body });
+          } catch (patchError) {
+            debugLog("patchTimedTextBody failed", patchError && (patchError.message || String(patchError)));
+            if (console && console.warn) {
+              console.warn("[uncensored] patchTimedTextBody failed", patchError);
+            }
             return response;
           }
 
+          if (patchedBody === body) {
+            debugLog("fetch timedtext no change", { elapsed: Date.now() - startTime });
+            return response;
+          }
+
+          debugLog("fetch timedtext returning patched", { elapsed: Date.now() - startTime, patchedLen: patchedBody.length });
           return new Response(patchedBody, {
             status: response.status,
             statusText: response.statusText,
@@ -377,8 +428,17 @@
           return;
         }
 
-        notifyTimedText(this.responseText);
-        patchedBody = patchTimedTextBody(this.responseText);
+        try {
+          notifyTimedText(this.responseText);
+          patchedBody = patchTimedTextBody(this.responseText);
+        } catch (patchError) {
+          debugLog("patchTimedTextBody XHR failed", patchError && (patchError.message || String(patchError)));
+          if (console && console.warn) {
+            console.warn("[uncensored] patchTimedTextBody XHR failed", patchError);
+          }
+          return;
+        }
+
         if (patchedBody === this.responseText) {
           return;
         }

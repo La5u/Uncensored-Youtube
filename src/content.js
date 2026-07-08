@@ -64,7 +64,7 @@
   function handleSabrSegments(segments) {
     var audioInference = globalThis.UncensoredAudioInference;
 
-    if (settings.whisperEnabled && audioInference && audioInference.setSabrAudioData) {
+    if (settings.whisperEnabled && !document.hidden && audioInference && audioInference.setSabrAudioData) {
       return Promise.all((segments || []).map(audioInference.setSabrAudioData));
     }
 
@@ -195,17 +195,14 @@
       return;
     }
 
-    if (!settings.whisperEnabled) {
+    if (!settings.whisperEnabled || (document.hidden && message.type !== "end")) {
       acknowledgeSabrMessage(message);
       return;
     }
 
+    acknowledgeSabrMessage(message);
     relaySabrMessage(message).then(function decodeSegments(response) {
       return handleSabrSegments(response.segments);
-    }).then(function relayed() {
-      acknowledgeSabrMessage(message);
-    }, function relayFailed() {
-      acknowledgeSabrMessage(message);
-    });
+    }).catch(function relayFailed() {});
   });
 })();

@@ -13,8 +13,8 @@ function parseArgs(argv) {
     audioDir: "tests/fixtures/audio",
     manifest: "tools/whisper-audio-fixtures.json",
     output: "corpus/generated/whisper-only-report.json",
-    before: "1.25",
-    after: "1.25",
+    before: "1.5",
+    after: "1.5",
     limit: "0"
   };
 
