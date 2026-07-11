@@ -93,6 +93,12 @@ const examples = [
   ["really [__] cool", "really fucking cool"],
   ["sons of [__]", "sons of bitches"],
   ["oh [__].", "oh shit."],
+  ["scares the [__] out of me", "scares the shit out of me"],
+  ["kick the [__] out", "kick the shit out"],
+  ["don't give me [__] about it", "don't give me shit about it"],
+  ["come on, you [__]", "come on, you bitch"],
+  ["show some [__] respect", "show some fucking respect"],
+  ["better not [__] things up", "better not fuck things up"],
 ];
 
 for (const [input, expected] of examples) {

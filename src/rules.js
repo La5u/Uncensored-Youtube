@@ -206,7 +206,6 @@
     "what is this [shit|bullshit]",
     "oh god oh [fuck]",
     [["fancy", "basic", "holy", "oh"], "[shit|fuck]"],
-    "this [shit] is",
     "this [shit] happened",
     "all the [fucking] time",
     "all the [shit]",
@@ -227,7 +226,9 @@
   ]);
 
   var PHRASAL_VERB_RULE_PATTERNS = Object.freeze([
-    "want to [fuck|fucking] ",
+    "want to [fuck] ",
+    "try to [fuck] ",
+    "better not [fuck] things up",
     [FUCKING_WITH_PREFIXES, "[fucking] with"],
     [["dream about", "dream of"], "[fucking] "],
     [SUBJECT_PRONOUNS, "[fucked] it up"],
@@ -241,6 +242,8 @@
     [["got", "get", "getting", "being", "been"], "[fucked] over"],
     "shut the [fuck]",
     [SHIT_OUT_PREFIXES, "the [shit|fuck] out"],
+    [["scares", "kick", "smack", "beat"], "the [shit] out"],
+    "freaking the [fuck] out",
     [SHIT_TOGETHER_PREFIXES, "[shit] together"],
     "make this [shit] up",
     "made this [shit] up"
@@ -270,6 +273,9 @@
     [["piece", "pieces"], "of [shit]"],
     [["fucking", "dog", "horse"], "[shit]"],
     "absolute [shit] show",
+    "don't give me [shit] about",
+    "miss the [shit] out of",
+    "sell the [shit] out of",
     [["tired of your", "tired of this"], "[bullshit|shit]"],
     "bunch of [bullshit|shit|bitches]",
     "stuck up [bitch]",
@@ -298,6 +304,7 @@
     "an [asshole|arsehole]",
     "sick [fuck|fucker].",
     "don't be a [pussy|bitch]",
+    "come on, you [bitch]",
     [["am I the", "not the", "you are the", "call them a"], "[asshole]"]
   ]);
 
@@ -313,8 +320,6 @@
     "god [fucking] dammit",
     "jesus [fucking] christ",
     "that's [fucking] ",
-    [FUCKING_BEFORE_ANYTHING_PREFIXES, SWEAR_SLOT.INTENSIFIER + " "],
-    [FUCKING_NOUN_PREFIXES, "[fucking] "],
     [FUCKING_INTENSIFIER_PREFIXES, "[fucking] "],
     [FUCKING_ADVERB_PREFIXES, "[fucking] "],
     ["[fucking]", FUCKING_TRAILING_WORDS],
@@ -327,7 +332,14 @@
     [["ah", "aw", "ahh"], "[shit|fuck]"],
     [["chill", "knocked", "leave me"], "the [fuck]"],
     [["the [fuck]", "right [fuck]"], ["out", "away", "alone"]],
-    "super [fucked] up"
+    "super [fucked] up",
+    "show some [fucking] respect",
+    "sit [fucking] still",
+    "as [fuck]",
+    // Broad fallbacks: keep these behind specific grammar and idioms.
+    "this [shit] is",
+    [FUCKING_BEFORE_ANYTHING_PREFIXES, SWEAR_SLOT.INTENSIFIER + " "],
+    [FUCKING_NOUN_PREFIXES, "[fucking] "]
   ]);
 
   var RULE_PATTERNS = Object.freeze([].concat(
