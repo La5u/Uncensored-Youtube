@@ -6,7 +6,7 @@
   var originalFetch = globalThis.__uncensoredOriginalFetch || globalThis.fetch;
   var originalXHROpen = globalThis.__uncensoredOriginalXHROpen || XMLHttpRequest.prototype.open;
   var settings = {
-    rulesEnabled: true,
+    rulesEnabled: false,
     whisperEnabled: true
   };
   var audioReplacements = new Map();
@@ -130,19 +130,18 @@
     clearPatchedTimedTextCache();
   }
 
-  globalThis.__uncensoredResolveToken = function(tokenIndex, word, source, videoId) {
-    var id = videoId || currentVideoId();
-    applyResolution(tokenIndex, word, source, id);
-  };
-
   globalThis.addEventListener("uncensored-whisper-resolution", function rememberResolution(event) {
     var detail = safeJson(event && event.detail);
-    var videoId = currentVideoId();
+    var videoId;
 
     if (!detail || typeof detail.tokenIndex !== "number" || !detail.word) {
       return;
     }
 
+    videoId = detail.videoId || currentVideoId();
+    if (videoId !== currentVideoId()) {
+      return;
+    }
     applyResolution(detail.tokenIndex, detail.word, detail.source, videoId);
   });
 
@@ -332,7 +331,12 @@
     debugLog("patchTimedTextBody start", { bodyLen: body.length, replacements: audioReplacements.size, version: audioReplacementVersion });
 
     if (api.patchTimedTextBodyWithOverrides) {
-      patchedBody = api.patchTimedTextBodyWithOverrides(body, replacementsForCurrentVideo(), settings.rulesEnabled);
+      patchedBody = api.patchTimedTextBodyWithOverrides(
+        body,
+        replacementsForCurrentVideo(),
+        settings.rulesEnabled,
+        !settings.whisperEnabled
+      );
     } else {
       patchedBody = settings.rulesEnabled && api.patchTimedTextBody ? api.patchTimedTextBody(body) : body;
     }

@@ -16,6 +16,21 @@
   var sabrNextId = 1;
   var sabrPending = new Map();
 
+  function resetWhisperWorker(message) {
+    var error = new Error(message || "Worker error");
+    var worker = whisperWorker;
+
+    whisperWorker = null;
+    whisperReady = null;
+    if (worker) {
+      worker.terminate();
+    }
+    whisperPending.forEach(function rejectPending(reject) {
+      reject(error);
+    });
+    whisperPending.clear();
+  }
+
   function startWhisperWorker() {
     if (whisperReady) return whisperReady;
     whisperReady = new Promise(function createWorker(resolve, reject) {
@@ -27,7 +42,8 @@
         reject(error);
         return;
       }
-      whisperWorker.onmessage = function onWorkerMessage(event) {
+      var worker = whisperWorker;
+      worker.onmessage = function onWorkerMessage(event) {
         var message = event.data || {};
         var pending = whisperPending.get(message.id);
         if (pending) {
@@ -35,13 +51,12 @@
           pending(message.ok ? (message.decision || message) : new Error(message.error || "Worker failed"));
         }
       };
-      whisperWorker.onerror = function onWorkerError() {
-        whisperWorker = null;
-        whisperReady = null;
-        whisperPending.forEach(function rejectPending(reject) { reject(new Error("Worker error")); });
-        whisperPending.clear();
+      worker.onerror = function onWorkerError() {
+        if (whisperWorker === worker) {
+          resetWhisperWorker("Worker error");
+        }
       };
-      resolve(whisperWorker);
+      resolve(worker);
     });
     return whisperReady;
   }
@@ -52,8 +67,7 @@
     return startWhisperWorker().then(function workerReady(worker) {
       return new Promise(function waitForResponse(resolve, reject) {
         var timeout = setTimeout(function workerTimedOut() {
-          whisperPending.delete(id);
-          reject(new Error("Worker timed out"));
+          resetWhisperWorker("Worker timed out");
         }, timeoutMs || 60000);
         whisperPending.set(id, function handleResponse(value) {
           clearTimeout(timeout);

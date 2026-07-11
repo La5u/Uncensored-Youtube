@@ -167,10 +167,9 @@
   }
 
   watchSettings();
-  injectScriptsSequentially(scripts).then(function injected() {
-    dispatchSettingsSoon();
-  }, dispatchSettingsSoon);
-  loadSettings().then(dispatchSettingsSoon, dispatchSettingsSoon);
+  loadSettings().then(function settingsLoaded() {
+    return injectScriptsSequentially(scripts);
+  }).then(dispatchSettings, dispatchSettings);
 
   window.addEventListener("uncensored-timedtext", function rememberTimedText(event) {
     var body = event && event.detail;

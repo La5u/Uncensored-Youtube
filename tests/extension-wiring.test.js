@@ -11,7 +11,7 @@ const pageHook = read("src/page-hook.js");
 const audioCapture = read("src/audio-capture.js");
 
 assert.ok(content.includes("src/sabr-worker.js"));
-assert.ok(content.indexOf("injectScriptsSequentially(scripts)") < content.indexOf("loadSettings().then"));
+assert.ok(content.indexOf("loadSettings().then") < content.indexOf("injectScriptsSequentially(scripts)"));
 
 assert.ok(pageHook.includes("audioReplacements.clear();"));
 assert.ok(!pageHook.includes("fetchGoogleAudio"));
@@ -19,6 +19,13 @@ assert.ok(!pageHook.includes("bestGoogleAudioUrl"));
 
 assert.ok(audioCapture.includes("bgMessage(\"transcribe\""));
 assert.ok(audioCapture.includes("var decodeQueue = Promise.resolve();"));
+assert.ok(audioCapture.includes("uncensored-whisper-resolution"));
+assert.ok(audioCapture.includes("VISIBLE_REAPPLY_SECONDS"));
+assert.ok(!audioCapture.includes("root.__uncensoredResolveToken"));
+assert.ok(audioCapture.includes("beforeMatches || afterMatches"));
+assert.ok(audioCapture.includes("readMediaWindow"));
+assert.ok(audioCapture.includes("whisper model starting"));
+assert.ok(audioCapture.includes("whisper model started"));
 
 const captionSegment = { textContent: "fucking" };
 global.location = { href: "https://www.youtube.com/watch?v=test" };
