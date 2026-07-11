@@ -110,10 +110,9 @@
     return byTokenIndex;
   }
 
-  function contextForToken(eventText, targetTokenIndex, firstEventTokenIndex, deterministicByTokenIndex) {
+  function contextForToken(eventText, targetTokenIndex, firstEventTokenIndex, deterministicByTokenIndex, previousEventText) {
     var relativeTokenIndex = 0;
-
-    return eventText.replace(CENSORED_TOKEN_REGEX, function replaceOtherToken() {
+    var currentContext = eventText.replace(CENSORED_TOKEN_REGEX, function replaceOtherToken() {
       var absoluteTokenIndex = firstEventTokenIndex + relativeTokenIndex;
       var deterministic;
 
@@ -126,6 +125,8 @@
       deterministic = deterministicByTokenIndex.get(absoluteTokenIndex);
       return deterministic && deterministic.word ? deterministic.word : "";
     });
+
+    return ((previousEventText || "").replace(CENSORED_TOKEN_REGEX, "") + " " + currentContext).trim();
   }
 
   function adjacentTokenGroups(eventText) {
@@ -154,6 +155,7 @@
   function collectCensoredTokens(payload, deterministicByTokenIndex) {
     var tokenIndex = 0;
     var tokens = [];
+    var previousEventText = "";
 
     payload.events.forEach(function collectEventTokens(event, eventIndex) {
       if (!event || !Array.isArray(event.segs)) {
@@ -181,7 +183,7 @@
             eventIndex: eventIndex,
             segIndex: segIndex,
             timeSeconds: tokenTimeSeconds(event, seg),
-            context: contextForToken(eventText, tokenIndex, firstEventTokenIndex, deterministicByTokenIndex),
+            context: contextForToken(eventText, tokenIndex, firstEventTokenIndex, deterministicByTokenIndex, previousEventText),
             deterministicWord: deterministic ? deterministic.word : "",
             deterministicCandidates: deterministic ? deterministic.candidates : [],
             candidates: deterministic && deterministic.candidates.length
@@ -193,6 +195,9 @@
           return rules.CENSORED_TOKEN;
         });
       });
+      if (eventText.trim()) {
+        previousEventText = eventText;
+      }
     });
 
     return tokens;
@@ -235,7 +240,7 @@
     return patchTimedTextJsonWithOverrides(payload, [], true);
   }
 
-  function patchTimedTextJsonWithOverrides(payload, overrides, useDeterministic, body) {
+  function patchTimedTextJsonWithOverrides(payload, overrides, useDeterministic, body, resolveAmbiguous) {
     if (!payload || !Array.isArray(payload.events)) {
       return {
         payload: payload,
@@ -250,7 +255,9 @@
     var tokenOffset = 0;
 
     result.replacements.forEach(function mapDeterministicReplacement(replacement) {
-      replacementByTokenIndex.set(replacement.tokenIndex, replacement);
+      if (resolveAmbiguous !== false || replacement.rule.candidates.length === 1) {
+        replacementByTokenIndex.set(replacement.tokenIndex, replacement);
+      }
     });
 
     (overrides || []).forEach(function mapOverride(override) {
@@ -309,9 +316,9 @@
     }
   }
 
-  function patchTimedTextBodyWithOverrides(body, overrides, useDeterministic) {
+  function patchTimedTextBodyWithOverrides(body, overrides, useDeterministic, resolveAmbiguous) {
     try {
-      var result = patchTimedTextJsonWithOverrides(JSON.parse(body), overrides, useDeterministic !== false, body);
+      var result = patchTimedTextJsonWithOverrides(JSON.parse(body), overrides, useDeterministic !== false, body, resolveAmbiguous);
       return result.patchCount > 0 ? JSON.stringify(result.payload) : body;
     } catch (error) {
       return body;

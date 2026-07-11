@@ -165,6 +165,17 @@ assert.strictEqual(tokens.length, 1);
 assert.strictEqual(tokens[0].timeSeconds, 10.75);
 assert.deepStrictEqual(tokens[0].candidates.includes("fuck"), true);
 
+const leadingTokenPayload = {
+  events: [
+    { segs: [{ utf8: "still on the previous line" }] },
+    { aAppend: 1, segs: [{ utf8: "\n" }] },
+    { segs: [{ utf8: "[__]" }, { utf8: " appears first" }] }
+  ]
+};
+const leadingTokens = timedText.collectTimedTextTokens(JSON.stringify(leadingTokenPayload), false);
+
+assert.strictEqual(leadingTokens[0].context, "still on the previous line [__] appears first");
+
 const deterministicPayload = {
   events: [
     {
@@ -246,5 +257,11 @@ const overrideBody = timedText.patchTimedTextBodyWithOverrides(JSON.stringify(ov
 const overrideResult = JSON.parse(overrideBody);
 
 assert.strictEqual(overrideResult.events[0].segs.map((seg) => seg.utf8).join(""), "what the fuck did you just fucking call me");
+
+const whisperBody = timedText.patchTimedTextBodyWithOverrides(JSON.stringify(ambiguousPayload), [], true, false);
+assert.strictEqual(JSON.parse(whisperBody).events[0].segs.map((seg) => seg.utf8).join(""), "oh [__]");
+
+const rulesOnlyBody = timedText.patchTimedTextBodyWithOverrides(JSON.stringify(ambiguousPayload), [], true, true);
+assert.strictEqual(JSON.parse(rulesOnlyBody).events[0].segs.map((seg) => seg.utf8).join(""), "oh shit");
 
 console.log("timedtext.test.js passed");
