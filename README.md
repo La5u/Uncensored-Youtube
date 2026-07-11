@@ -55,7 +55,7 @@ PYTHONPATH=/tmp/uncensored-pyarrow node corpus/evaluate-opensubtitles-parquet.js
 
 ### Build
 ```
-./build.sh 1.1.0
+./build.sh 1.2.0
 ```
 
 This creates separate zip files for Chromium and Firefox.
