@@ -12,15 +12,15 @@
       <label>
         <input id="rulesEnabled" type="checkbox">
         <span>
-          <strong>Rules (regex)</strong>
-          <small>Turn off for audio-only inference testing.</small>
+          <strong>Context Rules</strong>
+          <small>Use regex to predict common swears from surrounding context. Low resource use; ~85% accuracy, ~42% misses.</small>
         </span>
       </label>
       <label>
         <input id="whisperEnabled" type="checkbox">
         <span>
-          <strong>Whisper (AI)</strong>
-          <small>Use local audio inference for unresolved or ambiguous slots.</small>
+          <strong>Audio Inference</strong>
+          <small>Uses the local Whisper Tiny model to transcribe swears and update subtitles live. Resource-intensive and buggy; ~95% accuracy, ~3% misses.</small>
         </span>
       </label>
     </main>
