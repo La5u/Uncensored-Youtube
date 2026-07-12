@@ -48,7 +48,7 @@ review linting while preserving local WASM inference:
 Before submission, run:
 
 ```sh
+./build.sh 1.2.0
 web-ext lint --source-dir dist/firefox
-node tests/whisper-local.test.js
-node tests/sabr-parser.test.js
+for test in tests/*.test.js; do node "$test" || exit; done
 ```
