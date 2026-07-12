@@ -312,7 +312,6 @@
     var cacheKey;
     var cached;
     var patchedBody;
-    var startTime;
 
     if (!api || typeof body !== "string") {
       return body;
@@ -323,12 +322,8 @@
     if (cached && cached.body === body) {
       patchedTimedTextCache.delete(cacheKey);
       patchedTimedTextCache.set(cacheKey, cached);
-      debugLog("patchTimedTextBody cache hit", { cacheKey: cacheKey });
       return cached.patchedBody;
     }
-
-    startTime = Date.now();
-    debugLog("patchTimedTextBody start", { bodyLen: body.length, replacements: audioReplacements.size, version: audioReplacementVersion });
 
     if (api.patchTimedTextBodyWithOverrides) {
       patchedBody = api.patchTimedTextBodyWithOverrides(
@@ -340,12 +335,6 @@
     } else {
       patchedBody = settings.rulesEnabled && api.patchTimedTextBody ? api.patchTimedTextBody(body) : body;
     }
-
-    debugLog("patchTimedTextBody done", {
-      elapsed: Date.now() - startTime,
-      changed: patchedBody !== body,
-      patchedLen: patchedBody.length
-    });
 
     rememberPatchedTimedText(cacheKey, body, patchedBody);
     return patchedBody;
@@ -381,15 +370,9 @@
       if (isTimedTextUrl(input)) {
         return response.clone().text().then(function rewriteTimedText(body) {
           var patchedBody;
-          var startTime = Date.now();
-
-          debugLog("fetch timedtext intercepted", { bodyLen: body.length, inputUrl: String(input).slice(0, 120) });
-
           try {
             notifyTimedText(body);
-            debugLog("fetch timedtext notifyTimedText done", { elapsed: Date.now() - startTime });
             patchedBody = patchTimedTextBody(body);
-            debugLog("fetch timedtext patchTimedTextBody done", { elapsed: Date.now() - startTime, changed: patchedBody !== body });
           } catch (patchError) {
             debugLog("patchTimedTextBody failed", patchError && (patchError.message || String(patchError)));
             if (console && console.warn) {
@@ -399,11 +382,9 @@
           }
 
           if (patchedBody === body) {
-            debugLog("fetch timedtext no change", { elapsed: Date.now() - startTime });
             return response;
           }
 
-          debugLog("fetch timedtext returning patched", { elapsed: Date.now() - startTime, patchedLen: patchedBody.length });
           return new Response(patchedBody, {
             status: response.status,
             statusText: response.statusText,

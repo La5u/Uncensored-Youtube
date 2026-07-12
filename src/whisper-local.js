@@ -410,7 +410,7 @@
 
     return getTranscriber().then(function runTranscriber(transcriber) {
       return transcriber(audio, {
-        max_new_tokens: 32
+        max_new_tokens: Math.max(32, ((options && options.slotCount) || 1) * 4)
       });
     }).then(function chooseCandidate(result) {
       var transcript = typeof result === "string" ? result : result && result.text;

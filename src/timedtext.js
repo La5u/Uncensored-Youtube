@@ -181,6 +181,8 @@
             adjacentTokenIndex: eventTokenGroups[eventTokenIndex].index,
             adjacentTokenCount: eventTokenGroups[eventTokenIndex].count,
             eventIndex: eventIndex,
+            eventText: eventText,
+            previousEventText: previousEventText,
             segIndex: segIndex,
             timeSeconds: tokenTimeSeconds(event, seg),
             context: contextForToken(eventText, tokenIndex, firstEventTokenIndex, deterministicByTokenIndex, previousEventText),
