@@ -113,6 +113,10 @@
           transformers.env.localModelPath = baseUrl + "src/models/";
           transformers.env.allowRemoteModels = false;
           transformers.env.allowLocalModels = true;
+          if (baseUrl.indexOf("chrome-extension://") === 0) {
+            transformers.env.useBrowserCache = false;
+            transformers.env.useWasmCache = false;
+          }
         }
 
         if (transformers.env && transformers.env.backends && transformers.env.backends.onnx && transformers.env.backends.onnx.wasm) {

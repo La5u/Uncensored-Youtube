@@ -1,5 +1,7 @@
 {
   "manifest_version": 3,
+  "minimum_chrome_version": "148",
+  "message_serialization": "structured_clone",
   "name": "Uncensored YouTube",
   "version": "1.2.0",
   "description": "Restores deterministic censored words in YouTube captions.",
@@ -13,7 +15,8 @@
     "service_worker": "src/background.js"
   },
   "permissions": [
-    "storage"
+    "storage",
+    "offscreen"
   ],
   "action": {
     "default_icon": {

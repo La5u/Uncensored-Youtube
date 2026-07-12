@@ -1,61 +1,29 @@
 # Chromium support plan
 
-> Status: on hold while Whisper live-caption correctness is stabilized.
+> Status: implemented with an offscreen worker host.
 
 ## Goal
 
-Keep the existing Firefox path intact, while making Whisper reliable in Chromium
-Manifest V3. Chromium's background is a service worker: it can be stopped when
-idle and is the wrong owner for the long-lived Whisper worker and model state.
-
-## Current blocker
-
-`src/background.js` creates `src/whisper-module-worker.js` with
-`new Worker(url, { type: "module" })`. That worker is the only Whisper host in
-Chromium, but failures are converted into an empty response by `audio-capture`.
-The visible result is that Whisper sometimes never starts, without a useful
-error. The Firefox manifest instead has a persistent background script.
-
-Do not use `Boolean(globalThis.browser)` as a browser test. Chromium now also
-exposes a `browser` namespace in recent releases, so that test will become
-incorrect. Select a platform capability explicitly instead.
+Keep the existing Firefox path intact while making Whisper reliable in Chromium
+Manifest V3. Chromium owns its SABR and Whisper workers in one offscreen
+extension page because service workers cannot create dedicated workers and
+YouTube-origin content scripts cannot load extension worker URLs.
 
 ## Design
 
-1. Add `src/offscreen.html` and a minimal `src/offscreen.js`.
-   The offscreen page owns one `whisper-module-worker.js` module worker, its
-   request queue, timeouts, and worker recreation.
-
-2. Add the Chromium `offscreen` permission and include the two new files in the
-   build. Create the document with the `WORKERS` reason and a narrowly accurate
-   justification. Create it lazily on `preload` or the first `transcribe`, not
-   on every YouTube page load.
-
-3. Keep `background.js` as a thin message broker only. It must serialize
-   `ensureOffscreenDocument()` behind one promise, wait for an explicit
-   `ready` message, then forward a request with a request ID. Do not retain
-   Whisper state in the service worker.
-
-4. In the offscreen page, enforce a single inference queue. Give every request
-   a timeout and, on timeout/error, reject that one request, terminate the
-   worker, and recreate it for the next request. Never leave an unresolved
-   promise in the queue.
-
-5. Correlate every request and response with `{ navigationId, requestId }`.
-   Increment `navigationId` from the content script on YouTube navigation and
-   discard an old result before it reaches `applyResolvedWord`.
-
-6. Make Chromium and Firefox adapters explicit:
-   - Firefox may retain the current background-worker route after verification.
-   - Chromium uses the offscreen route.
-   - The SABR parser can remain in the content-script worker in Chromium; it
-     already avoids the background relay there.
+1. Detect Chromium through `manifest.background.service_worker`, not through
+   the `browser` namespace, which Chromium may also expose.
+2. Create one offscreen extension page lazily when a YouTube tab first requests
+   SABR or Whisper work. It owns both dedicated workers.
+3. Keep Firefox's persistent background-worker route unchanged.
+4. Correlate worker messages with request IDs, time them out, and recreate the
+   tab worker after an error. Existing navigation generations discard stale
+   results before caption replacement.
 
 ## Verification matrix
 
 - Fresh install: first censored token loads the model and resolves.
-- Service-worker suspension while playback continues: the offscreen host still
-  returns a result, or is recreated cleanly.
+- Service-worker suspension while playback continues: offscreen workers remain usable.
 - Seek, replay, and `yt-navigate-finish`: no pre-navigation response patches a
   new video.
 - Disable Whisper during model load: queue is cancelled and the worker exits.

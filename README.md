@@ -163,6 +163,7 @@ PYTHONPATH=/tmp/uncensored-pyarrow node corpus/evaluate-opensubtitles-parquet.js
 ./build.sh 1.2.0
 ```
 
-This creates separate Firefox and Chromium zip files in `dist/`. Firefox is the
-currently supported Whisper host. See [AMO_SOURCE.md](AMO_SOURCE.md) for source
-and vendored-runtime notes.
+This creates separate Firefox and Chromium zip files in `dist/`. Firefox keeps
+Whisper in its persistent background page; Chromium keeps it in an offscreen
+extension page while YouTube requests are active. See [AMO_SOURCE.md](AMO_SOURCE.md)
+for source and vendored-runtime notes.

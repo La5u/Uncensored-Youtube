@@ -6,6 +6,42 @@
     return;
   }
 
+  var manifestBackground = runtime.runtime.getManifest().background || {};
+  var useOffscreen = Boolean(manifestBackground.service_worker);
+  var offscreen = root.chrome && root.chrome.offscreen || runtime.offscreen;
+  var offscreenReady = null;
+
+  function ensureOffscreen() {
+    if (offscreenReady) return offscreenReady;
+
+    var url = runtime.runtime.getURL("src/offscreen.html");
+    offscreenReady = runtime.runtime.getContexts({
+      contextTypes: ["OFFSCREEN_DOCUMENT"],
+      documentUrls: [url]
+    }).then(function createIfMissing(contexts) {
+      if (contexts.length) return;
+      return offscreen.createDocument({
+        url: "src/offscreen.html",
+        reasons: ["WORKERS"],
+        justification: "Run local caption audio parsing and Whisper inference"
+      });
+    }).catch(function resetOffscreen(error) {
+      offscreenReady = null;
+      throw error;
+    });
+    return offscreenReady;
+  }
+
+  function postOffscreen(kind, data) {
+    return ensureOffscreen().then(function ready() {
+      return runtime.runtime.sendMessage({
+        uncensoredOffscreen: true,
+        kind: kind,
+        data: data
+      });
+    });
+  }
+
   // ── Whisper worker relay ──
 
   var whisperWorker = null;
@@ -136,6 +172,18 @@
       if (!message) return;
 
       if (message.uncensoredSabr && message.data) {
+        if (useOffscreen) {
+          postOffscreen("sabr", Object.assign({}, message.data, {
+            streamId: [
+              sender && sender.tab ? sender.tab.id : 0,
+              sender && typeof sender.frameId === "number" ? sender.frameId : 0,
+              message.data.streamId
+            ].join(":")
+          })).then(sendResponse, function failed() {
+            sendResponse({ segments: [] });
+          });
+          return true;
+        }
         postToSabr(message.data, sender).then(function parsed(result) {
           sendResponse(result);
         });
@@ -143,6 +191,16 @@
       }
 
       if (!message.uncensoredWhisper) return;
+
+      if (useOffscreen) {
+        postOffscreen("whisper", {
+          type: message.type,
+          data: message.data
+        }).then(sendResponse, function failed(error) {
+          sendResponse({ error: error && (error.message || String(error)) });
+        });
+        return true;
+      }
 
       if (message.type === "warmup") {
         startWhisperWorker().then(function ready() {

@@ -9,15 +9,26 @@ function read(file) {
 const content = read("src/content.js");
 const pageHook = read("src/page-hook.js");
 const audioCapture = read("src/audio-capture.js");
+const background = read("src/background.js");
+const offscreen = read("src/offscreen.js");
+const chromiumManifest = JSON.parse(read("manifest.chromium.json"));
 
-assert.ok(content.includes("src/sabr-worker.js"));
+assert.ok(content.includes("uncensoredSabr"));
 assert.ok(content.indexOf("loadSettings().then") < content.indexOf("injectScriptsSequentially(scripts)"));
+assert.ok(background.includes("runtime.runtime.getContexts"));
+assert.ok(background.includes("src/offscreen.html"));
+assert.ok(offscreen.includes("src/sabr-worker.js"));
+assert.ok(offscreen.includes("src/whisper-module-worker.js"));
+assert.ok(chromiumManifest.permissions.includes("offscreen"));
+assert.strictEqual(chromiumManifest.message_serialization, "structured_clone");
+assert.strictEqual(chromiumManifest.minimum_chrome_version, "148");
 
 assert.ok(pageHook.includes("audioReplacements.clear();"));
 assert.ok(!pageHook.includes("fetchGoogleAudio"));
 assert.ok(!pageHook.includes("bestGoogleAudioUrl"));
 
 assert.ok(audioCapture.includes("bgMessage(\"transcribe\""));
+assert.ok(audioCapture.includes("Whisper via extension host"));
 assert.ok(audioCapture.includes("var decodeQueue = Promise.resolve();"));
 assert.ok(audioCapture.includes("uncensored-whisper-resolution"));
 assert.ok(!audioCapture.includes("VISIBLE_REAPPLY_SECONDS"));

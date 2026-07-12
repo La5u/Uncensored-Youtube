@@ -106,7 +106,7 @@
     topCaptionRow = null;
   }
 
-  // ── Whisper via background relay ──
+  // ── Whisper via extension host ──
 
   function bgMessage(type, data) {
     var timeoutMs = type === "warmup" ? 10000 : 60000;
@@ -178,7 +178,9 @@
         debugLog("whisper model started");
       } else {
         whisperModelState = "idle";
-        debugLog("whisper model failed to start");
+        if (root.console && root.console.warn) {
+          root.console.warn("[uncensored] whisper model failed to start", response && response.error || "No response");
+        }
       }
     });
   }

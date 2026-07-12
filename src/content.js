@@ -6,9 +6,6 @@
     rulesEnabled: true,
     whisperEnabled: true
   };
-  var sabrWorker = null;
-  var sabrWorkerPending = new Map();
-  var useBackgroundSabr = Boolean(globalThis.browser);
   var INJECT_VERSION = String(Date.now());
   var scripts = [
     "src/page-hook.js",
@@ -78,45 +75,7 @@
     }, "*");
   }
 
-  function getSabrWorker() {
-    if (!sabrWorker) {
-      sabrWorker = new Worker(runtime.runtime.getURL("src/sabr-worker.js"));
-      sabrWorker.onmessage = function onSabrSegments(event) {
-        var response = event.data || {};
-        var pending = sabrWorkerPending.get(response.id);
-
-        if (pending) {
-          pending(response);
-        }
-      };
-      sabrWorker.onerror = function onSabrWorkerError() {
-        sabrWorkerPending.forEach(function releasePending(pending) {
-          pending({ segments: [] });
-        });
-        sabrWorker = null;
-      };
-    }
-
-    return sabrWorker;
-  }
-
   function relaySabrMessage(message) {
-    if (!useBackgroundSabr) {
-      return new Promise(function waitForWorker(resolve) {
-        var timeout = window.setTimeout(function sabrWorkerTimedOut() {
-          sabrWorkerPending.delete(message.messageId);
-          resolve({ segments: [] });
-        }, 60000);
-
-        sabrWorkerPending.set(message.messageId, function resolveWorker(response) {
-          window.clearTimeout(timeout);
-          sabrWorkerPending.delete(message.messageId);
-          resolve(response);
-        });
-        getSabrWorker().postMessage(Object.assign({ id: message.messageId }, message), message.buffer ? [message.buffer] : []);
-      });
-    }
-
     return runtime.runtime.sendMessage({
       uncensoredSabr: true,
       data: message
@@ -155,11 +114,6 @@
 
       if (changes.whisperEnabled) {
         settings.whisperEnabled = changes.whisperEnabled.newValue !== false;
-        if (!settings.whisperEnabled && sabrWorker) {
-          var worker = sabrWorker;
-          sabrWorker.onerror();
-          worker.terminate();
-        }
       }
 
       dispatchSettingsSoon();
