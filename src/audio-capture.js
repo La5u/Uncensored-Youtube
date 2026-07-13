@@ -15,20 +15,20 @@
   var pendingTokens = new Map();
   var resolvedTokens = new Map();
   var failedTokens = new Map();
-  var liveResolverStarted = false;
   var captionObserver = null;
   var visibleResolutionScheduled = false;
   var pendingVisibleGroups = new Map();
   var previousCaptionRow = "";
   var topCaptionRow = null;
   var lastPatchedCaptionText = "";
-  var activeWhisperRequests = 0;
+  var whisperBusy = false;
   var whisperQueueScheduled = false;
   var audioContext = null;
   var decodeQueue = Promise.resolve();
   var whisperModelState = "idle";
   var navigationGeneration = 0;
-  var MAX_ACTIVE_WHISPER_REQUESTS = 1;
+  var tokenMetadataKnown = false;
+  var videoHasCensoredSlots = false;
   var mediaAudio = {
     videoId: "",
     segments: [],
@@ -69,10 +69,6 @@
     return root.document && root.document.querySelector("video");
   }
 
-  function activeDocument() {
-    return !root.document || !root.document.hidden;
-  }
-
   function extractPathVideoId(pathname) {
     var match = pathname.match(/\/(live|shorts)\/([^/]+)/);
     return match ? match[2] : "";
@@ -94,6 +90,9 @@
     }
 
     navigationGeneration += 1;
+    tokenMetadataKnown = false;
+    videoHasCensoredSlots = false;
+    whisperModelState = "idle";
     pendingTokens.clear();
     resolvedTokens.clear();
     failedTokens.clear();
@@ -109,7 +108,7 @@
   // ── Whisper via extension host ──
 
   function bgMessage(type, data) {
-    var timeoutMs = type === "warmup" ? 10000 : 60000;
+    var timeoutMs = 60000;
     return new Promise(function bg(resolve) {
       var message = Object.assign({ uncensoredWhisper: true, type: type }, data ? { data: data } : {});
       var resolved = false;
@@ -159,10 +158,6 @@
     }).then(function onDecision(response) {
       return response && response.decision ? response.decision : response;
     });
-  }
-
-  function warmupWhisper() {
-    bgMessage("warmup");
   }
 
   function preloadWhisper() {
@@ -250,7 +245,7 @@
     }
 
     decodeQueue = decodeQueue.then(function decodeNextSegment() {
-      if (!options.whisperEnabled || !activeDocument()) {
+      if (!options.whisperEnabled) {
         return null;
       }
 
@@ -728,17 +723,11 @@
   }
 
   function resolvePendingTokensFromMedia() {
-    if (!options.whisperEnabled || !activeDocument() || !mediaAudio.segments.length || !pendingTokens.size) {
+    if (!options.whisperEnabled || !mediaAudio.segments.length || !pendingTokens.size) {
       return;
     }
 
     scheduleWhisperQueue();
-  }
-
-  function warmupWhisperHost() {
-    if (options.whisperEnabled && activeDocument()) {
-      warmupWhisper();
-    }
   }
 
   function nextResolvableMediaToken() {
@@ -852,40 +841,14 @@
     return needed;
   }
 
-  function segmentInBufferedRange(segment) {
-    var video = findVideo();
-    var buffered = video && video.buffered;
-    var index;
-
-    if (!buffered || typeof buffered.length !== "number") {
-      return true;
-    }
-
-    for (index = 0; index < buffered.length; index += 1) {
-      if (segment.endTime >= buffered.start(index) - AUDIO_CONTEXT_SECONDS &&
-          segment.startTime <= buffered.end(index) + AUDIO_CONTEXT_SECONDS) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
   function compactMediaSegments() {
     mediaAudio.segments.sort(function sortSegments(left, right) {
       return left.startTime - right.startTime;
     });
     mediaAudio.segments = mediaAudio.segments.filter(function keepNeededSegment(segment) {
-      if (segmentNeeded(segment) || segmentInBufferedRange(segment)) {
-        return true;
-      }
-
-      return false;
+      return !tokenMetadataKnown || segmentNeeded(segment);
     });
 
-    if (!mediaAudio.segments.length) {
-      return;
-    }
   }
 
   function scheduleWhisperQueue() {
@@ -902,7 +865,7 @@
     var queueStart;
 
     whisperQueueScheduled = false;
-    if (!options.whisperEnabled || !activeDocument() || !mediaAudio.segments.length || !pendingTokens.size || activeWhisperRequests >= MAX_ACTIVE_WHISPER_REQUESTS) {
+    if (!options.whisperEnabled || !mediaAudio.segments.length || !pendingTokens.size || whisperBusy) {
       return;
     }
 
@@ -915,9 +878,8 @@
 
     group.forEach(function markResolving(entry) {
       entry.token.resolving = true;
-      entry.token.attempted = true;
     });
-    activeWhisperRequests += 1;
+    whisperBusy = true;
     resolveTokenGroupFromMedia(group).then(function logResolutionTime(decision) {
       if (queueStart) {
         debugLog("whisper resolved", {
@@ -951,7 +913,7 @@
         }
       });
     }).finally(function clearMediaResolving() {
-      activeWhisperRequests = Math.max(0, activeWhisperRequests - 1);
+      whisperBusy = false;
       group.forEach(function clearResolving(entry) {
         entry.token.resolving = false;
         if (entry.token.resolved || failedTokens.has(entry.token.tokenIndex)) {
@@ -966,15 +928,16 @@
       });
       scheduleWhisperQueue();
     });
-    if (activeWhisperRequests < MAX_ACTIVE_WHISPER_REQUESTS) {
-      scheduleWhisperQueue();
-    }
+    scheduleWhisperQueue();
   }
 
   function rememberTimedTextTokens(tokens) {
     var existing = Object.create(null);
 
+    tokenMetadataKnown = true;
+    videoHasCensoredSlots = videoHasCensoredSlots || Boolean(tokens && tokens.length);
     if (!rules || !tokens || !tokens.length) {
+      compactMediaSegments();
       return;
     }
 
@@ -1020,17 +983,14 @@
       }
     });
 
-    if (!pendingTokens.size) {
-      return;
-    }
-
-    startLiveCaptionResolver();
-    if (options.whisperEnabled && activeDocument()) {
-      warmupWhisperHost();
+    if (options.whisperEnabled && videoHasCensoredSlots) {
       preloadWhisper();
-      if (mediaAudio.segments.length) {
+      if (pendingTokens.size && mediaAudio.segments.length) {
         resolvePendingTokensFromMedia();
       }
+    }
+    if (pendingTokens.size) {
+      startLiveCaptionResolver();
     }
   }
 
@@ -1349,25 +1309,7 @@
   }
 
   function startLiveCaptionResolver() {
-    if (liveResolverStarted || !root.setInterval) {
-      return;
-    }
-
-    liveResolverStarted = true;
     watchCaptionMutations();
-
-    root.setInterval(function resolveVisibleTokens() {
-      var video = findVideo();
-
-      if (!captionObserver) {
-        watchCaptionMutations();
-      }
-      if (!video || !activeDocument() || !pendingTokens.size) {
-        return;
-      }
-
-      resolvePendingTokensFromMedia();
-    }, 250);
   }
 
   var exports = Object.freeze({
@@ -1385,9 +1327,11 @@
           }
         });
       }
-      if (options.whisperEnabled && activeDocument()) {
-        warmupWhisperHost();
-        scheduleWhisperQueue();
+      if (options.whisperEnabled && videoHasCensoredSlots) {
+        preloadWhisper();
+        if (pendingTokens.size) {
+          scheduleWhisperQueue();
+        }
       } else {
         mediaAudio.segments = [];
       }
@@ -1416,8 +1360,7 @@
             deterministicWord: token.deterministicWord,
             candidates: token.candidates,
             resolved: token.resolved,
-            resolving: token.resolving,
-            attempted: token.attempted
+            resolving: token.resolving
           };
         }),
         resolvedTokens: resolvedTokenValues()
@@ -1427,11 +1370,9 @@
 
   root.UncensoredAudioInference = exports;
   if (root.addEventListener) {
-    root.addEventListener("yt-navigate-finish", resetForNavigation);
-    root.addEventListener("visibilitychange", function onTabVisible() {
-      if (!root.document || !root.document.hidden) {
-        scheduleWhisperQueue();
-      }
+    root.addEventListener("yt-navigate-finish", function navigationFinished() {
+      resetForNavigation();
+      watchCaptionMutations();
     });
   }
   if (typeof module === "object" && module.exports) {

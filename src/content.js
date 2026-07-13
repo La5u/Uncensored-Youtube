@@ -7,6 +7,8 @@
     whisperEnabled: true
   };
   var INJECT_VERSION = String(Date.now());
+  var audioNeeded = null;
+  var hasCensoredSlots = false;
   var scripts = [
     "src/page-hook.js",
     "src/rules.js",
@@ -42,7 +44,7 @@
 
   function dispatchSettings() {
     window.dispatchEvent(new CustomEvent("uncensored-settings", {
-      detail: JSON.stringify(settings)
+      detail: JSON.stringify(Object.assign({}, settings, { audioNeeded: audioNeeded }))
     }));
 
     if (globalThis.UncensoredAudioInference && globalThis.UncensoredAudioInference.setOptions) {
@@ -58,10 +60,22 @@
     window.setTimeout(dispatchSettings, 0);
   }
 
+  function updateAudioNeeded() {
+    var needed = settings.whisperEnabled && hasCensoredSlots;
+
+    if (audioNeeded === needed) return;
+    audioNeeded = needed;
+    dispatchSettings();
+    runtime.runtime.sendMessage(needed
+      ? { uncensoredActive: true }
+      : { uncensoredIdle: true }
+    ).catch(function ignoreHostStateError() {});
+  }
+
   function handleSabrSegments(segments) {
     var audioInference = globalThis.UncensoredAudioInference;
 
-    if (settings.whisperEnabled && !document.hidden && audioInference && audioInference.setSabrAudioData) {
+    if (settings.whisperEnabled && audioNeeded === true && audioInference && audioInference.setSabrAudioData) {
       return Promise.all((segments || []).map(audioInference.setSabrAudioData));
     }
 
@@ -114,6 +128,7 @@
 
       if (changes.whisperEnabled) {
         settings.whisperEnabled = changes.whisperEnabled.newValue !== false;
+        updateAudioNeeded();
       }
 
       dispatchSettingsSoon();
@@ -136,7 +151,9 @@
     }
 
     tokens = timedText.collectTimedTextTokens(body, settings.rulesEnabled);
-    if (settings.whisperEnabled && tokens.length && audioInference.rememberTimedTextTokens) {
+    hasCensoredSlots = hasCensoredSlots || tokens.length > 0;
+    updateAudioNeeded();
+    if (audioInference.rememberTimedTextTokens) {
       audioInference.rememberTimedTextTokens(tokens);
     }
   });
@@ -148,7 +165,7 @@
       return;
     }
 
-    if (!settings.whisperEnabled || (document.hidden && message.type !== "end")) {
+    if (!settings.whisperEnabled || audioNeeded !== true) {
       acknowledgeSabrMessage(message);
       return;
     }
@@ -157,5 +174,16 @@
     relaySabrMessage(message).then(function decodeSegments(response) {
       return handleSabrSegments(response.segments);
     }).catch(function relayFailed() {});
+  });
+
+  window.addEventListener("yt-navigate-start", function resetAudioNeed() {
+    hasCensoredSlots = false;
+    audioNeeded = null;
+    dispatchSettingsSoon();
+    runtime.runtime.sendMessage({ uncensoredIdle: true }).catch(function ignoreIdleError() {});
+  });
+
+  window.addEventListener("pagehide", function releaseExtensionHost() {
+    runtime.runtime.sendMessage({ uncensoredIdle: true }).catch(function ignoreIdleError() {});
   });
 })();

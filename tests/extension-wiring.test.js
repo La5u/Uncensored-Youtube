@@ -11,19 +11,29 @@ const pageHook = read("src/page-hook.js");
 const audioCapture = read("src/audio-capture.js");
 const background = read("src/background.js");
 const offscreen = read("src/offscreen.js");
+const whisperWorker = read("src/whisper-module-worker.js");
 const chromiumManifest = JSON.parse(read("manifest.chromium.json"));
 
 assert.ok(content.includes("uncensoredSabr"));
+assert.ok(content.includes("tokens.length > 0"));
+assert.ok(content.includes("audioNeeded !== true"));
 assert.ok(content.indexOf("loadSettings().then") < content.indexOf("injectScriptsSequentially(scripts)"));
 assert.ok(background.includes("runtime.runtime.getContexts"));
 assert.ok(background.includes("src/offscreen.html"));
+assert.ok(background.includes("offscreen.closeDocument"));
+assert.ok(background.includes("message.uncensoredIdle"));
 assert.ok(offscreen.includes("src/sabr-worker.js"));
 assert.ok(offscreen.includes("src/whisper-module-worker.js"));
+assert.ok(whisperWorker.includes("runtimeReady = import"));
 assert.ok(chromiumManifest.permissions.includes("offscreen"));
 assert.strictEqual(chromiumManifest.message_serialization, "structured_clone");
 assert.strictEqual(chromiumManifest.minimum_chrome_version, "148");
 
 assert.ok(pageHook.includes("audioReplacements.clear();"));
+assert.ok(pageHook.includes("settings.audioNeeded === true"));
+assert.ok(pageHook.includes("waitForAudioDecision"));
+assert.ok(pageHook.includes("shouldObserveAudio() && isGoogleVideoPlaybackUrl"));
+assert.ok(pageHook.includes("15000"));
 assert.ok(!pageHook.includes("fetchGoogleAudio"));
 assert.ok(!pageHook.includes("bestGoogleAudioUrl"));
 
@@ -35,7 +45,15 @@ assert.ok(!audioCapture.includes("VISIBLE_REAPPLY_SECONDS"));
 assert.ok(audioCapture.includes("group.tokens[0].eventText"));
 assert.ok(!audioCapture.includes("root.__uncensoredResolveToken"));
 assert.ok(audioCapture.includes("beforeMatches || afterMatches"));
+assert.ok(audioCapture.includes("token.eventIndex === next.token.eventIndex"));
+assert.ok(audioCapture.includes("forceSingle"));
+assert.ok(audioCapture.includes("whisper retry"));
 assert.ok(audioCapture.includes("readMediaWindow"));
+assert.ok(!audioCapture.includes("Math.abs((token.timeSeconds || 0) - playhead)"));
+assert.ok(audioCapture.includes("!tokenMetadataKnown || segmentNeeded(segment)"));
+assert.ok(!audioCapture.includes("segmentInBufferedRange"));
+assert.ok(audioCapture.includes("videoHasCensoredSlots"));
+assert.ok(audioCapture.includes("token.visibleOnly"));
 assert.ok(audioCapture.includes("whisper model starting"));
 assert.ok(audioCapture.includes("whisper model started"));
 

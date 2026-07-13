@@ -7,7 +7,8 @@
   var originalXHROpen = globalThis.__uncensoredOriginalXHROpen || XMLHttpRequest.prototype.open;
   var settings = {
     rulesEnabled: false,
-    whisperEnabled: true
+    whisperEnabled: true,
+    audioNeeded: null
   };
   var audioReplacements = new Map();
   var audioReplacementVersion = 0;
@@ -15,6 +16,7 @@
   var nextAudioStreamId = 1;
   var nextAudioMessageId = 1;
   var pendingAudioMessages = new Map();
+  var audioDecisionWaiters = [];
 
   globalThis.__uncensoredOriginalFetch = originalFetch;
   globalThis.__uncensoredOriginalXHROpen = originalXHROpen;
@@ -105,10 +107,15 @@
 
   globalThis.addEventListener("uncensored-settings", function updateSettings(event) {
     var detail = safeJson(event && event.detail);
-
     if (detail) {
       settings.rulesEnabled = detail.rulesEnabled !== false;
       settings.whisperEnabled = detail.whisperEnabled !== false;
+      settings.audioNeeded = detail.audioNeeded;
+      if (settings.audioNeeded !== null) {
+        audioDecisionWaiters.splice(0).forEach(function resolveAudioDecision(resolve) {
+          resolve(shouldCaptureAudio());
+        });
+      }
       clearPatchedTimedTextCache();
     }
   });
@@ -244,7 +251,29 @@
   }
 
   function shouldCaptureAudio() {
-    return settings.whisperEnabled && currentVideoId() && !(document && document.hidden);
+    return settings.whisperEnabled && settings.audioNeeded === true && currentVideoId();
+  }
+
+  function shouldObserveAudio() {
+    return settings.whisperEnabled && settings.audioNeeded !== false && currentVideoId();
+  }
+
+  function waitForAudioDecision() {
+    if (settings.audioNeeded !== null) return Promise.resolve(shouldCaptureAudio());
+
+    return new Promise(function wait(resolve) {
+      var timer;
+      function finish(needed) {
+        var index = audioDecisionWaiters.indexOf(finish);
+        if (index !== -1) audioDecisionWaiters.splice(index, 1);
+        globalThis.clearTimeout(timer);
+        resolve(needed);
+      }
+      timer = globalThis.setTimeout(function decisionTimedOut() {
+        finish(false);
+      }, 15000);
+      audioDecisionWaiters.push(finish);
+    });
   }
 
   function relaySabrBuffer(streamId, bufferPromise) {
@@ -262,6 +291,16 @@
     nextAudioStreamId += 1;
     var cloned = response.clone();
 
+    waitForAudioDecision().then(function startWhenNeeded(needed) {
+      if (!needed) {
+        if (cloned.body) cloned.body.cancel().catch(function ignoreCancelError() {});
+        return;
+      }
+      processClonedSabrResponse(cloned, streamId);
+    });
+  }
+
+  function processClonedSabrResponse(cloned, streamId) {
     if (!cloned.body || typeof cloned.body.getReader !== "function") {
       postAudioMessage({ type: "start", streamId: streamId }).then(function startFullBuffer() {
         relaySabrBuffer(streamId, cloned.arrayBuffer());
@@ -363,7 +402,7 @@
   globalThis.__uncensoredDebugAudioText = debugAudioText;
   function uncensoredFetch(input, init) {
     return originalFetch.apply(this, arguments).then(function maybePatch(response) {
-      if (shouldCaptureAudio() && isGoogleVideoPlaybackUrl(input)) {
+      if (shouldObserveAudio() && isGoogleVideoPlaybackUrl(input)) {
         processSabrResponse(response);
       }
 
@@ -457,6 +496,12 @@
   }
 
   installNetworkHooks();
+
+  globalThis.addEventListener("yt-navigate-start", function cancelPreviousAudio() {
+    audioDecisionWaiters.splice(0).forEach(function cancelOldAudio(resolve) {
+      resolve(false);
+    });
+  });
 
   globalThis.addEventListener("yt-navigate-finish", function onNavigate() {
     clearPatchedTimedTextCache();
