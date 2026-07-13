@@ -1,20 +1,24 @@
-import * as transformers from "./vendor/transformers.min.js";
 import "./whisper-local.js";
 
 (function runWhisperModuleWorker(root) {
   "use strict";
 
-  root.transformers = transformers;
-
   var whisper = root.UncensoredWhisperLocal;
   var inferenceQueue = Promise.resolve();
+
+  var runtimeReady = import("./vendor/transformers.min.js").then(function loaded(transformers) {
+    root.transformers = transformers;
+  });
 
   function post(id, payload) {
     root.postMessage(Object.assign({ id: id }, payload));
   }
 
   function enqueue(task) {
-    var result = inferenceQueue.then(task, task);
+    function run() {
+      return runtimeReady.then(task);
+    }
+    var result = inferenceQueue.then(run, run);
     inferenceQueue = result.catch(function keepQueueAlive() {});
     return result;
   }
@@ -27,11 +31,6 @@ import "./whisper-local.js";
         ok: false,
         error: "Whisper runtime unavailable"
       });
-      return;
-    }
-
-    if (message.type === "warmup") {
-      post(message.id, { ok: true, ready: true });
       return;
     }
 
