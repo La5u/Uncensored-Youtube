@@ -10,8 +10,22 @@
   var useOffscreen = Boolean(manifestBackground.service_worker);
   var offscreen = root.chrome && root.chrome.offscreen || runtime.offscreen;
   var offscreenReady = null;
+  var offscreenClosing = null;
+  var activeTabs = new Set();
+
+  function senderTabId(sender) {
+    return sender && sender.tab && sender.tab.id;
+  }
+
+  function markActive(sender) {
+    var id = senderTabId(sender);
+    if (typeof id === "number") activeTabs.add(id);
+  }
 
   function ensureOffscreen() {
+    if (offscreenClosing) {
+      return offscreenClosing.then(ensureOffscreen);
+    }
     if (offscreenReady) return offscreenReady;
 
     var url = runtime.runtime.getURL("src/offscreen.html");
@@ -51,6 +65,40 @@
   var sabrWorker = null;
   var sabrNextId = 1;
   var sabrPending = new Map();
+
+  function stopBackgroundWorkers() {
+    if (whisperWorker || whisperPending.size) resetWhisperWorker("Extension host stopped");
+    if (sabrWorker) sabrWorker.terminate();
+    sabrWorker = null;
+    sabrPending.forEach(function releasePending(pending) {
+      pending({ segments: [] });
+    });
+    sabrPending.clear();
+  }
+
+  function closeIdleHost() {
+    if (activeTabs.size || offscreenClosing) return;
+    if (!useOffscreen) {
+      stopBackgroundWorkers();
+      return;
+    }
+
+    offscreenReady = null;
+    offscreenClosing = runtime.runtime.getContexts({
+      contextTypes: ["OFFSCREEN_DOCUMENT"],
+      documentUrls: [runtime.runtime.getURL("src/offscreen.html")]
+    }).then(function closeExisting(contexts) {
+      if (!contexts.length) return;
+      return runtime.runtime.sendMessage({
+        uncensoredOffscreen: true,
+        kind: "shutdown"
+      }).catch(function ignoreShutdownError() {}).then(function closeDocument() {
+        return offscreen.closeDocument();
+      });
+    }).catch(function ignoreCloseError() {}).finally(function closed() {
+      offscreenClosing = null;
+    });
+  }
 
   function resetWhisperWorker(message) {
     var error = new Error(message || "Worker error");
@@ -171,7 +219,23 @@
     runtime.runtime.onMessage.addListener(function onWhisperMessage(message, sender, sendResponse) {
       if (!message) return;
 
+      if (message.uncensoredIdle) {
+        var idleTabId = senderTabId(sender);
+        activeTabs.delete(idleTabId);
+        closeIdleHost();
+        sendResponse({ ok: true });
+        return;
+      }
+
+      if (message.uncensoredActive) {
+        var activeTabId = senderTabId(sender);
+        if (typeof activeTabId === "number") activeTabs.add(activeTabId);
+        sendResponse({ ok: true });
+        return;
+      }
+
       if (message.uncensoredSabr && message.data) {
+        markActive(sender);
         if (useOffscreen) {
           postOffscreen("sabr", Object.assign({}, message.data, {
             streamId: [
@@ -191,6 +255,7 @@
       }
 
       if (!message.uncensoredWhisper) return;
+      markActive(sender);
 
       if (useOffscreen) {
         postOffscreen("whisper", {
@@ -198,15 +263,6 @@
           data: message.data
         }).then(sendResponse, function failed(error) {
           sendResponse({ error: error && (error.message || String(error)) });
-        });
-        return true;
-      }
-
-      if (message.type === "warmup") {
-        startWhisperWorker().then(function ready() {
-          sendResponse({ ok: true });
-        }, function failed() {
-          sendResponse({ ok: false });
         });
         return true;
       }
@@ -223,6 +279,14 @@
         });
         return true;
       }
+    });
+  }
+
+  var tabs = root.chrome && root.chrome.tabs || runtime.tabs;
+  if (tabs && tabs.onRemoved) {
+    tabs.onRemoved.addListener(function tabRemoved(tabId) {
+      activeTabs.delete(tabId);
+      closeIdleHost();
     });
   }
 })(typeof globalThis !== "undefined" ? globalThis : this);

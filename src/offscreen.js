@@ -18,6 +18,12 @@
     });
   }
 
+  function stopWorkers() {
+    Object.keys(workers).forEach(function stopWorker(kind) {
+      failWorker(kind, "Extension host stopped");
+    });
+  }
+
   function getWorker(kind) {
     if (workers[kind]) return workers[kind];
 
@@ -60,6 +66,12 @@
 
   runtime.runtime.onMessage.addListener(function offscreenMessage(message, sender, sendResponse) {
     if (!message || !message.uncensoredOffscreen) return;
+
+    if (message.kind === "shutdown") {
+      stopWorkers();
+      sendResponse({ ok: true });
+      return;
+    }
 
     var data = message.data || {};
     var task;
