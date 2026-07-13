@@ -41,12 +41,18 @@ one inference request at a time to the quantized local `whisper-tiny.en` model.
 The shared before/after audio margin is controlled by
 `AUDIO_CONTEXT_SECONDS`. It is currently 1.5 seconds.
 
+Audio capture waits for caption metadata. If the video contains any `[__]`
+slots, Whisper and audio decoding start together. Videos without censored slots
+never start the audio pipeline. On a censored video, capture remains available
+until YouTube navigates away, but decoded segments are released as soon as no
+unresolved token window overlaps them. Closing or leaving the tab releases the
+extension worker host.
+
 Multiple slots in one caption event are inferred as a group. A group may include
 the nearest resolved profanity immediately before it as an immutable audio
 anchor. The known anchor locates the target words in Whisper's transcript but
 is never rewritten. Incomplete groups apply nothing positionally and retry the
-unresolved slots individually, preventing a missing word from shifting every
-later slot.
+unresolved slots individually.
 
 ### Rolling live captions
 
@@ -68,7 +74,7 @@ discarded, and decoded audio is released after its covered tokens are processed.
 
 ## Settings behavior
 
-| Rules | Whisper | Result |
+| Context Rules | Audio Inference | Result |
 | --- | --- | --- |
 | On | Off | Use the first deterministic candidate. |
 | On | On | Apply unambiguous rules; use audio for uncertain slots. |
@@ -81,6 +87,10 @@ from briefly replacing words during Whisper-only startup.
 ## Debugging Whisper
 
 Console messages prefixed with `[uncensored]` describe the pipeline:
+
+Enable them in the YouTube tab with
+`localStorage.setItem("uncensoredDebug", "1")`, reload, and enable the Verbose
+log level in Chromium DevTools.
 
 - `whisper model starting` / `started`: local model initialization.
 - `audio decoded`: a playback segment became available; its timestamp is shown
@@ -105,12 +115,19 @@ yet have a complete buffered audio window. It does not mean the worker is busy.
   enough trailing audio to complete the configured context window.
 - Live DOM matching depends on YouTube's caption markup and may need adjustment
   if that markup changes.
-- Chromium Manifest V3 reliability work is intentionally on hold; see
-  [CHROMIUM_SUPPORT_PLAN.md](CHROMIUM_SUPPORT_PLAN.md).
+- Seeking or starting midway can leave the first visible censored slot without
+  the preceding caption row needed to identify it safely. The extension leaves
+  that slot unchanged instead of applying a result to an uncertain position.
+- Seeking backward does not recreate audio that was discarded after earlier
+  tokens were processed. Revisiting an unresolved slot may therefore require a
+  fresh playback segment before Whisper can retry it.
+- Chromium 148 or newer is required for structured-clone extension messaging.
+  Chromium hosts local workers in one offscreen extension document; Firefox
+  retains its persistent background page.
 
 More implementation detail is in [LIVE_DOM_DEFERRED.md](LIVE_DOM_DEFERRED.md).
 
-### Future seek recovery
+### Planned seek recovery
 
 The remembered-row path is designed for continuous playback. Seeking or
 starting midway can bypass the prior row, leaving the first visible slot without
@@ -123,6 +140,15 @@ events. Exact visible ordinary text should then verify the event before its
 known token-indexed words are applied. This keeps time as a candidate selector,
 not permission for a nearby result to replace an arbitrary slot, and avoids
 restoring the removed fixed-duration fallback.
+
+The same timeline can reset only the affected token windows after a seek and
+request fresh audio for them, without retaining decoded audio for the whole
+video.
+
+### TODO
+
+- Add optional WebGPU inference with capability detection and automatic WASM
+  fallback. The current local Whisper path is WASM-only.
 
 ## Development
 
