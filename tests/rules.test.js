@@ -9,6 +9,13 @@ const examples = [
   ["Wait? [__] you.", "Wait? Fuck you."],
   ["[__] me", "fuck me"],
   ["what the [__]", "what the fuck"],
+  ["You look like [__]", "You look like shit"],
+  ["You don't know [__]", "You don't know shit"],
+  ["I can't see [__]", "I can't see shit"],
+  ["Cut the [__]", "Cut the bullshit"],
+  ["Don't lose your [__]", "Don't lose your shit"],
+  ["I might lose my [__]", "I might lose my shit"],
+  ["Enough of this [__]", "Enough of this bullshit"],
   ["piece of [__]", "piece of shit"],
   ["shut the [__] up", "shut the fuck up"],
   ["Shut the [__] up", "Shut the fuck up"],
@@ -17,12 +24,13 @@ const examples = [
   ["son of a [__]", "son of a bitch"],
   ["that's [__]", "that's fucked"],
   ["that\u2019s [__]", "that\u2019s fucked"],
-  ["[__] hell", "fucking hell"],
-  ["[__] Hell", "fucking Hell"],
-  ["Stop. [__] hell", "Stop. Fucking hell"],
+  ["[__] hell", "[__] hell"],
+  ["[__] Hell", "[__] Hell"],
+  ["Stop. [__] hell", "Stop. [__] hell"],
   ["EAT [__] AND DIE", "EAT SHIT AND DIE"],
   ["WHAT THE [__]", "WHAT THE FUCK"],
   ["THAT'S [__]", "THAT'S FUCKED"],
+  ["you are SO [__] up", "you are SO FUCKED up"],
   ["Jesus [__] Christ", "Jesus fucking Christ"],
   ["God [__] dammit", "God fucking dammit"],
   ["bunch of [__]", "bunch of bullshit"],
@@ -42,7 +50,7 @@ const examples = [
   ["of [__] control", "of fucking control"],
   ["can't [__] concentrate", "can't fucking concentrate"],
   ["just [__] concentrate", "just fucking concentrate"],
-  ["your [__] ass", "your fucking ass"],
+  ["your [__] ass", "your [__] ass"],
   ["my [__] eyes", "my fucking eyes"],
   ["your [__] tongue", "your fucking tongue"],
   ["get the [__] away", "get the fuck away"],
@@ -63,16 +71,29 @@ const examples = [
   ["so the [__] what?", "so the fuck what?"],
   ["you [__] my wife", "you fucked my wife"],
   ["I [__] it up", "I fucked it up"],
+  ["They have [__] it", "They have fucked it"],
+  ["It has [__] me", "It has fucked me"],
+  ["That had [__] it", "That had fucked it"],
+  ["He is [__] it", "He is fucking it"],
+  ["It keeps [__] me", "It keeps fucking me"],
+  ["I'm good at [__] it", "I'm good at fucking it"],
+  ["They will [__] me", "They will fuck me"],
+  ["I need to [__] it", "I need to fuck it"],
+  ["It almost [__] me", "It almost fucked me"],
+  ["They make you [__] up", "They make you fuck up"],
+  ["You are [__] up", "You are fucking up"],
+  ["You're [__] up", "You're fucking up"],
+  ["They kept [__] up", "They kept fucking up"],
   ["it's so [__] up", "it's so fucked up"],
   ["Bunny's drugs were [__] with", "Bunny's drugs were fucked with"],
   ["this is some [__]", "this is some bullshit"],
-  ["Good [__] question", "Good fucking question"],
+  ["Good [__] question", "Good [__] question"],
   ["Good [__].", "Good shit."],
   ["I don't [__] understand", "I don't fucking understand"],
   ["do not [__] like this", "do not fucking like this"],
   ["don't [__] care", "don't fucking care"],
   ["you [__] idiot", "you fucking idiot"],
-  ["a [__] camera", "a fucking camera"],
+  ["a [__] camera", "a [__] camera"],
   ["no one [__] knows", "no one fucking knows"],
   ["so [__] fast", "so fucking fast"],
   ["don't even [__] care", "don't even fucking care"],
@@ -99,6 +120,24 @@ const examples = [
   ["come on, you [__]", "come on, you bitch"],
   ["show some [__] respect", "show some fucking respect"],
   ["better not [__] things up", "better not fuck things up"],
+  ["I will [__] you up", "I will fuck you up"],
+  ["I'm gonna [__] him up", "I'm gonna fuck him up"],
+  ["They have [__] up", "They have fucked up"],
+  ["Stop [__] up", "Stop fucking up"],
+  ["Go [__] yourself", "Go fuck yourself"],
+  ["Oh my [__] God", "Oh my fucking God"],
+  ["God [__] damn it", "God fucking damn it"],
+  ["I swear to [__] God", "I swear to fucking God"],
+  ["The last [__] time", "The last fucking time"],
+  ["This [__] jump", "This fucking jump"],
+  ["I'll [__] do it", "I'll fucking do it"],
+  ["Just [__] tell me", "Just fucking tell me"],
+  ["I'll [__] show you", "I'll fucking show you"],
+  ["I'm gonna [__] murder you", "I'm gonna fucking murder you"],
+  ["We can get [__].", "We can get fucked."],
+  ["Let's get [__] up", "Let's get fucked up"],
+  ["We are [__].", "We are fucked."],
+  ["I have the smallest [__] mouse", "I have the smallest fucking mouse"],
 ];
 
 for (const [input, expected] of examples) {
@@ -106,11 +145,18 @@ for (const [input, expected] of examples) {
 }
 
 assert.strictEqual(rules.applyDeterministicRules("hello [__] world").text, "hello [__] world");
+assert.strictEqual(rules.formatWordCase("fucking", "that was WILD [__] today"), "FUCKING");
+assert.strictEqual(rules.formatWordCase("fucking", "HAVING A [__] day"), "FUCKING");
+assert.strictEqual(rules.formatWordCase("fucking", "having A [__] day"), "fucking");
+assert.strictEqual(rules.formatWordCase("fucking", "I [__] hate this"), "fucking");
+assert.strictEqual(rules.formatWordCase("fucking", "that was Wild [__] today"), "fucking");
 assert.strictEqual(rules.applyDeterministicRules("this is clean").text, "this is clean");
 assert.strictEqual(rules.applyDeterministicRules("are [__] wild").text, "are [__] wild");
 assert.strictEqual(rules.applyDeterministicRules("is [__] hard").text, "is [__] hard");
 assert.strictEqual(rules.applyDeterministicRules("[__] you should not match").text, "[__] you should not match");
 assert.strictEqual(rules.applyDeterministicRules("He [__] you.").text, "He [__] you.");
+assert.strictEqual(rules.applyDeterministicRules("I got [__]").text, "I got [__]");
+assert.strictEqual(rules.applyDeterministicRules("a complete [__]").text, "a complete [__]");
 assert.strictEqual(rules.applyDeterministicRules("listen [__] up").text, "listen [__] up");
 assert.strictEqual(rules.applyDeterministicRules("putting the kitchen to [__].").text, "putting the kitchen to [__].");
 assert.strictEqual(rules.applyDeterministicRules("Tons of [__] You didn't").text, "Tons of [__] You didn't");
@@ -122,6 +168,9 @@ assert.strictEqual(rules.applyDeterministicRules("I don't [__] know").text, "I d
 assert.strictEqual(rules.applyDeterministicRules("I don't [__] need that").text, "I don't fucking need that");
 assert.strictEqual(rules.applyDeterministicRules("haven't even [__] defrosted").text, "haven't even fucking defrosted");
 assert.strictEqual(rules.applyDeterministicRules("I would [__] know").text, "I would [__] know");
+assert.strictEqual(rules.applyDeterministicRules("kind of [__].").text, "kind of [__].");
+assert.strictEqual(rules.applyDeterministicRules("They are so [__].").text, "They are so [__].");
+assert.strictEqual(rules.applyDeterministicRules("We are [__] people.").text, "We are [__] people.");
 assert.strictEqual(rules.applyDeterministicRules("[__] rules").text, "[__] rules");
 assert.strictEqual(rules.applyDeterministicRules("[__] [__] you").text, "[__] [__] you");
 assert.strictEqual(rules.applyDeterministicRules("[__] [__] me").text, "[__] [__] me");
