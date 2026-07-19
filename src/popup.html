@@ -9,20 +9,25 @@
   <body>
     <main>
       <h1>Uncensored YouTube</h1>
+      <p class="recommendation">
+        <strong>Recommended: Hybrid (default)</strong>
+        <small>Both options: 91.1% precision, 85.8% correct coverage, and about 26% fewer Whisper transcriptions than audio-only.</small>
+      </p>
       <label>
         <input id="rulesEnabled" type="checkbox">
         <span>
           <strong>Context Rules</strong>
-          <small>Use regex to predict common swears from surrounding context. Low resource use; ~85% accuracy, ~42% misses.</small>
+          <small>Predict common swears from context. Rules-only: 80.3% precision and 34.0% correct coverage.</small>
         </span>
       </label>
       <label>
         <input id="whisperEnabled" type="checkbox">
         <span>
           <strong>Audio Inference</strong>
-          <small>Uses the local Whisper Tiny model to transcribe swears and update subtitles live. Resource-intensive and buggy; ~95% accuracy, ~3% misses.</small>
+          <small>Use local Whisper Tiny to transcribe swears. Audio-only: 90.3% precision and 85.4% correct coverage.</small>
         </span>
       </label>
+      <small class="benchmark">Benchmark: 1,448 scored slots from 54 videos with separate English captions.</small>
     </main>
     <script src="popup.js"></script>
   </body>

@@ -20,6 +20,10 @@ h1 {
   font-weight: 700;
 }
 
+.recommendation {
+  margin: 0 0 10px;
+}
+
 label {
   display: grid;
   grid-template-columns: 18px 1fr;

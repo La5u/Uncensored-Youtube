@@ -8,13 +8,13 @@ without a bundler by copying the checked-in files into `dist/` and zipping them.
 Use:
 
 ```sh
-./build.sh 1.2.0
+./build.sh 1.3.0
 ```
 
 This creates:
 
-- `dist/uncensored-youtube-firefox-1.2.0.zip`
-- `dist/uncensored-youtube-chromium-1.2.0.zip`
+- `dist/uncensored-youtube-firefox-1.3.0.zip`
+- `dist/uncensored-youtube-chromium-1.3.0.zip`
 
 ## Generated or minified files
 
@@ -48,7 +48,7 @@ review linting while preserving local WASM inference:
 Before submission, run:
 
 ```sh
-./build.sh 1.2.0
+./build.sh 1.3.0
 web-ext lint --source-dir dist/firefox
 for test in tests/*.test.js; do node "$test" || exit; done
 ```
