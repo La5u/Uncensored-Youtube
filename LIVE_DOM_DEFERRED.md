@@ -16,8 +16,11 @@ path. It is not a list of deterministic-rule changes.
   search.
 - Nearby slots in one event share a complete stitched audio window and consume
   recognized swear words in order.
-- Visible groups use JSON event structure and prefix-only alignment. One prior
-  top row is retained so a promoted row keeps its preceding anchor.
+- A compact timestamped JSON event timeline maps the current two-row caption
+  window to stable token indices. Ordinary text must yield one unique alignment.
+- Seek generations invalidate scheduled DOM writes, and buffered inference work
+  nearest the new playhead is processed first.
+- Video and caption-track identity scope every token resolution.
 - SABR decoding and Whisper inference are serialized. Missing audio waits rather
   than silently dropping a request.
 - Worker errors and inference timeouts reject outstanding work and terminate the
@@ -25,23 +28,19 @@ path. It is not a list of deterministic-rule changes.
 
 ## Remaining edge cases
 
-1. **Seek recovery.** Starting midway or seeking can bypass the remembered
-   preceding row. A future timestamp-indexed JSON event timeline should recover
-   the active event, with visible ordinary text verifying identity.
-
-2. **End-of-buffer tokens.** A token cannot run until its complete audio context
+1. **End-of-buffer tokens.** A token cannot run until its complete audio context
    exists. Near the end of playback, YouTube may not provide the trailing range;
    the queue then reports pending work with `nextTokenIndex: null`.
 
-3. **Inference latency.** Requests are processed chronologically and one at a
-   time. This avoids concurrent model stalls but can make visible replacement
-   late on slower machines.
+2. **Inference latency.** Requests are processed one at a time, nearest the
+   current playhead first. This avoids concurrent model stalls but can still make
+   visible replacement late on slower machines.
 
-4. **Ambiguous Whisper output.** Ordered assignment avoids reliance on context
+3. **Ambiguous Whisper output.** Ordered assignment avoids reliance on context
    word alignment, but it still requires Whisper to recognize the correct number
    and order of profanities.
 
-5. **YouTube DOM changes.** The timed-text token identity is authoritative; DOM
+4. **YouTube DOM changes.** The timed-text token identity is authoritative; DOM
    patching is a best-effort immediate display path and depends on the current
    caption-row structure.
 
