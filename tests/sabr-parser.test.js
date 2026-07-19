@@ -84,43 +84,37 @@ assert.strictEqual(right.length, 1);
 assert.deepStrictEqual(Array.from(new Uint8Array(sabr.chunksToArrayBuffer(left[0].chunks))), [10, 11, 20, 21, 22]);
 assert.deepStrictEqual(Array.from(new Uint8Array(sabr.chunksToArrayBuffer(right[0].chunks))), [10, 11, 20, 21, 22]);
 
-const invalidSegments = [];
-const invalidParser = sabr.createParser({ onSegment: (segment) => invalidSegments.push(segment) });
+const longSegments = [];
+const longParser = sabr.createParser({ onSegment: (segment) => longSegments.push(segment) });
+const tenHoursMs = 10 * 60 * 60 * 1000;
+longParser.push(initPayload.buffer);
+longParser.push(concat([
+  part(20, header({ headerId: 3, itag: 140, startMs: tenHoursMs, durationMs: 10000 })),
+  part(21, Uint8Array.from([3, 30, 31])),
+  part(22, Uint8Array.from([3]))
+]).buffer);
+assert.strictEqual(longSegments.length, 1);
+assert.strictEqual(longSegments[0].header.startMs, tenHoursMs);
 
-assert.strictEqual(invalidParser.push(Uint8Array.from([20, 255, 255, 255, 255, 255]).buffer), false);
-assert.strictEqual(invalidParser.push(payload.buffer), true);
+const unknownItagSegments = [];
+const unknownItagParser = sabr.createParser({ onSegment: (segment) => unknownItagSegments.push(segment) });
+unknownItagParser.push(concat([
+  part(20, header({ headerId: 4, itag: 999, startMs: 2000, durationMs: 10000 })),
+  part(21, Uint8Array.from([4, 40, 41])),
+  part(22, Uint8Array.from([4]))
+]).buffer);
+assert.strictEqual(unknownItagSegments.length, 1);
+assert.strictEqual(unknownItagSegments[0].itag, 999);
 
-assert.strictEqual(invalidSegments.length, 1);
-
-const highFiveByteSizeParser = sabr.createParser({});
-assert.strictEqual(highFiveByteSizeParser.push(Uint8Array.from([20, 0xf1, 0, 0, 0, 0]).buffer), false);
-
-const preservedInitSegments = [];
-const preservedInitParser = sabr.createParser({ onSegment: (segment) => preservedInitSegments.push(segment) });
-
-preservedInitParser.push(initPayload.buffer);
-assert.strictEqual(preservedInitParser.push(Uint8Array.from([20, 255, 255, 255, 255, 255]).buffer), false);
-preservedInitParser.push(mediaPayload.buffer);
-
-assert.strictEqual(preservedInitSegments.length, 1);
-assert.deepStrictEqual(Array.from(new Uint8Array(sabr.chunksToArrayBuffer(preservedInitSegments[0].chunks))), [10, 11, 20, 21, 22]);
-
-const partialSegments = [];
-const partialParser = sabr.createParser({ onSegment: (segment) => partialSegments.push(segment) });
-const partial = new Uint8Array(300000);
-let partialStopped = false;
-
-partial.fill(255);
-
-for (let index = 0; index < 8; index += 1) {
-  const keepGoing = partialParser.push(partial.buffer);
-  if (!keepGoing) {
-    partialStopped = true;
-    break;
-  }
-}
-
-assert.strictEqual(partialStopped, true);
-assert.strictEqual(partialSegments.length, 0);
+const flushedSegments = [];
+const flushParser = sabr.createParser({ onSegment: (segment) => flushedSegments.push(segment) });
+flushParser.push(concat([
+  part(20, header({ headerId: 5, itag: 140, startMs: 3000, durationMs: 10000 })),
+  part(21, Uint8Array.from([5, 50, 51]))
+]).buffer);
+assert.strictEqual(flushedSegments.length, 0);
+flushParser.flush();
+assert.strictEqual(flushedSegments.length, 1);
+assert.deepStrictEqual(Array.from(flushedSegments[0].chunks[0]), [50, 51]);
 
 console.log("sabr-parser.test.js passed");

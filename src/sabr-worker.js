@@ -15,6 +15,13 @@ importScripts("sabr-parser.js");
       chunk[2] === 0xdf && chunk[3] === 0xa3;
   }
 
+  function hasAudioCodec(chunks) {
+    var bytes = new Uint8Array(sabr.chunksToArrayBuffer(chunks || []));
+    var text = new TextDecoder("latin1").decode(bytes);
+
+    return text.indexOf("A_OPUS") !== -1 || text.indexOf("A_VORBIS") !== -1;
+  }
+
   function completeInitFor(state, itag) {
     var key = String(itag);
     var pending = state.pending.get(key);
@@ -41,7 +48,10 @@ importScripts("sabr-parser.js");
         var chunks = segment.chunks;
         var init = completeInitFor(state, segment.itag);
 
-        if (init && !hasWebmHeader(chunks)) {
+        if (!hasAudioCodec(init)) {
+          return;
+        }
+        if (!hasWebmHeader(chunks)) {
           chunks = init.concat(chunks);
         }
         if (!hasWebmHeader(chunks)) {
@@ -77,6 +87,7 @@ importScripts("sabr-parser.js");
     } else if (message.type === "end") {
       state = parsers.get(message.streamId);
       if (state) {
+        state.parser.flush();
         state.pending.forEach(function publishInit(chunks, itag) {
           completeInitFor(state, itag);
         });

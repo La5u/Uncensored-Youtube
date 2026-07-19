@@ -2,16 +2,6 @@
   "use strict";
   var root = typeof globalThis !== "undefined" ? globalThis : this;
 
-  var AUDIO_ITAGS = Object.freeze({
-    "139": true,
-    "140": true,
-    "141": true,
-    "249": true,
-    "250": true,
-    "251": true,
-    "599": true,
-    "600": true
-  });
   var MAX_CARRY_BYTES = 1024 * 1024;
   var MAX_PART_BYTES = 2 * 1024 * 1024;
 
@@ -203,7 +193,7 @@
       var entry;
       var segment;
 
-      if (!header.itag || !AUDIO_ITAGS[key] || !chunk.length) {
+      if (!header.itag || !chunk.length) {
         return;
       }
 
@@ -279,13 +269,11 @@
           resetScratch();
           return false;
         }
-
         carry = combined.slice(parsed.offset);
         if (carry.length > MAX_CARRY_BYTES) {
           resetScratch();
           return false;
         }
-
         parsed.parts.forEach(function handlePart(part) {
           var headerId;
           var header;
@@ -309,6 +297,10 @@
           }
         });
         return true;
+      },
+      flush: function flush() {
+        Object.keys(headers).forEach(finalizeSegment);
+        carry = new Uint8Array(0);
       },
       reset: function reset() {
         resetState();
