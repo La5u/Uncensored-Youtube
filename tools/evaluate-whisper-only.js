@@ -4,18 +4,23 @@ const { spawnSync } = require("child_process");
 const rules = require("../src/rules");
 const timedText = require("../src/timedtext");
 const decision = require("../src/whisper-local");
+const { align, manualSwearEvents } = require("./evaluate-youtube-rules");
 
 const root = path.join(__dirname, "..");
 
 function parseArgs(argv) {
   const args = {
-    fixtures: "tests/fixtures",
-    audioDir: "tests/fixtures/audio",
+    fixtures: "test-fixtures",
+    audioDir: "test-fixtures/audio",
     manifest: "tools/whisper-audio-fixtures.json",
     output: "corpus/generated/whisper-only-report.json",
+    mode: "whisper-only",
+    transcripts: "",
     before: "1.5",
     after: "1.5",
-    limit: "0"
+    limit: "0",
+    names: "",
+    allowUnscored: "false"
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -28,29 +33,12 @@ function parseArgs(argv) {
   args.before = Number(args.before);
   args.after = Number(args.after);
   args.limit = Number(args.limit);
+  args.names = new Set(args.names.split(",").filter(Boolean));
+  args.allowUnscored = args.allowUnscored === "true";
+  if (!["whisper-only", "rules-only", "rules+whisper"].includes(args.mode)) {
+    throw new Error("--mode must be whisper-only, rules-only, or rules+whisper.");
+  }
   return args;
-}
-
-function eventText(event) {
-  return (event.segs || []).map((seg) => seg.utf8 || "").join("");
-}
-
-function eventStart(event) {
-  return (typeof event.tStartMs === "number" ? event.tStartMs : 0) / 1000;
-}
-
-function eventEnd(event) {
-  return eventStart(event) + (typeof event.dDurationMs === "number" ? event.dDurationMs : 0) / 1000;
-}
-
-function uncensoredEvents(payload) {
-  return (payload.events || [])
-    .filter((event) => event && Array.isArray(event.segs))
-    .map((event) => ({
-      start: eventStart(event),
-      end: eventEnd(event),
-      text: eventText(event)
-    }));
 }
 
 function escapeRegExp(value) {
@@ -59,10 +47,14 @@ function escapeRegExp(value) {
 
 function wordsInText(text) {
   const normalized = decision.normalizeText(text);
-
-  return rules.ALLOWED_WORDS.filter((word) => (
+  const words = rules.ALLOWED_WORDS.filter((word) => (
     new RegExp("(^|\\s)" + escapeRegExp(decision.normalizeText(word)) + "(?=\\s|$)").test(normalized)
   ));
+
+  // A few human caption tracks obscure otherwise explicit ground truth.
+  if (/\bfuc[#*](?!\w)/iu.test(text)) words.push("fuck");
+  if (/\bsh@(?:a|t)(?!\w)/iu.test(text)) words.push("shit");
+  return [...new Set(words)];
 }
 
 function expectedWords(events, timeSeconds, windowSeconds) {
@@ -148,41 +140,60 @@ async function createTranscriber() {
   });
 }
 
-function collectTokens(censoredPath) {
-  return timedText.collectTimedTextTokens(fs.readFileSync(censoredPath, "utf8"), false);
-}
-
 function isCorrect(word, expected) {
   const normalized = decision.normalizeText(word);
 
   return expected.some((candidate) => decision.normalizeText(candidate) === normalized);
 }
 
-async function evaluateFixture(args, fixture, transcriber) {
+async function evaluateFixture(args, fixture, transcriber, cachedResults) {
   const censoredPath = path.join(root, args.fixtures, fixture.censored);
-  const uncensoredPath = path.join(root, args.fixtures, fixture.uncensored);
+  const uncensoredPath = fixture.uncensored && path.join(root, args.fixtures, fixture.uncensored);
   const audio = findAudio(args.audioDir, fixture);
 
-  if (!audio || !fs.existsSync(censoredPath) || !fs.existsSync(uncensoredPath)) {
+  if ((args.mode !== "rules-only" && !audio) || !fs.existsSync(censoredPath) || (!args.allowUnscored && (!uncensoredPath || !fs.existsSync(uncensoredPath)))) {
     return {
       name: fixture.name,
       skipped: true,
-      reason: !audio ? "missing audio" : "missing captions",
+      reason: args.mode !== "rules-only" && !audio ? "missing audio" : "missing captions",
       audio
     };
   }
 
-  const tokens = collectTokens(censoredPath);
-  const expectedEvents = uncensoredEvents(JSON.parse(fs.readFileSync(uncensoredPath, "utf8")));
+  const body = fs.readFileSync(censoredPath, "utf8");
+  const tokens = timedText.collectTimedTextTokens(body, args.mode !== "whisper-only");
+  const manual = uncensoredPath && fs.existsSync(uncensoredPath)
+    ? JSON.parse(fs.readFileSync(uncensoredPath, "utf8"))
+    : null;
+  const expectedByToken = manual
+    ? align(tokens, manualSwearEvents(manual), fixture.expectedByToken).expected
+    : new Map();
   const selectedTokens = args.limit > 0 ? tokens.slice(0, args.limit) : tokens;
   const results = [];
 
   for (const token of selectedTokens) {
-    const pcm = pcmSlice(audio, token.timeSeconds - args.before, args.before + args.after);
-    const transcription = await transcriber(pcm);
-    const transcript = typeof transcription === "string" ? transcription : transcription.text;
-    const chosen = decision.decisionFromTranscript(transcript, token.candidates, token.context, { force: true });
-    const expected = expectedWords(expectedEvents, token.timeSeconds, args.before + args.after);
+    const deterministic = args.mode === "rules-only"
+      ? Boolean(token.deterministicWord)
+      : args.mode === "rules+whisper" && token.deterministicWord && token.deterministicCandidates.length <= 1;
+    let transcript = "";
+    let chosen = { word: token.deterministicWord, evidence: "deterministic" };
+    if (!deterministic && args.mode !== "rules-only") {
+      const cached = cachedResults && cachedResults.get(token.tokenIndex);
+      if (cached) {
+        transcript = cached.transcript;
+      } else {
+        if (!transcriber) throw new Error(`Missing cached transcript for ${fixture.name}:${token.tokenIndex}.`);
+        const pcm = pcmSlice(audio, token.timeSeconds - args.before, args.before + args.after);
+        const transcription = await transcriber(pcm);
+        transcript = typeof transcription === "string" ? transcription : transcription.text;
+      }
+      chosen = decision.decisionFromTranscript(transcript, token.candidates, token.context, {
+        fCandidates: token.fCandidates,
+        previousWord: token.previousWord,
+        previousWordOffset: token.previousWordOffset
+      });
+    }
+    const expected = expectedByToken.has(token.tokenIndex) ? [expectedByToken.get(token.tokenIndex)] : [];
 
     results.push({
       tokenIndex: token.tokenIndex,
@@ -190,8 +201,7 @@ async function evaluateFixture(args, fixture, transcriber) {
       context: token.context,
       transcript,
       word: chosen.word,
-      score: chosen.score,
-      runnerUpScore: chosen.runnerUpScore,
+      source: chosen.evidence,
       expected,
       correct: isCorrect(chosen.word, expected)
     });
@@ -214,17 +224,57 @@ async function evaluateFixture(args, fixture, transcriber) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const manifest = JSON.parse(fs.readFileSync(path.join(root, args.manifest), "utf8"));
-  const transcriber = await createTranscriber();
+  const configured = JSON.parse(fs.readFileSync(path.join(root, args.manifest), "utf8"));
+  const byName = new Map(configured.map((fixture) => [fixture.name, fixture]));
+  fs.readdirSync(path.join(root, args.fixtures))
+    .filter((name) => name.endsWith("_auto.en.json3"))
+    .forEach((censored) => {
+      const name = censored.slice(0, -"_auto.en.json3".length);
+      const uncensored = `${name}_manual.en.json3`;
+      if (!byName.has(name) && fs.existsSync(path.join(root, args.fixtures, uncensored))) {
+        byName.set(name, { name, censored, uncensored });
+      }
+    });
+  const allFixtures = [...byName.values()];
+  const manifest = args.names.size
+    ? allFixtures.filter((fixture) => args.names.has(fixture.name))
+    : allFixtures;
+
+  if (!manifest.length) {
+    throw new Error("No fixtures matched --names.");
+  }
+
+  const missing = manifest.filter((fixture) => (
+    (args.mode !== "rules-only" && !findAudio(args.audioDir, fixture))
+    || !fs.existsSync(path.join(root, args.fixtures, fixture.censored))
+    || (!args.allowUnscored && (!fixture.uncensored || !fs.existsSync(path.join(root, args.fixtures, fixture.uncensored))))
+  ));
+
+  if (missing.length) {
+    throw new Error(`Missing fixture files for: ${missing.map((fixture) => fixture.name).join(", ")}. Run tools/download-whisper-fixtures.js first.`);
+  }
+
+  const cachedReport = args.transcripts
+    ? JSON.parse(fs.readFileSync(path.join(root, args.transcripts), "utf8"))
+    : null;
+  const cachedByFixture = new Map((cachedReport && cachedReport.fixtures || []).map((fixture) => [
+    fixture.name,
+    new Map(fixture.results.map((result) => [result.tokenIndex, result]))
+  ]));
+  const transcriber = cachedReport || args.mode === "rules-only" ? null : await createTranscriber();
   const fixtures = [];
 
   for (const fixture of manifest) {
     console.error(`Evaluating ${fixture.name}...`);
-    fixtures.push(await evaluateFixture(args, fixture, transcriber));
+    fixtures.push(await evaluateFixture(args, fixture, transcriber, cachedByFixture.get(fixture.name)));
+  }
+
+  if (!fixtures.some((fixture) => fixture.evaluatedCount)) {
+    throw new Error("No censored caption slots were evaluated.");
   }
 
   const report = {
-    mode: "whisper-only",
+    mode: args.mode,
     before: args.before,
     after: args.after,
     fixtures
@@ -247,7 +297,11 @@ async function main() {
   }, null, 2));
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error.message || error);
+    process.exit(1);
+  });
+}
+
+module.exports = { parseArgs, wordsInText, expectedWords, findAudio };

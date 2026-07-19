@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "scripts": {
+    "test": "node tools/test.js"
+  },
+  "devDependencies": {
+    "@huggingface/transformers": "^4.2.0"
+  }
+}

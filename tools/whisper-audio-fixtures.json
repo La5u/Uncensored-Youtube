@@ -25,7 +25,8 @@
     "videoId": "vO7eyFoSbAc",
     "url": "https://www.youtube.com/watch?v=vO7eyFoSbAc",
     "censored": "vO7eyFoSbAc_auto.en.json3",
-    "uncensored": "vO7eyFoSbAc_manual.en.json3"
+    "uncensored": "vO7eyFoSbAc_manual.en.json3",
+    "expectedByToken": { "1": ["bitch"] }
   },
   {
     "name": "Uy1Ds4qC-ig",
