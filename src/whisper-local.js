@@ -13,51 +13,9 @@
           ? currentLocation.replace(/src\/(?:whisper-local|whisper-module-worker|whisper-worker)\.js(?:\?.*)?$/, "")
         : "";
   var DEFAULT_MODEL = "whisper-tiny.en";
-  var SLOT_MARKER = "slotmarker";
-  var SLOT_TOKEN_REGEX = /\[\s*__\s*\]/gu;
-  var CONTEXT_PATTERNS = Object.freeze([
-    [new RegExp("what the " + SLOT_MARKER), ["fuck"]],
-    [new RegExp("why the " + SLOT_MARKER), ["fuck"]],
-    [new RegExp("how the " + SLOT_MARKER), ["fuck"]],
-    [new RegExp("who the " + SLOT_MARKER), ["fuck"]],
-    [new RegExp("where the " + SLOT_MARKER), ["fuck"]],
-    [new RegExp("the " + SLOT_MARKER + " (?:is|are|was|were|did|does|do|you|am|can)"), ["fuck"]],
-    [new RegExp("shut the " + SLOT_MARKER + " up"), ["fuck"]],
-    [new RegExp("shut the " + SLOT_MARKER + "$"), ["fuck"]],
-    [new RegExp("get the " + SLOT_MARKER), ["fuck"]],
-    [new RegExp(SLOT_MARKER + " you"), ["fuck"]],
-    [new RegExp("for " + SLOT_MARKER + " sake"), ["fuck's", "fuck"]],
-    [new RegExp(SLOT_MARKER + " sake"), ["fuck's", "fuck"]],
-    [new RegExp("holy " + SLOT_MARKER), ["shit", "fuck"]],
-    [new RegExp("oh " + SLOT_MARKER), ["shit", "fuck"]],
-    [new RegExp("a lot of " + SLOT_MARKER), ["shit"]],
-    [new RegExp("piece of " + SLOT_MARKER), ["shit"]],
-    [new RegExp("your " + SLOT_MARKER), ["shit", "fucking", "bullshit"]],
-    [new RegExp("my " + SLOT_MARKER), ["fucking", "shit"]],
-    [new RegExp("every .* " + SLOT_MARKER + " seconds?"), ["fucking"]],
-    [new RegExp("so " + SLOT_MARKER), ["fucking"]],
-    [new RegExp("did you just " + SLOT_MARKER), ["fucking"]],
-    [new RegExp("not " + SLOT_MARKER + " \\w+"), ["fucking"]],
-    [new RegExp("being " + SLOT_MARKER + " \\w+"), ["fucking"]],
-    [new RegExp(SLOT_MARKER + " (?:filter|awesome|convert|pirate|installs|look|watch|seconds?)"), ["fucking", "bullshit"]],
-    [new RegExp(SLOT_MARKER + " (?:tsundere|nonchalant)"), ["fucking"]],
-    [new RegExp(SLOT_MARKER + " it"), ["fuck"]],
-    [new RegExp(SLOT_MARKER + " instead"), ["shit"]],
-    [new RegExp(SLOT_MARKER + " to do"), ["shit"]],
-    [new RegExp("beat the " + SLOT_MARKER + " out"), ["shit"]],
-    [new RegExp(SLOT_MARKER + " explain"), ["fucking"]],
-    [new RegExp(SLOT_MARKER + " pirate"), ["fucking"]],
-    [new RegExp("stupid ass " + SLOT_MARKER), ["bitch", "motherfucker", "fucker"]],
-    [new RegExp(SLOT_MARKER + " family"), ["fucking"]],
-    [new RegExp(SLOT_MARKER + " cringe"), ["fucking"]]
-  ]);
-  var GIVE_A_SLOT_REGEX = new RegExp("give[s]? a " + SLOT_MARKER);
-  var THE_SLOT_REGEX = new RegExp("the " + SLOT_MARKER);
-  var SHUT_THE_SLOT_REGEX = new RegExp("shut the " + SLOT_MARKER + "(?: up)?$|shut the " + SLOT_MARKER + " up");
-  var SLOT_OBJECT_REGEX = new RegExp(SLOT_MARKER + " (?:filter|convert|pirate|installs|look|seconds?)");
-  var SLOT_INTENSIFIER_REGEX = new RegExp("did you just " + SLOT_MARKER + "|not " + SLOT_MARKER + " \\w+|being " + SLOT_MARKER + " \\w+|" + SLOT_MARKER + " (?:tsundere|nonchalant)");
-  var SLOT_SHIT_REGEX = new RegExp(SLOT_MARKER + " to do|a lot of " + SLOT_MARKER + "|beat the " + SLOT_MARKER + " out");
-  var OH_HOLY_SLOT_REGEX = new RegExp("oh " + SLOT_MARKER + "|holy " + SLOT_MARKER);
+  var MASKED_F_REGEX = /\bf\s*[*-]+(?=\s|[.,!?]|$)/giu;
+  var MASKED_F_TEST_REGEX = /\bf\s*[*-]+(?=\s|[.,!?]|$)/iu;
+  var MASKED_F_MARKER = "maskedfword";
   var transcriberPromise = null;
 
   function debugEnabled() {
@@ -73,7 +31,15 @@
       return;
     }
 
-    root.console.debug.apply(root.console, ["[uncensored]"].concat(Array.prototype.slice.call(arguments)));
+    var message = Array.prototype.map.call(arguments, function formatDebugValue(value) {
+      if (typeof value === "string") return value;
+      try {
+        return JSON.stringify(value);
+      } catch (error) {
+        return String(value);
+      }
+    }).join(" ");
+    root.console.debug("[uncensored] " + message);
   }
 
   function errorDetails(error) {
@@ -182,234 +148,121 @@
       .trim();
   }
 
-  function escapeRegExp(value) {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  function transcriptEntries(transcript, candidates, fCandidatesBySlot) {
+    var candidateByNormalizedWord = Object.create(null);
+    var profanityIndex = 0;
+    var markedTranscript = String(transcript || "").replace(MASKED_F_REGEX, " " + MASKED_F_MARKER + " ");
+
+    (candidates || []).forEach(function indexCandidate(candidate) {
+      candidateByNormalizedWord[normalizeText(candidate)] = candidate;
+    });
+
+    return normalizeTranscriptText(markedTranscript).split(" ").map(function resolveWord(word) {
+      var candidate;
+
+      if (word === MASKED_F_MARKER) {
+        candidate = (fCandidatesBySlot && fCandidatesBySlot[profanityIndex] || [])[0] || "fuck";
+      } else {
+        candidate = candidateByNormalizedWord[word] || "";
+      }
+      if (candidate) profanityIndex += 1;
+      return { word: word, candidate: candidate };
+    });
   }
 
-  function unique(values) {
-    var seen = Object.create(null);
-    var result = [];
+  function entryAfterAnchor(entries, previousWord, offset, afterIndex) {
+    var anchor = normalizeText(previousWord).split(" ").pop();
+    var match = -1;
+    var matchCount = 0;
 
-    values.forEach(function addUnique(value) {
-      if (value && !seen[value]) {
-        seen[value] = true;
-        result.push(value);
+    if (!anchor) return -1;
+    if (anchor === "too" || anchor === "two") anchor = "to";
+    entries.forEach(function matchingAnchor(entry, index) {
+      var word = entry.word === "too" || entry.word === "two" ? "to" : entry.word;
+      var candidate = entries[index + 1 + (offset || 0)];
+      if (index > afterIndex && word === anchor && candidate && candidate.candidate &&
+          entries.slice(index + 1, index + 1 + (offset || 0)).every(function adjacentCandidate(next) {
+            return next.candidate;
+          })) {
+        match = index + 1 + (offset || 0);
+        matchCount += 1;
       }
     });
-
-    return result;
+    return matchCount === 1 ? match : -1;
   }
 
-  function contextCandidates(context) {
-    var normalized = normalizeText(String(context || "").replace(SLOT_TOKEN_REGEX, " " + SLOT_MARKER + " "));
-    var candidates = [];
+  function wordAfterAnchor(entries, previousWord, offset) {
+    var index = entryAfterAnchor(entries, previousWord, offset, -1);
+    return index < 0 ? "" : entries[index].candidate;
+  }
 
-    CONTEXT_PATTERNS.forEach(function testPattern(entry) {
-      if (entry[0].test(normalized)) {
-        candidates = candidates.concat(entry[1]);
+  function alignedSlotWords(entries, options) {
+    var cursor = -1;
+
+    return (options && options.previousWords || []).map(function alignSlot(previousWord, slotIndex) {
+      var index = entryAfterAnchor(entries, previousWord,
+        options.previousWordOffsets && options.previousWordOffsets[slotIndex], cursor);
+
+      if (index < 0) {
+        index = entries.findIndex(function nextUnusedProfanity(entry, entryIndex) {
+          return entryIndex > cursor && entry.candidate;
+        });
       }
-    });
-
-    return unique(candidates);
-  }
-
-  function wordsAroundSlot(context) {
-    var normalized = normalizeText(String(context || "").replace(SLOT_TOKEN_REGEX, " " + SLOT_MARKER + " "));
-    var words = normalized.split(/\s+/);
-    var slotIndex = words.indexOf(SLOT_MARKER);
-
-    if (slotIndex === -1) {
-      return {
-        before: [],
-        after: []
-      };
-    }
-
-    return {
-      before: words.slice(Math.max(0, slotIndex - 3), slotIndex).filter(function keepWord(word) {
-        return word !== SLOT_MARKER;
-      }),
-      after: words.slice(slotIndex + 1, slotIndex + 4).filter(function keepWord(word) {
-        return word !== SLOT_MARKER;
-      })
-    };
-  }
-
-  function phrasePrior(candidate, context) {
-    var normalized = normalizeText(String(context || "").replace(SLOT_TOKEN_REGEX, " " + SLOT_MARKER + " "));
-    var candidateText = normalizeText(candidate);
-
-    if (GIVE_A_SLOT_REGEX.test(normalized)) {
-      return candidateText === "fuck" || candidateText === "shit" ? 4 : 0;
-    }
-
-    if (/what|why|how|who|where/.test(normalized) && THE_SLOT_REGEX.test(normalized)) {
-      return candidateText === "fuck" ? 5 : 0;
-    }
-
-    if (SHUT_THE_SLOT_REGEX.test(normalized)) {
-      return candidateText === "fuck" ? 4 : 0;
-    }
-
-    if (SLOT_OBJECT_REGEX.test(normalized)) {
-      return candidateText === "fucking" ? 4 : 0;
-    }
-
-    if (SLOT_INTENSIFIER_REGEX.test(normalized)) {
-      return candidateText === "fucking" ? 5 : 0;
-    }
-
-    if (SLOT_SHIT_REGEX.test(normalized)) {
-      return candidateText === "shit" ? 4 : 0;
-    }
-
-    if (OH_HOLY_SLOT_REGEX.test(normalized)) {
-      return candidateText === "shit" ? 3 : candidateText === "fuck" ? 2 : 0;
-    }
-
-    return 0;
-  }
-
-  function scoreCandidate(transcript, candidate, context) {
-    var normalizedTranscript = normalizeTranscriptText(transcript);
-    var rawTranscript = String(transcript || "").toLowerCase();
-    var candidateText = normalizeText(candidate);
-    var around = wordsAroundSlot(context);
-    var candidateRegex = new RegExp("(^|\\s)" + escapeRegExp(candidateText) + "(?=\\s|$)");
-    var ambiguousCensoredFuck = /(^|\s)f\s*[*-]+(?=\s|$)/.test(rawTranscript);
-    var score = phrasePrior(candidate, context);
-
-    if (candidateRegex.test(normalizedTranscript) && !(ambiguousCensoredFuck && candidateText === "fuck")) {
-      score += 10;
-    }
-
-    around.before.forEach(function scoreBefore(word) {
-      if (word && normalizedTranscript.indexOf(word + " " + candidateText) !== -1) {
-        score += 3;
-      }
-    });
-
-    around.after.forEach(function scoreAfter(word) {
-      if (word && normalizedTranscript.indexOf(candidateText + " " + word) !== -1) {
-        score += 3;
-      }
-    });
-
-    var contextDerived = contextCandidates(context);
-    if (contextDerived.indexOf(candidate) !== -1) {
-      score += 4;
-    }
-
-    if (candidateText === "fucking" && /(^|\s)f\s*[*-]+\s/.test(rawTranscript)) {
-      score += 8;
-    }
-
-    return score;
-  }
-
-  function transcriptCandidates(transcript, candidates) {
-    var allowed = (candidates || []).map(normalizeText);
-
-    return normalizeTranscriptText(transcript).split(" ").filter(function allowedCandidate(word) {
-      return allowed.indexOf(word) !== -1;
-    });
-  }
-
-  function rankedCandidatesFromTranscript(transcript, candidates, context) {
-    var contextDerived = contextCandidates(context);
-    var candidatePool = unique(contextDerived.concat(candidates || []));
-
-    return candidatePool.map(function normalizeCandidate(candidate) {
-      return {
-        original: candidate,
-        normalized: normalizeText(candidate),
-        score: scoreCandidate(transcript, candidate, context)
-      };
-    }).sort(function sortByScore(left, right) {
-      return right.score - left.score;
+      if (index < 0) return "";
+      cursor = index;
+      return entries[index].candidate;
     });
   }
 
   function decisionFromTranscript(transcript, candidates, context, options) {
-    var force = options && options.force;
+    var fCandidates = options && options.fCandidates || [];
+    if ((candidates || []).indexOf("cum") !== -1 && /\[\s*__\s*\]\s+joke\b/iu.test(context || "")) {
+      transcript = String(transcript || "").replace(/\bcome(?=\s+joke\b)/giu, "cum");
+    }
+    var entries = transcriptEntries(transcript, candidates,
+      options && options.fCandidatesBySlot || [fCandidates]);
+    var words = entries.map(function candidateWord(entry) {
+      return entry.candidate;
+    }).filter(Boolean);
+    var slotWords = alignedSlotWords(entries, options);
+    var anchoredWord = wordAfterAnchor(entries, options && options.previousWord,
+      options && options.previousWordOffset);
+    var word;
+    var evidence = "none";
 
     if (options && options.slotCount > 1) {
-      var words = transcriptCandidates(transcript, candidates);
-      var positional = words[options.slotOrdinal || 0];
-
-      return {
-        word: positional || "",
-        words: words,
-        score: positional ? scoreCandidate(transcript, positional, context) : 0,
-        runnerUpScore: 0,
-        transcript: transcript || "",
-        forced: Boolean(force)
-      };
+      word = slotWords[options.slotOrdinal || 0] || words[options.slotOrdinal || 0] || "";
+    } else if (anchoredWord) {
+      word = anchoredWord;
+      evidence = "transcript-anchor";
+    } else if (MASKED_F_TEST_REGEX.test(String(transcript || ""))) {
+      word = fCandidates[0] || "fuck";
+      evidence = fCandidates.length ? "masked-f-rule" : "masked-f-fallback";
+    } else if (fCandidates.length) {
+      word = fCandidates.find(function matchingFRule(candidate) {
+        return words.indexOf(candidate) !== -1;
+      }) || words[0] || "";
+    } else {
+      word = words[0] || "";
     }
-
-    var ranked = rankedCandidatesFromTranscript(transcript, candidates, context);
-    var positive = ranked.filter(function hasScore(candidate) {
-      return candidate.score > 0;
-    });
-    var best = positive[0] || ranked[0];
-    var runnerUp = positive[1] || ranked[1] || null;
-
-    if (!best) {
-      return {
-        word: "",
-        score: 0,
-        runnerUpScore: 0,
-        transcript: transcript || "",
-        forced: Boolean(force)
-      };
-    }
-
-    if (positive.length && (force || positive.length === 1 || best.score > (runnerUp ? runnerUp.score : 0))) {
-      return {
-        word: best.original,
-        score: best.score,
-        runnerUpScore: runnerUp ? runnerUp.score : 0,
-        transcript: transcript || "",
-        forced: Boolean(force)
-      };
-    }
+    if (word && evidence === "none") evidence = "transcript";
 
     return {
-      word: "",
-      score: best.score,
-      runnerUpScore: runnerUp ? runnerUp.score : 0,
+      word: word,
+      words: words,
+      slotWords: slotWords,
       transcript: transcript || "",
-      forced: false
+      evidence: evidence
     };
-  }
-
-  function fallbackDecision(candidates, context, options) {
-    var decision = decisionFromTranscript("", candidates, context, options);
-
-    if (decision.score <= 0 && options && options.force) {
-      var fallbackCandidates = unique(contextCandidates(context).concat(candidates || []));
-      if (fallbackCandidates.length) {
-        decision.word = fallbackCandidates[0];
-        decision.forced = true;
-      }
-    } else if (decision.score <= 0) {
-      decision.word = "";
-    }
-
-    return decision;
   }
 
   function transcribeDetailed(audio, candidates, context, options) {
     if (!audio || !audio.length || !candidates || !candidates.length) {
-      return Promise.resolve(options && options.force
-        ? fallbackDecision(candidates, context, options)
-        : {
-          word: "",
-          score: 0,
-          runnerUpScore: 0,
-          transcript: "",
-          forced: false
-        });
+      return Promise.resolve({
+        word: "",
+        transcript: "",
+        evidence: "none"
+      });
     }
 
     return getTranscriber().then(function runTranscriber(transcriber) {
@@ -421,15 +274,11 @@
       return decisionFromTranscript(transcript, candidates, context, options);
     }).catch(function keepToken(error) {
       debugLog("whisper transcription failed", errorDetails(error));
-      return options && options.force
-        ? fallbackDecision(candidates, context, options)
-        : {
-          word: "",
-          score: 0,
-          runnerUpScore: 0,
-          transcript: "",
-          forced: false
-        };
+      return {
+        word: "",
+        transcript: "",
+        evidence: "none"
+      };
     });
   }
 

@@ -5,21 +5,25 @@
   var runtime = root.browser || root.chrome;
 
   var AUDIO_CONTEXT_SECONDS = 1.5;
+  var AUDIO_DECODE_TIMEOUT_MS = 15000;
   var WHISPER_INPUT_SECONDS = 30;
-  var CLEAR_WHISPER_SCORE = 10;
   var MEDIA_GAP_TOLERANCE_SECONDS = 0.05;
+  var TIMELINE_EVENT_RADIUS = 4;
+  var TIMELINE_TIME_RADIUS_SECONDS = 15;
   var CAPTION_MUTATION_SELECTOR = ".ytp-caption-segment, .caption-window, .caption-visual-line, .ytp-caption-window-container";
   var TARGET_SAMPLE_RATE = 16000;
-  var CENSORED_TOKEN_REGEX = new RegExp(rules.CENSORED_TOKEN_REGEX.source, "u");
   var CENSORED_TOKEN_GLOBAL_REGEX = new RegExp(rules.CENSORED_TOKEN_REGEX.source, "gu");
   var pendingTokens = new Map();
   var resolvedTokens = new Map();
   var failedTokens = new Map();
   var captionObserver = null;
+  var captionObserverTarget = null;
   var visibleResolutionScheduled = false;
-  var pendingVisibleGroups = new Map();
-  var previousCaptionRow = "";
-  var topCaptionRow = null;
+  var captionTimeline = [];
+  var captionTrackId = "";
+  var captionGeneration = 0;
+  var seekGeneration = 0;
+  var observedVideo = null;
   var lastPatchedCaptionText = "";
   var whisperBusy = false;
   var whisperQueueScheduled = false;
@@ -27,6 +31,7 @@
   var decodeQueue = Promise.resolve();
   var whisperModelState = "idle";
   var navigationGeneration = 0;
+  var activeVideoId = "";
   var tokenMetadataKnown = false;
   var videoHasCensoredSlots = false;
   var mediaAudio = {
@@ -57,7 +62,15 @@
       return;
     }
 
-    root.console.debug.apply(root.console, ["[uncensored]"].concat(Array.prototype.slice.call(arguments)));
+    var message = Array.prototype.map.call(arguments, function formatDebugValue(value) {
+      if (typeof value === "string") return value;
+      try {
+        return JSON.stringify(value);
+      } catch (error) {
+        return String(value);
+      }
+    }).join(" ");
+    root.console.debug("[uncensored] " + message);
   }
 
   function mediaTimestamp(seconds) {
@@ -84,15 +97,9 @@
   }
 
   function resetForNavigation() {
-    if (mediaAudio.videoId && currentVideoId() === mediaAudio.videoId) {
-      scheduleWhisperQueue();
-      return;
-    }
-
     navigationGeneration += 1;
     tokenMetadataKnown = false;
     videoHasCensoredSlots = false;
-    whisperModelState = "idle";
     pendingTokens.clear();
     resolvedTokens.clear();
     failedTokens.clear();
@@ -100,9 +107,26 @@
     mediaAudio.segments = [];
     mediaAudio.error = "";
     lastPatchedCaptionText = "";
-    pendingVisibleGroups.clear();
-    previousCaptionRow = "";
-    topCaptionRow = null;
+    captionTimeline = [];
+    captionTrackId = "";
+    captionGeneration += 1;
+    seekGeneration += 1;
+    if (captionObserver) captionObserver.disconnect();
+    captionObserver = null;
+    captionObserverTarget = null;
+    if (observedVideo && observedVideo.removeEventListener) {
+      observedVideo.removeEventListener("seeking", captionSeekStarted);
+      observedVideo.removeEventListener("seeked", captionSeekFinished);
+    }
+    observedVideo = null;
+  }
+
+  function syncVideo(videoId) {
+    videoId = videoId || currentVideoId();
+    if (videoId === activeVideoId) return;
+    resetForNavigation();
+    activeVideoId = videoId;
+    mediaAudio.videoId = videoId;
   }
 
   // ── Whisper via extension host ──
@@ -147,7 +171,7 @@
 
   function whisperTranscribe(audio, candidates, context, options) {
     if (!audio || !audio.length || !candidates || !candidates.length) {
-      return Promise.resolve({ word: "", score: 0, runnerUpScore: 0, transcript: "", forced: Boolean(options && options.force) });
+      return Promise.resolve({ word: "", transcript: "", evidence: "none" });
     }
     var copy = audio.slice();
     return bgMessage("transcribe", {
@@ -237,7 +261,24 @@
     return Promise.resolve(audioContext);
   }
 
+  function decodeAudio(context, buffer) {
+    var timer;
+
+    return Promise.race([
+      context.decodeAudioData(buffer),
+      new Promise(function decodeTimeout(resolve, reject) {
+        timer = root.setTimeout(function timedOut() {
+          reject(new Error("Audio decode timed out"));
+        }, AUDIO_DECODE_TIMEOUT_MS);
+      })
+    ]).finally(function clearDecodeTimeout() {
+      root.clearTimeout(timer);
+    });
+  }
+
   function setSabrAudioData(detail) {
+    if (detail && detail.videoId && detail.videoId !== currentVideoId()) return decodeQueue;
+    syncVideo(detail && detail.videoId);
     var generation = navigationGeneration;
 
     if (!detail || !(detail.buffer instanceof ArrayBuffer)) {
@@ -250,7 +291,7 @@
       }
 
       return currentAudioContext().then(function decodeWithContext(context) {
-        return context.decodeAudioData(detail.buffer);
+        return decodeAudio(context, detail.buffer);
       }).then(function decodedWithTiming(buffer) {
         debugLog("audio decoded", mediaTimestamp((detail.startMs || 0) / 1000));
         return buffer;
@@ -394,6 +435,12 @@
     return sortedTokenValues(resolvedTokens);
   }
 
+  function resolutionForTokenIndex(tokenIndex) {
+    return resolvedTokenValues().find(function matchingTokenIndex(resolution) {
+      return tokenIsCurrent(resolution) && resolution.tokenIndex === tokenIndex;
+    });
+  }
+
   function sourcePriority(source) {
     return SOURCE_PRIORITY[source] || 0;
   }
@@ -409,7 +456,10 @@
           tokenIndex: token.tokenIndex,
           word: word,
           source: source || "unknown",
-          videoId: mediaAudio.videoId || currentVideoId()
+          videoId: mediaAudio.videoId || currentVideoId(),
+          trackId: captionTrackId,
+          timeSeconds: token.timeSeconds,
+          normalizedContext: normalizeContext(token.context)
         })
       }));
     } catch (error) {
@@ -421,10 +471,11 @@
     var key;
     var existing;
 
-    if (!token || !word) {
+    if (!word || !tokenIsCurrent(token)) {
       return;
     }
 
+    word = rules.formatWordCase ? rules.formatWordCase(word, token.context) : word;
     key = tokenCacheKey(token);
     existing = resolvedTokens.get(key);
 
@@ -444,6 +495,8 @@
       existing.eventText = token.eventText || existing.eventText;
       existing.previousEventText = token.previousEventText || existing.previousEventText;
       notifyTimedTextResolution(token, word, source || "unknown");
+      watchCaptionMutations();
+      scheduleVisibleCaptionResolution();
       return existing;
     }
 
@@ -455,6 +508,7 @@
       eventText: token.eventText,
       previousEventText: token.previousEventText,
       navigationGeneration: token.navigationGeneration,
+      captionGeneration: token.captionGeneration,
       timeSeconds: token.timeSeconds,
       context: token.context,
       normalizedContext: normalizeContext(token.context),
@@ -465,10 +519,12 @@
     resolvedTokens.set(key, existing);
 
     notifyTimedTextResolution(token, word, source || "unknown");
+    watchCaptionMutations();
+    scheduleVisibleCaptionResolution();
     return existing;
   }
 
-  function whisperRejectionReason(token, decision) {
+  function whisperRejectionReason(decision) {
     if (!decision) {
       return "missing decision";
     }
@@ -477,27 +533,16 @@
       return "no word";
     }
 
-    if (!options.rulesEnabled) {
-      return "";
-    }
-
-    if (!token.deterministicWord) {
-      return "";
-    }
-
-    if (decision.score < CLEAR_WHISPER_SCORE) {
-      return "score below threshold";
-    }
-
-    if (decision.score <= decision.runnerUpScore) {
-      return "runner-up tied or higher";
-    }
-
     return "";
   }
 
   function deterministicIsAmbiguous(token) {
     return token && token.deterministicCandidates && token.deterministicCandidates.length > 1;
+  }
+
+  function tokenIsCurrent(token) {
+    return token && token.navigationGeneration === navigationGeneration &&
+      token.captionGeneration === captionGeneration;
   }
 
   function shouldResolveWithWhisper(token) {
@@ -518,7 +563,6 @@
 
   function transcribeTokenPcm(token, sourcePcm, sourceRate, source) {
     var pcm16 = resampleLinear(sourcePcm, sourceRate, TARGET_SAMPLE_RATE);
-    var force = !token.deterministicWord || !options.rulesEnabled;
 
     debugLog("whisper slice", {
       token: token.tokenIndex,
@@ -527,22 +571,24 @@
     });
 
     return whisperTranscribe(pcm16, candidatesForToken(token), token.context, {
-      force: force,
+      fCandidates: token.fCandidates || [],
+      previousWord: token.previousWord || "",
+      previousWordOffset: token.previousWordOffset || 0,
       slotOrdinal: token.adjacentTokenIndex || 0,
       slotCount: token.adjacentTokenCount || 1
     }).then(function resolvedDecision(decision) {
-      var rejectionReason = whisperRejectionReason(token, decision);
+      var rejectionReason = whisperRejectionReason(decision);
 
       debugLog("whisper decision", {
         token: token.tokenIndex,
         word: decision && decision.word || "",
-        score: decision && decision.score || 0,
+        evidence: decision && decision.evidence || "none",
         transcript: decision && decision.transcript || "",
         rejected: rejectionReason || undefined
       });
 
       if (rejectionReason) {
-        failedTokens.set(token.tokenIndex, { reason: rejectionReason });
+        if (tokenIsCurrent(token)) failedTokens.set(token.tokenIndex, { reason: rejectionReason });
         debugLog("whisper failed", { tokenIndex: token.tokenIndex, reason: rejectionReason });
         return null;
       }
@@ -551,10 +597,8 @@
         tokenIndex: token.tokenIndex,
         word: decision.word,
         source: source,
-        score: decision.score,
-        runnerUpScore: decision.runnerUpScore,
         transcript: decision.transcript,
-        forced: decision.forced
+        evidence: decision.evidence
       };
     });
   }
@@ -578,7 +622,7 @@
       };
       debugLog("single token whisper error", errorInfo);
       if (console && console.warn) {
-        console.warn("[uncensored] whisper single error", errorInfo);
+        console.warn("[uncensored] whisper single error " + JSON.stringify(errorInfo));
       }
       throw error;
     });
@@ -588,20 +632,13 @@
     if (group.length < 2) {
       return resolveTokenFromMedia(group[0].token).then(function resolvedSingle(resolution) {
         applyResolvedWord(group[0].token, resolution);
-        if (resolution && resolution.word) {
-          var visibleGroup = { tokens: [group[0].token], words: [resolution.word] };
-          pendingVisibleGroups.set(group[0].token.eventIndex, visibleGroup);
-          applyVisibleTokenGroup(visibleGroup);
-        }
         return resolution;
       });
     }
 
     return Promise.resolve().then(function mediaReady() {
-      var first = group[0].token.timeSeconds;
-      var last = group[group.length - 1].token.timeSeconds;
-      var startTime = Math.max(0, first - AUDIO_CONTEXT_SECONDS);
-      var endTime = last + AUDIO_CONTEXT_SECONDS;
+      var startTime = tokenWindow(group[0].token).startTime;
+      var endTime = tokenWindow(group[group.length - 1].token).endTime;
       var pcm16 = readMediaWindow(startTime, endTime);
       var candidates = [];
       var seen = Object.create(null);
@@ -630,27 +667,25 @@
       });
 
       return whisperTranscribe(pcm16, candidates, context, {
-        force: true,
+        fCandidatesBySlot: group.map(function groupFCandidates(entry) {
+          return entry.token.fCandidates || [];
+        }),
+        previousWords: group.map(function groupPreviousWord(entry) {
+          return entry.token.previousWord || "";
+        }),
+        previousWordOffsets: group.map(function groupPreviousWordOffset(entry) {
+          return entry.token.previousWordOffset || 0;
+        }),
         slotOrdinal: 0,
         slotCount: group.length
       }).then(function applyGroupDecision(decision) {
         decision = decision || {};
         var words = Array.isArray(decision.words) ? decision.words : [];
-        var anchorCount = pendingTokens.has(tokenCacheKey(group[0].token)) ? 0 : 1;
-        var wordOffset = 0;
-        var targets;
         var targetWords;
         var completeGroup;
 
-        targets = group.slice(anchorCount);
-        if (anchorCount) {
-          wordOffset = words.findIndex(function matchingAnchor(word, offset) {
-            return words.length - offset >= targets.length + 1 &&
-              normalizeContext(group[0].token.word) === normalizeContext(word);
-          });
-        }
-        targetWords = wordOffset >= 0 ? words.slice(wordOffset + anchorCount, wordOffset + group.length) : [];
-        completeGroup = targets.length > 0 && targetWords.length >= targets.length;
+        targetWords = Array.isArray(decision.slotWords) ? decision.slotWords : words.slice(0, group.length);
+        completeGroup = targetWords.length >= group.length && targetWords.every(Boolean);
 
         debugLog("whisper group decision", {
           words: words,
@@ -658,36 +693,21 @@
         });
 
         if (!completeGroup) {
-          targets.forEach(function retryUnresolvedTarget(entry) {
+          group.forEach(function retryUnresolvedTarget(entry) {
             entry.token.forceSingle = true;
             debugLog("whisper retry", { tokenIndex: entry.token.tokenIndex, reason: "incomplete group" });
           });
           return decision;
         }
 
-        targets.forEach(function applyGroupWord(entry, index) {
+        group.forEach(function applyGroupWord(entry, index) {
           applyResolvedWord(entry.token, {
             tokenIndex: entry.token.tokenIndex,
             word: targetWords[index],
             source: "media",
-            score: decision.score,
-            runnerUpScore: decision.runnerUpScore,
             transcript: decision.transcript,
-            forced: decision.forced
-          }, true);
-        });
-
-        var visibleGroups = new Map();
-        targets.forEach(function collectVisibleGroup(entry, index) {
-          var eventIndex = entry.token.eventIndex;
-          var visibleGroup = visibleGroups.get(eventIndex) || { tokens: [], words: [] };
-          visibleGroup.tokens.push(entry.token);
-          visibleGroup.words.push(targetWords[index]);
-          visibleGroups.set(eventIndex, visibleGroup);
-        });
-        visibleGroups.forEach(function rememberVisibleGroup(visibleGroup, eventIndex) {
-          pendingVisibleGroups.set(eventIndex, visibleGroup);
-          applyVisibleTokenGroup(visibleGroup);
+            evidence: decision.evidence
+          });
         });
 
         return decision;
@@ -695,18 +715,15 @@
     });
   }
 
-  function applyResolvedWord(token, resolution, deferVisible) {
+  function applyResolvedWord(token, resolution) {
     var word = resolution && resolution.word;
 
-    if (!word || token.navigationGeneration !== navigationGeneration) {
+    if (!word || !tokenIsCurrent(token)) {
       return;
     }
 
     token.resolved = true;
     rememberResolution(token, word, resolution.source);
-    if (!deferVisible) {
-      applyVisibleCaptionResolution(token, word, resolution.source);
-    }
   }
 
   function contextWordForToken(token) {
@@ -782,22 +799,6 @@
     if (groupEnd - groupStart > WHISPER_INPUT_SECONDS || !mediaSegmentsForRange(groupStart, groupEnd).length) {
       group = [next.token];
       groupEnd = tokenWindow(next.token).endTime;
-    }
-
-    var anchor = group.length > 1 && resolvedTokenValues().filter(function overlappingResolvedToken(token) {
-      return token.source === "media" && token.navigationGeneration === navigationGeneration &&
-        token.timeSeconds < next.token.timeSeconds && tokenWindow(token).endTime >= groupStart;
-    }).pop();
-    if (anchor) {
-      var window = tokenWindow(anchor);
-      if (groupEnd - window.startTime > WHISPER_INPUT_SECONDS ||
-          !mediaSegmentsForRange(window.startTime, groupEnd).length) {
-        anchor = null;
-      }
-    }
-    if (anchor) {
-      group.unshift(anchor);
-      groupStart = window.startTime;
     }
 
     group = group.map(function mapGroupToken(token) {
@@ -881,18 +882,15 @@
     });
     whisperBusy = true;
     resolveTokenGroupFromMedia(group).then(function logResolutionTime(decision) {
-      if (queueStart) {
-        debugLog("whisper resolved", {
-          tokens: group.map(function resolvedGroupToken(entry) {
-            var resolution = resolvedTokens.get(tokenCacheKey(entry.token));
-            return {
-              tokenIndex: entry.token.tokenIndex,
-              word: resolution && resolution.word || null
-            };
-          }),
-          elapsedMs: Math.round(typeof performance !== "undefined" ? performance.now() - queueStart : 0)
-        });
-      }
+      var words = group.filter(function currentGroupToken(entry) {
+        return tokenIsCurrent(entry.token);
+      }).map(function resolvedGroupToken(entry) {
+        var resolution = resolvedTokens.get(tokenCacheKey(entry.token));
+        return resolution && resolution.word;
+      }).filter(Boolean).map(function quoteWord(word) {
+        return JSON.stringify(word);
+      }).join(", ");
+      if (words) debugLog("whisper resolved", words);
       return decision;
     }).catch(function logMediaResolutionError(error) {
       var errorInfo = {
@@ -904,11 +902,11 @@
       };
       debugLog("media token unresolved", errorInfo);
       if (console && console.warn) {
-        console.warn("[uncensored] whisper group error", errorInfo);
+        console.warn("[uncensored] whisper group error " + JSON.stringify(errorInfo));
       }
 
       group.forEach(function markFailed(entry) {
-        if (!entry.token.resolved) {
+        if (!entry.token.resolved && tokenIsCurrent(entry.token)) {
           failedTokens.set(entry.token.tokenIndex, { reason: "transcription error" });
         }
       });
@@ -916,7 +914,8 @@
       whisperBusy = false;
       group.forEach(function clearResolving(entry) {
         entry.token.resolving = false;
-        if (entry.token.resolved || failedTokens.has(entry.token.tokenIndex)) {
+        if (pendingTokens.get(tokenCacheKey(entry.token)) === entry.token &&
+            (entry.token.resolved || failedTokens.has(entry.token.tokenIndex))) {
           pendingTokens.delete(tokenCacheKey(entry.token));
         }
       });
@@ -957,9 +956,10 @@
       var resolved = resolvedTokens.get(key);
 
       token.navigationGeneration = navigationGeneration;
+      token.captionGeneration = captionGeneration;
 
       if (resolved && resolved.word && (options.rulesEnabled || resolved.source === "media")) {
-        applyVisibleCaptionResolution(token, resolved.word, resolved.source);
+        scheduleVisibleCaptionResolution();
         return;
       }
 
@@ -969,7 +969,7 @@
 
       if (options.rulesEnabled && contextWord) {
         rememberResolution(token, contextWord, "context");
-        applyVisibleCaptionResolution(token, contextWord, "context");
+        scheduleVisibleCaptionResolution();
         return;
       }
 
@@ -992,6 +992,61 @@
     if (pendingTokens.size) {
       startLiveCaptionResolver();
     }
+  }
+
+  function restoreSavedResolutions(tokens, savedResolutions) {
+    var byIndex = new Map();
+
+    (tokens || []).forEach(function indexToken(token) {
+      byIndex.set(token.tokenIndex, token);
+    });
+    (savedResolutions || []).slice(0, 1000).forEach(function restoreResolution(saved) {
+      var token = saved && byIndex.get(saved.tokenIndex);
+      if (!token || !saved.word || !Number.isFinite(saved.timeSeconds) ||
+          Math.abs(token.timeSeconds - saved.timeSeconds) > 0.25 ||
+          normalizeContext(token.context) !== saved.normalizedContext ||
+          !rules.ALLOWED_WORDS.some(function allowedSavedWord(word) {
+            return normalizeContext(word) === normalizeContext(saved.word);
+          }) ||
+          (saved.source !== "media" && !(options.rulesEnabled && saved.source === "context"))) {
+        return;
+      }
+      token.navigationGeneration = navigationGeneration;
+      token.captionGeneration = captionGeneration;
+      rememberResolution(token, saved.word, saved.source);
+    });
+  }
+
+  function rememberTimedTextData(data, trackId, savedResolutions, videoId) {
+    var trackChanged;
+
+    syncVideo(videoId);
+    data = data || { tokens: [], timeline: [] };
+    trackId = trackId || "";
+    trackChanged = captionTrackId !== trackId;
+
+    if (trackChanged) {
+      captionTrackId = trackId;
+      captionGeneration += 1;
+      pendingTokens.clear();
+      resolvedTokens.clear();
+      failedTokens.clear();
+      lastPatchedCaptionText = "";
+    }
+    videoHasCensoredSlots = trackChanged
+      ? Boolean(data.tokens && data.tokens.length)
+      : videoHasCensoredSlots || Boolean(data.tokens && data.tokens.length);
+    if (trackChanged || data.timeline && data.timeline.length) {
+      captionTimeline = (data.timeline || []).map(function normalizeTimelineEvent(event) {
+        return Object.assign({}, event, {
+          words: normalizeContext(event.text).split(/\s+/).filter(Boolean)
+        });
+      });
+    }
+    restoreSavedResolutions(data.tokens || [], savedResolutions);
+    rememberTimedTextTokens(data.tokens || []);
+    watchVideoSeeks();
+    scheduleVisibleCaptionResolution();
   }
 
   function captionSegments() {
@@ -1047,201 +1102,103 @@
     entry.segment.textContent = text.slice(0, localStart) + word + text.slice(localStart + tokenText.length);
   }
 
-  function contextSideWords(text, keepRight) {
-    var words = normalizeContext(text).split(/\s+/).filter(function useful(word) {
-      return word && word !== rules.CENSORED_TOKEN && word.length > 1;
-    });
+  function nearbyTimelineWords(playhead) {
+    var nearestIndex = -1;
+    var nearestDistance = Infinity;
 
-    return keepRight ? words.slice(0, 3) : words.slice(-3);
-  }
-
-  function wordsAtEdge(text, words, atEnd) {
-    var normalizedText = normalizeContext(text);
-    var phrase = words.join(" ");
-    return atEnd
-      ? normalizedText === phrase || normalizedText.slice(-(phrase.length + 1)) === " " + phrase
-      : normalizedText === phrase || normalizedText.slice(0, phrase.length + 1) === phrase + " ";
-  }
-
-  function visibleTokenOccurrenceMatches(text, tokenStart, resolution) {
-    var normalizedText = normalizeContext(text);
-    var contextParts = normalizeContext(resolution.context).split(rules.CENSORED_TOKEN);
-    var beforeWords = contextSideWords(contextParts[0] || "", false);
-    var afterWords = contextSideWords(contextParts.slice(1).join(" "), true);
-    var tokenMatch = tokenStart === null
-      ? CENSORED_TOKEN_REGEX.exec(normalizedText)
-      : {
-        index: tokenStart,
-        0: rules.CENSORED_TOKEN
-      };
-
-    if (!tokenMatch || tokenMatch.index === undefined) {
-      return false;
-    }
-
-    var beforeText = normalizedText.slice(0, tokenMatch.index);
-    var afterText = normalizedText.slice(tokenMatch.index + tokenMatch[0].length);
-    var beforeMatches = beforeWords.length && wordsAtEdge(beforeText, beforeWords, true);
-    var afterMatches = afterWords.length && wordsAtEdge(afterText, afterWords, false);
-    var visibleAfterWords;
-
-    if (!beforeWords.length && !afterWords.length) {
-      return false;
-    }
-
-    if (beforeMatches || afterMatches) {
-      return true;
-    }
-
-    visibleAfterWords = contextSideWords(afterText, true);
-    if (!afterWords.length || visibleAfterWords.length < Math.min(2, afterWords.length)) {
-      return false;
-    }
-
-    return wordsAtEdge(afterText, visibleAfterWords, false) && visibleAfterWords.every(function matchesKnownAfterPrefix(word, index) {
-      return afterWords[index] === word;
-    });
-  }
-
-  function normalizedTokenStartForOccurrence(text, occurrenceIndex) {
-    var normalizedText = normalizeContext(text);
-    var match;
-    var index = 0;
-
-    CENSORED_TOKEN_GLOBAL_REGEX.lastIndex = 0;
-    while ((match = CENSORED_TOKEN_GLOBAL_REGEX.exec(normalizedText)) !== null) {
-      if (index === occurrenceIndex) {
-        return match.index;
+    captionTimeline.forEach(function findNearestEvent(event, index) {
+      var distance = playhead < event.startTime
+        ? event.startTime - playhead
+        : playhead > event.endTime ? playhead - event.endTime : 0;
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestIndex = index;
       }
+    });
+    if (nearestIndex < 0) return [];
 
-      index += 1;
-    }
-
-    return -1;
+    return captionTimeline.slice(
+      Math.max(0, nearestIndex - TIMELINE_EVENT_RADIUS),
+      nearestIndex + TIMELINE_EVENT_RADIUS + 1
+    ).filter(function nearPlayhead(event) {
+      return event.endTime >= playhead - TIMELINE_TIME_RADIUS_SECONDS &&
+        event.startTime <= playhead + TIMELINE_TIME_RADIUS_SECONDS;
+    }).reduce(function flattenEvents(words, event) {
+      var eventTokenIndex = 0;
+      event.words.forEach(function appendWord(word) {
+        words.push({
+          word: word,
+          tokenIndex: word === rules.CENSORED_TOKEN ? event.firstTokenIndex + eventTokenIndex++ : -1
+        });
+      });
+      return words;
+    }, []);
   }
 
-  function patchMatchingVisibleToken(segments, resolution) {
-    var snapshot = captionSnapshot(segments);
-    var match;
-    var occurrenceIndex = 0;
+  function visibleTokenMapping(text) {
+    var video = findVideo();
+    var visibleWords = normalizeContext(text).split(/\s+/).filter(Boolean);
+    var timelineWords = nearbyTimelineWords(video && Number.isFinite(video.currentTime) ? video.currentTime : 0);
+    var matches = new Map();
+    var start;
 
+    if (!visibleWords.length || !visibleWords.includes(rules.CENSORED_TOKEN)) return null;
+    for (start = 0; start + visibleWords.length <= timelineWords.length; start += 1) {
+      var mapping = [];
+      var anchors = 0;
+      var visibleSlot = 0;
+      var valid = visibleWords.every(function wordMatches(visibleWord, offset) {
+        var timelineWord = timelineWords[start + offset];
+        var resolution;
+
+        if (timelineWord.word !== rules.CENSORED_TOKEN) {
+          if (timelineWord.word === visibleWord) anchors += 1;
+          return timelineWord.word === visibleWord;
+        }
+        if (visibleWord === rules.CENSORED_TOKEN) {
+          mapping[visibleSlot++] = timelineWord.tokenIndex;
+          return true;
+        }
+        resolution = resolutionForTokenIndex(timelineWord.tokenIndex);
+        return Boolean(resolution && normalizeContext(resolution.word) === visibleWord);
+      });
+
+      if (valid && anchors && mapping.length) {
+        matches.set(mapping.join(","), mapping);
+      }
+    }
+    return matches.size === 1 ? matches.values().next().value : null;
+  }
+
+  function applyResolvedVisibleTimeline() {
+    var segments = captionSegments();
+    var snapshot = captionSnapshot(segments);
+    var mapping = visibleTokenMapping(snapshot.text);
+    var replacements = [];
+    var match;
+    var ordinal = 0;
+
+    if (!mapping) return false;
     CENSORED_TOKEN_GLOBAL_REGEX.lastIndex = 0;
     while ((match = CENSORED_TOKEN_GLOBAL_REGEX.exec(snapshot.text)) !== null) {
-      var tokenStart = normalizedTokenStartForOccurrence(snapshot.text, occurrenceIndex);
+      var resolution = resolutionForTokenIndex(mapping[ordinal++]);
       var entry = snapshot.entries.find(function findEntry(candidate) {
         return match.index >= candidate.start && match.index < candidate.start + candidate.text.length;
       });
-
-      occurrenceIndex += 1;
-      if (!entry || tokenStart < 0 || !visibleTokenOccurrenceMatches(snapshot.text, tokenStart, resolution)) {
-        continue;
-      }
-
-      replaceTokenInSegment(entry, match.index, match[0], resolution.word);
-      lastPatchedCaptionText = captionSnapshot(segments).text;
-      return true;
-    }
-
-    return false;
-  }
-
-  function applyVisibleTokenGroup(group) {
-    var segments = captionSegments();
-    var snapshot = captionSnapshot(segments);
-    var topElement = segments[0] && segments[0].closest && segments[0].closest(".caption-visual-line");
-    var topSegments = segments.filter(function inTopRow(segment) {
-      return segment.closest && segment.closest(".caption-visual-line") === topElement;
-    });
-    var topText = captionSnapshot(topSegments).text;
-    var previous = normalizeContext(group.tokens[0].previousEventText).split(/\s+/).filter(Boolean);
-    var previousSlot = previous.lastIndexOf(rules.CENSORED_TOKEN);
-    var prefix = previous.slice(previousSlot + 1);
-    var template = prefix.concat(normalizeContext(group.tokens[0].eventText).split(/\s+/).filter(Boolean));
-    var eventOffset = prefix.length;
-    var replacements = [];
-    var match;
-    var applied = false;
-
-    if (topElement && (!topCaptionRow || topElement !== topCaptionRow.element)) {
-      previousCaptionRow = topCaptionRow ? topCaptionRow.text : "";
-      topCaptionRow = { element: topElement, text: topText };
-    } else if (topCaptionRow) {
-      topCaptionRow.text = topText;
-    }
-
-    if (!template.length) {
-      return false;
-    }
-    CENSORED_TOKEN_GLOBAL_REGEX.lastIndex = 0;
-    while ((match = CENSORED_TOKEN_GLOBAL_REGEX.exec(snapshot.text)) !== null) {
-      var visibleBefore = normalizeContext(previousCaptionRow + " " + snapshot.text.slice(0, match.index)).split(/\s+/).filter(Boolean);
-      var ordinals = [];
-      template.forEach(function matchingSlot(templateWord, templateIndex) {
-        var before;
-        var overlap;
-        var ordinal;
-        if (templateWord !== rules.CENSORED_TOKEN || templateIndex < eventOffset) return;
-        before = template.slice(0, templateIndex);
-        overlap = Math.min(before.length, visibleBefore.length);
-        if (!overlap || !before.slice(-overlap).some(function ordinaryAnchor(word) {
-          return word !== rules.CENSORED_TOKEN;
-        })) return;
-        ordinal = template.slice(eventOffset, templateIndex + 1).filter(function isSlot(part) {
-          return part === rules.CENSORED_TOKEN;
-        }).length - 1;
-        if (before.slice(-overlap).every(function precedingWordMatches(word, index) {
-          var visibleWord = visibleBefore[visibleBefore.length - overlap + index];
-          var wordIndex = before.length - overlap + index;
-          if (word !== rules.CENSORED_TOKEN) return word === visibleWord;
-          var previousOrdinal = template.slice(eventOffset, wordIndex + 1).filter(function isSlot(part) {
-            return part === rules.CENSORED_TOKEN;
-          }).length - 1;
-          return visibleWord === rules.CENSORED_TOKEN || visibleWord === normalizeContext(group.words[previousOrdinal]);
-        })) ordinals.push(ordinal);
-      });
-      if (ordinals.length === 1) {
-        var ordinal = ordinals[0];
-        replacements.push({ index: match.index, text: match[0], word: group.words[ordinal] });
+      if (entry && resolution && (options.rulesEnabled || resolution.source === "media")) {
+        replacements.push({ entry: entry, index: match.index, text: match[0], word: resolution.word });
       }
     }
     replacements.reverse().forEach(function replaceVisibleSlot(replacement) {
-      var entry = snapshot.entries.find(function findEntry(candidate) {
-        return replacement.index >= candidate.start && replacement.index < candidate.start + candidate.text.length;
-      });
-      if (entry && replacement.word) {
-        replaceTokenInSegment(entry, replacement.index, replacement.text, replacement.word);
-        applied = true;
-      }
+      replaceTokenInSegment(replacement.entry, replacement.index, replacement.text, replacement.word);
     });
-    if (applied) lastPatchedCaptionText = captionSnapshot(segments).text;
-    return applied;
-  }
-
-  function applyVisibleCaptionResolution(token, word, source, visibleSegments) {
-    var segments = visibleSegments || captionSegments();
-    var captionText = segments.map(function segmentText(segment) {
-      return segment.textContent || "";
-    }).join(" ");
-    var resolution = {
-      context: token.context,
-      word: word
-    };
-
-    return rules.hasCensoredToken(captionText) && patchMatchingVisibleToken(segments, resolution);
-  }
-
-  function applyResolvedVisibleMediaResolutions() {
-    var segments = captionSegments();
-    var captionText = captionSnapshot(segments).text;
-
-    pendingVisibleGroups.forEach(function applyPendingGroup(group, eventIndex) {
-      if (applyVisibleTokenGroup(group)) {
-        captionText = captionSnapshot(segments).text;
-      }
-    });
+    if (replacements.length) lastPatchedCaptionText = captionSnapshot(segments).text;
+    return replacements.length > 0;
   }
 
   function scheduleVisibleCaptionResolution() {
+    var generation = seekGeneration;
+
     if (visibleResolutionScheduled) {
       return;
     }
@@ -1249,7 +1206,11 @@
     visibleResolutionScheduled = true;
     function resolveVisibleSoon() {
       visibleResolutionScheduled = false;
-      applyResolvedVisibleMediaResolutions();
+      if (generation !== seekGeneration) {
+        scheduleVisibleCaptionResolution();
+        return;
+      }
+      applyResolvedVisibleTimeline();
     }
 
     if (root.requestAnimationFrame) {
@@ -1283,9 +1244,11 @@
     var MutationObserverCtor = root.MutationObserver;
     var target = root.document && root.document.querySelector("#movie_player, .html5-video-player");
 
-    if (captionObserver || !MutationObserverCtor || !target) {
+    watchVideoSeeks();
+    if (!MutationObserverCtor || !target || captionObserver && captionObserverTarget === target) {
       return;
     }
+    if (captionObserver) captionObserver.disconnect();
 
     captionObserver = new MutationObserverCtor(function captionsChanged(mutations) {
       var captionText;
@@ -1306,10 +1269,36 @@
       characterData: true,
       subtree: true
     });
+    captionObserverTarget = target;
   }
 
   function startLiveCaptionResolver() {
     watchCaptionMutations();
+  }
+
+  function watchVideoSeeks() {
+    var video = findVideo();
+
+    if (!video || video === observedVideo || !video.addEventListener) return;
+    if (observedVideo && observedVideo.removeEventListener) {
+      observedVideo.removeEventListener("seeking", captionSeekStarted);
+      observedVideo.removeEventListener("seeked", captionSeekFinished);
+    }
+    observedVideo = video;
+    observedVideo.addEventListener("seeking", captionSeekStarted);
+    observedVideo.addEventListener("seeked", captionSeekFinished);
+  }
+
+  function captionSeekStarted() {
+    seekGeneration += 1;
+    lastPatchedCaptionText = "";
+    scheduleVisibleCaptionResolution();
+    scheduleWhisperQueue();
+  }
+
+  function captionSeekFinished() {
+    scheduleVisibleCaptionResolution();
+    scheduleWhisperQueue();
   }
 
   var exports = Object.freeze({
@@ -1318,6 +1307,7 @@
       var previousRulesEnabled = options.rulesEnabled;
 
       nextOptions = nextOptions || {};
+      syncVideo(nextOptions.videoId);
       options.rulesEnabled = nextOptions.rulesEnabled !== false;
       options.whisperEnabled = nextOptions.whisperEnabled !== false;
       if (previousRulesEnabled && !options.rulesEnabled) {
@@ -1336,7 +1326,7 @@
         mediaAudio.segments = [];
       }
     },
-    rememberTimedTextTokens: rememberTimedTextTokens,
+    rememberTimedTextData: rememberTimedTextData,
     startVisibleCaptionResolver: startLiveCaptionResolver,
     debugState: function debugState() {
       return {
@@ -1363,7 +1353,10 @@
             resolving: token.resolving
           };
         }),
-        resolvedTokens: resolvedTokenValues()
+        resolvedTokens: resolvedTokenValues(),
+        captionTrackId: captionTrackId,
+        captionTimeline: captionTimeline,
+        seekGeneration: seekGeneration
       };
     }
   });
@@ -1371,8 +1364,10 @@
   root.UncensoredAudioInference = exports;
   if (root.addEventListener) {
     root.addEventListener("yt-navigate-finish", function navigationFinished() {
-      resetForNavigation();
+      syncVideo(currentVideoId());
       watchCaptionMutations();
+      scheduleVisibleCaptionResolution();
+      scheduleWhisperQueue();
     });
   }
   if (typeof module === "object" && module.exports) {

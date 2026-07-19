@@ -103,13 +103,13 @@ const payload = {
 
 const result = timedText.patchTimedTextJson(payload);
 
-assert.strictEqual(result.patchCount, 6);
+assert.strictEqual(result.patchCount, 5);
 assert.strictEqual(payload.events[0].segs.map((seg) => seg.utf8).join(""), "\"Timmy, what the fuck are you");
 assert.strictEqual(payload.events[0].segs.length, 6);
 assert.strictEqual(payload.events[0].segs[3].utf8, " fuck");
 assert.strictEqual(payload.events[0].segs[3].tOffsetMs, 1440);
 assert.strictEqual(payload.events[1].segs[1].utf8, " [\u00a0__\u00a0]");
-assert.strictEqual(payload.events[2].segs.map((seg) => seg.utf8).join(""), "Stop. Fucking hell");
+assert.strictEqual(payload.events[2].segs.map((seg) => seg.utf8).join(""), "Stop. [\u00a0__\u00a0] hell");
 assert.strictEqual(payload.events[3].segs.map((seg) => seg.utf8).join(""), "oh shit. Timmy");
 assert.strictEqual(payload.events[5].segs.map((seg) => seg.utf8).join(""), "Fuck yeah.");
 assert.strictEqual(payload.events[6].segs.map((seg) => seg.utf8).join(""), "Holy shit.");
@@ -160,10 +160,20 @@ const audioPayload = {
 };
 
 const tokens = timedText.collectTimedTextTokens(JSON.stringify(audioPayload));
+const audioData = timedText.collectTimedTextData(JSON.stringify(audioPayload));
 
 assert.strictEqual(tokens.length, 1);
 assert.strictEqual(tokens[0].timeSeconds, 10.75);
+assert.strictEqual(tokens[0].previousWord, "hello");
 assert.deepStrictEqual(tokens[0].candidates.includes("fuck"), true);
+assert.deepStrictEqual(audioData.timeline[0], {
+  eventIndex: 0,
+  startTime: 10,
+  endTime: 15,
+  text: "hello [__]",
+  firstTokenIndex: 0,
+  tokenCount: 1
+});
 
 const leadingTokenPayload = {
   events: [
@@ -175,6 +185,7 @@ const leadingTokenPayload = {
 const leadingTokens = timedText.collectTimedTextTokens(JSON.stringify(leadingTokenPayload), false);
 
 assert.strictEqual(leadingTokens[0].context, "still on the previous line [__] appears first");
+assert.strictEqual(leadingTokens[0].previousWord, "line");
 
 const deterministicPayload = {
   events: [
@@ -195,12 +206,16 @@ const deterministicPayload = {
   ]
 };
 const deterministicTokens = timedText.collectTimedTextTokens(JSON.stringify(deterministicPayload));
+const whisperOnlyTokens = timedText.collectTimedTextTokens(JSON.stringify(deterministicPayload), false);
 
 assert.strictEqual(deterministicTokens.length, 2);
 assert.strictEqual(deterministicTokens[0].deterministicWord, "shit");
 assert.ok(deterministicTokens[0].candidates.includes("shit"));
 assert.ok(deterministicTokens[0].candidates.includes("fuck"));
 assert.strictEqual(deterministicTokens[1].deterministicWord, "fuck");
+assert.strictEqual(whisperOnlyTokens[0].deterministicWord, "");
+assert.deepStrictEqual(whisperOnlyTokens[0].fCandidates, ["fuck"]);
+assert.deepStrictEqual(whisperOnlyTokens[1].fCandidates, ["fuck"]);
 
 const ambiguousPayload = {
   events: [
@@ -218,6 +233,21 @@ const ambiguousTokens = timedText.collectTimedTextTokens(JSON.stringify(ambiguou
 assert.strictEqual(ambiguousTokens.length, 1);
 assert.strictEqual(ambiguousTokens[0].deterministicWord, "shit");
 assert.deepStrictEqual(ambiguousTokens[0].deterministicCandidates, ["shit", "fuck"]);
+
+const broadGrammarPayload = {
+  events: ["[__] it", "[__] this", "[__] me", "[__] all", "you [__] up"].map((text) => ({
+    segs: [{ utf8: text }]
+  }))
+};
+const broadGrammarTokens = timedText.collectTimedTextTokens(JSON.stringify(broadGrammarPayload));
+
+assert.deepStrictEqual(broadGrammarTokens.map((token) => token.deterministicCandidates), [
+  ["fuck", "fucking", "fucked", "shit", "bullshit", "bitch"],
+  ["fuck", "shit", "bullshit", "fucked"],
+  ["fuck", "fucking", "fucked"],
+  ["fuck", "shit", "cock"],
+  ["fucked", "fuck", "fucking"]
+]);
 
 const multiTokenPayload = {
   events: [
@@ -237,6 +267,14 @@ const multiTokenPayload = {
 const multiTokens = timedText.collectTimedTextTokens(JSON.stringify(multiTokenPayload), false);
 
 assert.deepStrictEqual(multiTokens.map((token) => token.eventTokenIndex), [0, 1, 2]);
+assert.deepStrictEqual(multiTokens.map((token) => token.previousWordOffset), [0, 0, 0]);
+
+const adjacentTokens = timedText.collectTimedTextTokens(JSON.stringify({
+  events: [{ segs: [{ utf8: "say [__] [__] now" }] }]
+}), false);
+assert.deepStrictEqual(adjacentTokens.map((token) => [token.previousWord, token.previousWordOffset]), [
+  ["say", 0], ["say", 1]
+]);
 
 const overridePayload = {
   events: [

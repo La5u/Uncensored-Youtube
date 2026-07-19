@@ -152,10 +152,17 @@
     return groups;
   }
 
-  function collectCensoredTokens(payload, deterministicByTokenIndex) {
+  function lastWord(text) {
+    var words = String(text || "").match(/[a-z0-9]+(?:['’][a-z0-9]+)*/giu);
+    return words && words.length ? words[words.length - 1] : "";
+  }
+
+  function collectCensoredTokens(payload, deterministicByTokenIndex, fRulesByTokenIndex) {
     var tokenIndex = 0;
     var tokens = [];
     var previousEventText = "";
+    var previousWord = "";
+    var previousWordOffset = 0;
 
     payload.events.forEach(function collectEventTokens(event, eventIndex) {
       if (!event || !Array.isArray(event.segs)) {
@@ -168,12 +175,21 @@
       var eventTokenIndex = 0;
 
       event.segs.forEach(function collectSegmentTokens(seg, segIndex) {
+        var cursor = 0;
+
         if (!seg || typeof seg.utf8 !== "string") {
           return;
         }
 
-        seg.utf8.replace(CENSORED_TOKEN_REGEX, function collectToken() {
+        seg.utf8.replace(CENSORED_TOKEN_REGEX, function collectToken(match, offset) {
           var deterministic = deterministicByTokenIndex.get(tokenIndex);
+          var fRule = fRulesByTokenIndex.get(tokenIndex);
+
+          var word = lastWord(seg.utf8.slice(cursor, offset));
+          if (word) {
+            previousWord = word;
+            previousWordOffset = 0;
+          }
 
           tokens.push({
             tokenIndex: tokenIndex,
@@ -185,17 +201,29 @@
             previousEventText: previousEventText,
             segIndex: segIndex,
             timeSeconds: tokenTimeSeconds(event, seg),
+            previousWord: previousWord,
+            previousWordOffset: previousWordOffset,
             context: contextForToken(eventText, tokenIndex, firstEventTokenIndex, deterministicByTokenIndex, previousEventText),
             deterministicWord: deterministic ? deterministic.word : "",
             deterministicCandidates: deterministic ? deterministic.candidates : [],
+            fCandidates: fRule ? fRule.candidates.filter(function fWord(candidate) {
+              return String(candidate).toLowerCase().indexOf("fuck") !== -1;
+            }) : [],
             candidates: deterministic && deterministic.candidates.length
               ? deterministic.candidates
               : rules.ALLOWED_WORDS
           });
           tokenIndex += 1;
           eventTokenIndex += 1;
+          previousWordOffset += 1;
+          cursor = offset + match.length;
           return rules.CENSORED_TOKEN;
         });
+        var trailingWord = lastWord(seg.utf8.slice(cursor));
+        if (trailingWord) {
+          previousWord = trailingWord;
+          previousWordOffset = 0;
+        }
       });
       if (eventText.trim()) {
         previousEventText = eventText;
@@ -203,6 +231,40 @@
     });
 
     return tokens;
+  }
+
+  function collectCaptionTimeline(payload) {
+    var tokenIndex = 0;
+    var events = [];
+
+    payload.events.forEach(function collectEvent(event, eventIndex) {
+      if (!event || !Array.isArray(event.segs)) return;
+
+      var text = getEventText(event);
+      var tokenCount = countCensoredTokens(text);
+      var startTime = (typeof event.tStartMs === "number" ? event.tStartMs : 0) / 1000;
+
+      if (text.trim()) {
+        events.push({
+          eventIndex: eventIndex,
+          startTime: startTime,
+          endTime: startTime + (typeof event.dDurationMs === "number" ? event.dDurationMs / 1000 : 0),
+          text: text,
+          firstTokenIndex: tokenIndex,
+          tokenCount: tokenCount
+        });
+      }
+      tokenIndex += tokenCount;
+    });
+
+    events.forEach(function fillMissingEndTime(event, index) {
+      if (event.endTime <= event.startTime) {
+        event.endTime = events[index + 1] && events[index + 1].startTime > event.startTime
+          ? events[index + 1].startTime
+          : event.startTime + 5;
+      }
+    });
+    return events;
   }
 
   function deterministicAnalysis(payload, body, useDeterministic) {
@@ -327,15 +389,27 @@
     }
   }
 
-  function collectTimedTextTokens(body, useDeterministic) {
+  function collectTimedTextData(body, useDeterministic) {
     try {
       var payload = JSON.parse(body);
-      var result = deterministicAnalysis(payload, body, useDeterministic !== false).result;
+      var ruleResult = deterministicAnalysis(payload, body, true).result;
+      var result = useDeterministic === false ? { replacements: [] } : ruleResult;
 
-      return collectCensoredTokens(payload, deterministicTokenMap(result.replacements));
+      return {
+        tokens: collectCensoredTokens(
+          payload,
+          deterministicTokenMap(result.replacements),
+          deterministicTokenMap(ruleResult.replacements)
+        ),
+        timeline: collectCaptionTimeline(payload)
+      };
     } catch (error) {
-      return [];
+      return { tokens: [], timeline: [] };
     }
+  }
+
+  function collectTimedTextTokens(body, useDeterministic) {
+    return collectTimedTextData(body, useDeterministic).tokens;
   }
 
   var exports = Object.freeze({
@@ -343,6 +417,7 @@
     patchTimedTextJsonWithOverrides: patchTimedTextJsonWithOverrides,
     patchTimedTextBody: patchTimedTextBody,
     patchTimedTextBodyWithOverrides: patchTimedTextBodyWithOverrides,
+    collectTimedTextData: collectTimedTextData,
     collectTimedTextTokens: collectTimedTextTokens
   });
 

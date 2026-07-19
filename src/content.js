@@ -9,12 +9,12 @@
   var INJECT_VERSION = String(Date.now());
   var audioNeeded = null;
   var hasCensoredSlots = false;
+  var activeVideoId = "";
   var scripts = [
     "src/page-hook.js",
     "src/rules.js",
     "src/timedtext.js"
   ];
-
   if (!runtime || !runtime.runtime || !runtime.runtime.getURL) {
     return;
   }
@@ -43,12 +43,14 @@
   }
 
   function dispatchSettings() {
+    var detail = Object.assign({}, settings, { audioNeeded: audioNeeded, videoId: activeVideoId });
+
     window.dispatchEvent(new CustomEvent("uncensored-settings", {
-      detail: JSON.stringify(Object.assign({}, settings, { audioNeeded: audioNeeded }))
+      detail: JSON.stringify(detail)
     }));
 
     if (globalThis.UncensoredAudioInference && globalThis.UncensoredAudioInference.setOptions) {
-      globalThis.UncensoredAudioInference.setOptions(settings);
+      globalThis.UncensoredAudioInference.setOptions(detail);
     }
 
     if (settings.whisperEnabled && globalThis.UncensoredAudioInference && globalThis.UncensoredAudioInference.startVisibleCaptionResolver) {
@@ -60,16 +62,34 @@
     window.setTimeout(dispatchSettings, 0);
   }
 
+  function currentVideoId() {
+    try {
+      var url = new URL(window.location.href);
+      var pathMatch = url.pathname.match(/\/(live|shorts)\/([^/]+)/);
+      return url.searchParams.get("v") || pathMatch && pathMatch[2] || "";
+    } catch (error) {
+      return "";
+    }
+  }
+
+  function syncVideo(videoId) {
+    videoId = videoId || currentVideoId();
+    if (videoId === activeVideoId) return;
+    activeVideoId = videoId;
+    hasCensoredSlots = false;
+    audioNeeded = null;
+    dispatchSettingsSoon();
+  }
+
   function updateAudioNeeded() {
     var needed = settings.whisperEnabled && hasCensoredSlots;
 
     if (audioNeeded === needed) return;
     audioNeeded = needed;
     dispatchSettings();
-    runtime.runtime.sendMessage(needed
-      ? { uncensoredActive: true }
-      : { uncensoredIdle: true }
-    ).catch(function ignoreHostStateError() {});
+    if (needed) {
+      runtime.runtime.sendMessage({ uncensoredActive: true }).catch(function ignoreHostStateError() {});
+    }
   }
 
   function handleSabrSegments(segments) {
@@ -141,20 +161,31 @@
   }).then(dispatchSettings, dispatchSettings);
 
   window.addEventListener("uncensored-timedtext", function rememberTimedText(event) {
-    var body = event && event.detail;
+    var detail = event && event.detail;
+    var body = detail;
+    var trackId = "";
+    var savedResolutions = [];
     var timedText = globalThis.UncensoredTimedText;
     var audioInference = globalThis.UncensoredAudioInference;
-    var tokens;
+    var data;
 
-    if (typeof body !== "string" || !audioInference || !timedText.collectTimedTextTokens) {
+    try {
+      detail = JSON.parse(detail);
+      body = detail.body;
+      trackId = detail.trackId || "";
+      savedResolutions = detail.savedResolutions || [];
+      syncVideo(detail.videoId || currentVideoId());
+    } catch (error) {}
+
+    if (typeof body !== "string" || !audioInference || !timedText.collectTimedTextData) {
       return;
     }
 
-    tokens = timedText.collectTimedTextTokens(body, settings.rulesEnabled);
-    hasCensoredSlots = hasCensoredSlots || tokens.length > 0;
+    data = timedText.collectTimedTextData(body, settings.rulesEnabled);
+    hasCensoredSlots = hasCensoredSlots || Boolean(data.tokens.length);
     updateAudioNeeded();
-    if (audioInference.rememberTimedTextTokens) {
-      audioInference.rememberTimedTextTokens(tokens);
+    if (audioInference.rememberTimedTextData) {
+      audioInference.rememberTimedTextData(data, trackId, savedResolutions, activeVideoId);
     }
   });
 
@@ -165,6 +196,11 @@
       return;
     }
 
+    if (message.videoId !== currentVideoId()) {
+      acknowledgeSabrMessage(message);
+      return;
+    }
+
     if (!settings.whisperEnabled || audioNeeded !== true) {
       acknowledgeSabrMessage(message);
       return;
@@ -172,18 +208,19 @@
 
     acknowledgeSabrMessage(message);
     relaySabrMessage(message).then(function decodeSegments(response) {
-      return handleSabrSegments(response.segments);
+      return handleSabrSegments((response.segments || []).map(function tagSegment(segment) {
+        return Object.assign({}, segment, { videoId: message.videoId });
+      }));
     }).catch(function relayFailed() {});
   });
 
-  window.addEventListener("yt-navigate-start", function resetAudioNeed() {
-    hasCensoredSlots = false;
-    audioNeeded = null;
+  window.addEventListener("yt-navigate-finish", function finishNavigation() {
+    syncVideo(currentVideoId());
     dispatchSettingsSoon();
-    runtime.runtime.sendMessage({ uncensoredIdle: true }).catch(function ignoreIdleError() {});
   });
 
   window.addEventListener("pagehide", function releaseExtensionHost() {
     runtime.runtime.sendMessage({ uncensoredIdle: true }).catch(function ignoreIdleError() {});
   });
+
 })();
