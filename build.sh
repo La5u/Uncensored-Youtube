@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-version="${1:-1.3.0}"
+version="${1:-1.3.1}"
 root="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 dist="$root/dist"
 

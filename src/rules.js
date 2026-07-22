@@ -6,7 +6,7 @@
   var CENSORED_TOKEN_REGEX = /\[\s*__\s*\]/gu;
   var SENTENCE_END_REGEX = /[.!?]/;
 
-  // Non-censored words to note: shitty.
+  // Non-censored words to note: shitty, dick
   var ALLOWED_WORDS = Object.freeze([
     "fuck",
     "fucks",

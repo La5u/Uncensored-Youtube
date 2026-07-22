@@ -40,17 +40,21 @@ results remain disabled.
 
 ### Local Whisper inference
 
-`src/audio-capture.js` receives the YouTube SABR audio segments already fetched
-for playback. It decodes and stitches enough PCM around each slot, then sends
+`src/sabr-parser.js` keeps each YouTube SABR stream in the content-script
+lifetime and emits the audio segments already fetched for playback.
+`src/audio-capture.js` decodes and stitches enough PCM around each slot. Every
+resolution word must belong to the rules vocabulary. It then sends
 one inference request at a time to the quantized local `whisper-tiny.en` model.
 The shared before/after audio margin is controlled by
 `AUDIO_CONTEXT_SECONDS`. It is currently 1.5 seconds.
 
-Audio capture waits for caption metadata. If the video contains any `[__]`
-slots, Whisper and audio decoding start together. Videos without censored slots
-never start the audio pipeline. On a censored video, capture remains available
-until YouTube navigates away, but decoded segments are released as soon as no
-unresolved token window overlaps them. The model stays warm across same-tab
+When audio inference is enabled, lightweight SABR parsing starts with the video
+so a late caption response cannot strand Whisper without stream state. PCM
+decoding stops once English caption data confirms that the video has
+no `[__]` slots; it continues only for videos that need Whisper. Decoded
+segments are released as soon as no unresolved token window overlaps them, and
+the model itself starts only when captions contain `[__]` slots. The model stays
+warm across same-tab
 YouTube navigation, including an intermediate search page; closing the tab or
 leaving YouTube releases the worker host. A capped `sessionStorage` cache reuses
 words after a same-tab reload only when video, track, token time, and context
@@ -124,8 +128,8 @@ yet have a complete buffered audio window. It does not mean the worker is busy.
 
 ## Known limitations
 
-- Inference is intentionally single-filed and prioritizes buffered tokens nearest
-  the playhead. On slow hardware, a live caption may still scroll away before its
+- Inference is intentionally single-filed and resolves the earliest buffered
+  token first. On slow hardware, a live caption may still scroll away before its
   result is ready; timed-text patching preserves it when YouTube redraws it.
 - A visible window with no ordinary words, or with multiple identical nearby
   alignments, is left unchanged rather than guessed.
@@ -133,14 +137,17 @@ yet have a complete buffered audio window. It does not mean the worker is busy.
   enough trailing audio to complete the configured context window.
 - A suspended background tab may produce no audio logs because YouTube itself
   is not fetching playback data; capture resumes when playback requests resume.
+- Firefox may unload the MV3 background event page while playback is paused.
+  Resuming can reload the Whisper model, but SABR parser state remains in the
+  content script and decoding continues from the existing stream.
 - Live DOM matching depends on YouTube's caption markup and may need adjustment
   if that markup changes.
 - Seeking backward does not recreate audio that was discarded after earlier
   tokens were processed. Revisiting an unresolved slot may therefore require a
   fresh playback segment before Whisper can retry it.
 - Chromium 148 or newer is required for structured-clone extension messaging.
-  Chromium hosts local workers in one offscreen extension document; Firefox
-  retains its persistent background page.
+  Chromium hosts Whisper in one offscreen extension document; Firefox hosts it
+  in its restartable background event page.
 
 More implementation detail is in [LIVE_DOM_DEFERRED.md](LIVE_DOM_DEFERRED.md).
 
@@ -162,9 +169,19 @@ video.
   send.
 - Add optional WebGPU inference with capability detection and automatic WASM
   fallback. The current local Whisper path is WASM-only.
-- Avoid cloning playback audio while caption metadata is still unknown.
-- Authenticate page-to-extension messages and validate message shapes and buffer
-  sizes before background processing.
+
+### Audio pipeline invariants
+
+Two rules keep the capture path reliable; both were broken once and made audio
+decoding appear to stop at random:
+
+- Every page-to-extension audio message must be acknowledged, even one that
+  will be discarded. The page-side pump sends each chunk only after the
+  previous chunk's acknowledgement, so a silently dropped message wedges the
+  whole stream for up to the 120-second relay timeout per chunk.
+- Never wait for `AudioContext` resumption before advancing the serialized
+  decode queue. `decodeAudioData` works on a suspended context, so resumption is
+  fire-and-forget and the decode timeout remains only a failure watchdog.
 
 ## Development
 
@@ -205,7 +222,11 @@ that timestamp. If the first URL contains a playlist, the runner uses YouTube's
 playlist Next control. Pass each expected next video as another URL to test
 consecutive transitions.
 Use `--chromium-only` or `--firefox-only` to rerun one browser.
+Use `--direct` to test consecutive watch-to-watch transitions without the
+intermediate search page.
 Use `--until=SECONDS` to require continuous decoding through that point.
+Use `--pause=SECONDS` to pause after initial decoding and require decoding to
+resume afterward.
 
 Use `npm test -- --all` for every check. Browser smoke testing requires
 Chromium, Firefox, `web-ext`, and a graphical session for off-screen Chromium.
@@ -217,6 +238,32 @@ The temporary profiles are isolated from normal browser profiles.
 When Codex runs these commands, approving the project-scoped `npm test` command
 prefix once allows later runs without approving every browser subprocess. No
 approval is needed when running the command directly in a terminal.
+
+### Browser testing notes
+
+Findings from driving real Firefox and Chromium builds; read before writing
+browser-level tests or changing the message relay:
+
+- Firefox content scripts see page-posted data through Xray wrappers in the
+  page's realm. `buffer instanceof ArrayBuffer` is false there even for a real
+  ArrayBuffer. Validate it with `Object.prototype.toString.call(buffer)`, then
+  use the content realm's `globalThis.structuredClone` before reading it.
+- YouTube's Trusted Types CSP blocks assigning strings to
+  `script.textContent`. Test drivers injected into the page must go through a
+  `trustedTypes.createPolicy(...).createScript(...)` wrapper.
+- A `postMessage` evaluated through WebDriver BiDi never reaches
+  content-script `window` message listeners. To simulate page-hook traffic,
+  inject a real page-realm script element and post from there.
+- Headless YouTube caption display is unreliable, so browser smoke tests assert
+  continuous audio decoding independently of visible caption replacement.
+  Whisper word accuracy remains covered by the local audio fixtures.
+- `build.sh` hardlinks (`cp -l`) `dist/*/src` to `src/`. Editing a built file
+  edits the repository source; only ever edit `src/` and rebuild.
+- Console output from content scripts and injected page scripts is captured by
+  BiDi `log.entryAdded` (Firefox) and CDP `Runtime.consoleAPICalled`
+  (Chromium), but background page and worker logs are not; debug the
+  background/worker indirectly by logging in the content script what they
+  return.
 
 ### Accuracy benchmark
 
@@ -269,10 +316,11 @@ PYTHONPATH=/tmp/uncensored-pyarrow node corpus/evaluate-opensubtitles-parquet.js
 ## Build
 
 ```sh
-./build.sh 1.3.0
+./build.sh 1.3.1
 ```
 
-This creates separate Firefox and Chromium zip files in `dist/`. Firefox keeps
-Whisper in its persistent background page; Chromium keeps it in an offscreen
-extension page while YouTube requests are active. See [AMO_SOURCE.md](AMO_SOURCE.md)
+This creates separate Firefox and Chromium zip files in `dist/`. Firefox runs
+Whisper in its restartable background event page; Chromium keeps it in an
+offscreen extension page while YouTube requests are active. See
+[AMO_SOURCE.md](AMO_SOURCE.md)
 for source and vendored-runtime notes.

@@ -148,13 +148,21 @@
       .trim();
   }
 
+  function collapseStretchedWord(word) {
+    return word.replace(/([a-z0-9'])\1+/g, "$1");
+  }
+
   function transcriptEntries(transcript, candidates, fCandidatesBySlot) {
     var candidateByNormalizedWord = Object.create(null);
+    var candidateByCollapsedWord = Object.create(null);
     var profanityIndex = 0;
     var markedTranscript = String(transcript || "").replace(MASKED_F_REGEX, " " + MASKED_F_MARKER + " ");
 
     (candidates || []).forEach(function indexCandidate(candidate) {
-      candidateByNormalizedWord[normalizeText(candidate)] = candidate;
+      var normalized = normalizeText(candidate);
+
+      candidateByNormalizedWord[normalized] = candidate;
+      candidateByCollapsedWord[collapseStretchedWord(normalized)] = candidate;
     });
 
     return normalizeTranscriptText(markedTranscript).split(" ").map(function resolveWord(word) {
@@ -164,6 +172,10 @@
         candidate = (fCandidatesBySlot && fCandidatesBySlot[profanityIndex] || [])[0] || "fuck";
       } else {
         candidate = candidateByNormalizedWord[word] || "";
+        if (!candidate && /([a-z0-9'])\1{2,}/.test(word)) {
+          candidate = candidateByCollapsedWord[collapseStretchedWord(word)] || "";
+          if (candidate) candidate = word;
+        }
       }
       if (candidate) profanityIndex += 1;
       return { word: word, candidate: candidate };

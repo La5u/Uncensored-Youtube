@@ -27,8 +27,7 @@
   function getWorker(kind) {
     if (workers[kind]) return workers[kind];
 
-    var file = kind === "whisper" ? "src/whisper-module-worker.js" : "src/sabr-worker.js";
-    var worker = new Worker(runtime.runtime.getURL(file), kind === "whisper" ? { type: "module" } : undefined);
+    var worker = new Worker(runtime.runtime.getURL("src/whisper-module-worker.js"), { type: "module" });
     worker.onmessage = function workerMessage(event) {
       var message = event.data || {};
       var request = pending.get(message.id);
@@ -79,8 +78,6 @@
       task = request("whisper", Object.assign({ type: data.type }, data.data || {}),
         data.type === "transcribe" && data.data && data.data.audio ? [data.data.audio] : [],
         data.type === "preload" ? 30000 : 60000);
-    } else if (message.kind === "sabr") {
-      task = request("sabr", data, data.buffer ? [data.buffer] : [], 60000);
     } else {
       return;
     }

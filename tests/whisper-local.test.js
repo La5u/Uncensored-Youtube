@@ -195,6 +195,22 @@ assert.strictEqual(
   "fuck"
 );
 
+[
+  ["You're ahead aboutcha, you'll be fine. Fuuuuck!", "fuuuuck"],
+  ["This is shiiiiit!", "shiiiiit"],
+  ["You biiiiitch!", "biiiiitch"]
+].forEach(([transcript, expected]) => {
+  assert.strictEqual(
+    whisper.decisionFromTranscript(
+      transcript,
+      ["fuck", "shit", "bitch"],
+      "you'll be fine [__]",
+      {}
+    ).word,
+    expected
+  );
+});
+
 Promise.all([
   whisper.transcribeDetailed(new Float32Array(), ["fuck", "shit"], "what the [__]", {}),
   whisper.transcribeDetailed(new Float32Array([0.1]), ["fuck", "shit"], "what the [__]", {})

@@ -7,9 +7,12 @@ const { spawn } = require("child_process");
 const root = path.join(__dirname, "..");
 const args = process.argv.slice(2);
 const verbose = args.includes("--verbose");
+const headless = args.includes("--headless");
 const firefoxOnly = args.includes("--firefox-only");
 const chromiumOnly = args.includes("--chromium-only");
+const directNavigation = args.includes("--direct");
 const playUntil = Number((args.find((arg) => arg.startsWith("--until=")) || "").split("=")[1]) || 0;
+const pauseFor = Number((args.find((arg) => arg.startsWith("--pause=")) || "").split("=")[1]) || 0;
 const urls = args.filter((arg) => /^https:\/\//.test(arg));
 const firstUrl = urls[0] || "https://www.youtube.com/watch?v=kTeQSzHGWyw&t=9s";
 const nextUrls = urls.slice(1);
@@ -123,9 +126,12 @@ function playbackExpression(resetCaptions = false) {
 function searchExpression() {
   return `(() => {
     const id = ${JSON.stringify(secondId)};
-    dispatchEvent(new Event("yt-navigate-start"));
-    history.pushState({}, "", "/results?search_query=" + id);
-    dispatchEvent(new Event("yt-navigate-finish"));
+    const input = document.querySelector('input[name="search_query"], #search-input input, ytd-searchbox input');
+    const button = document.querySelector('button[aria-label="Search"], #search-icon-legacy');
+    if (!input || !button) return false;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, id);
+    input.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    button.click();
     return true;
   })()`;
 }
@@ -144,10 +150,16 @@ function watchExpression() {
       if (typeof player.nextVideo === "function") player.nextVideo();
       return false;
     }
-    if (typeof player.loadVideoById !== "function") return false;
-    history.pushState({}, "", "/watch?v=" + id);
-    player.loadVideoById(id);
-    return true;
+    {
+      const selector = ${directNavigation}
+        ? 'ytd-compact-video-renderer a[href*="/watch?v="], ytd-rich-item-renderer a[href*="/watch?v="]'
+        : 'a[href*="/watch?v="]';
+      const link = [...document.querySelectorAll(selector)]
+        .find(anchor => new URL(anchor.href).searchParams.get("v") === id);
+      if (!link) return false;
+      link.click();
+      return true;
+    }
   })()`;
 }
 
@@ -167,6 +179,7 @@ async function chromium() {
     "--mute-audio", "--autoplay-policy=no-user-gesture-required", "--no-first-run",
     "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
     "--disable-backgrounding-occluded-windows",
+    ...(headless ? ["--headless=new"] : []),
     "--window-position=-2000,0", "--window-size=1280,900", "about:blank"
   ]);
   const target = await retry(async () => {
@@ -216,6 +229,10 @@ async function chromium() {
   try {
     await retry(async () => {
       if (logs.some((line) => line.includes("audio decoded"))) return true;
+      const state = await client.send("Runtime.evaluate", {
+        expression: "globalThis.__uncensoredDebugAudio?.().audioNeeded", returnByValue: true
+      });
+      if (state.result.value === false) return true;
       if (!firstSeekTime) {
         await client.send("Runtime.evaluate", { expression: playbackExpression(), returnByValue: true });
       }
@@ -228,7 +245,23 @@ async function chromium() {
         captions: document.querySelector(".ytp-subtitles-button")?.getAttribute("aria-pressed"),
         audio: globalThis.__uncensoredDebugAudio?.()})`, returnByValue: true
     });
-    throw new Error(`No initial Chromium audio. State: ${state.result.value}`);
+    throw new Error(`No initial Chromium audio or clean-caption decision. State: ${state.result.value}`);
+  }
+  if (pauseFor) {
+    await client.send("Runtime.evaluate", { expression: "document.querySelector('video')?.pause()" });
+    await wait(pauseFor * 1000);
+    const checkpoint = logs.length;
+    await client.send("Runtime.evaluate", { expression: playbackExpression(), returnByValue: true });
+    await retry(async () => {
+      if (logs.slice(checkpoint).some((line) => line.includes("audio decoded"))) return true;
+      const state = await client.send("Runtime.evaluate", {
+        expression: "globalThis.__uncensoredDebugAudio?.().audioNeeded", returnByValue: true
+      });
+      if (state.result.value === false) return true;
+      await client.send("Runtime.evaluate", { expression: playbackExpression(), returnByValue: true });
+      return false;
+    }, 90000);
+    console.log(`Chromium pause/resume smoke passed (${pauseFor}s).`);
   }
   if (playUntil) {
     await retry(async () => {
@@ -239,7 +272,12 @@ async function chromium() {
       return state.result.value.hook && time.result.value >= playUntil;
     }, (playUntil + 60) * 1000);
     const decoded = decodedThrough(logs);
-    if (decoded < playUntil - 20) throw new Error(`Audio stopped at ${decoded}s.`);
+    const state = await client.send("Runtime.evaluate", {
+      expression: "globalThis.__uncensoredDebugAudio?.().audioNeeded", returnByValue: true
+    });
+    if (state.result.value !== false && decoded < playUntil - 20) {
+      throw new Error(`Audio stopped at ${decoded}s.`);
+    }
   }
   if (verbose && firstSeekTime) {
     await wait(5000);
@@ -252,7 +290,7 @@ async function chromium() {
   }
   for (secondId of nextUrls.map((url) => new URL(url).searchParams.get("v"))) {
     const checkpoint = logs.length;
-    if (!playlistMode) {
+    if (!playlistMode && !directNavigation) {
       await retry(async () => {
         const value = await client.send("Runtime.evaluate", { expression: searchExpression(), returnByValue: true });
         return value.result.value;
@@ -285,8 +323,15 @@ async function chromium() {
     await wait(8000);
     result = await client.send("Runtime.evaluate", { expression: playbackExpression(true), returnByValue: true });
     if (!result.result.value.hook) throw new Error("Chromium hook was lost after SPA navigation.");
+    const audioState = JSON.parse((await client.send("Runtime.evaluate", {
+      expression: "JSON.stringify(globalThis.__uncensoredDebugAudio?.())", returnByValue: true
+    })).result.value);
+    if (audioState.activeVideoId !== secondId) {
+      throw new Error(`Chromium hook retained ${audioState.activeVideoId} after navigating to ${secondId}.`);
+    }
     try {
       await retry(async () => {
+        if (audioState.audioNeeded === false) return true;
         if (logs.slice(checkpoint).some((line) => line.includes("audio decoded"))) return true;
         await client.send("Runtime.evaluate", { expression: playbackExpression(), returnByValue: true });
         return false;
@@ -315,6 +360,7 @@ async function firefox() {
   const client = socketClient(`ws://127.0.0.1:${firefoxPort}/session`, (message) => {
     if (message.method === "log.entryAdded" && message.params.text.includes("[uncensored]")) {
       logs.push(message.params.text);
+      if (verbose) console.log(message.params.text);
     }
     if (message.method === "network.beforeRequestSent" &&
         message.params.request.url.includes("/api/timedtext")) timedTextRequests += 1;
@@ -339,17 +385,42 @@ async function firefox() {
     return value.hook && value;
   });
   await retry(() => timedTextRequests > 0);
+  try {
+    await retry(async () => logs.some((line) => line.includes("audio decoded")) ||
+      await evaluate("globalThis.__uncensoredDebugAudio?.().audioNeeded") === false, 90000);
+  } catch (error) {
+    const audio = await evaluate("JSON.stringify(globalThis.__uncensoredDebugAudio?.())");
+    throw new Error(`No initial Firefox audio or clean-caption decision. State: ${audio}. Logs: ${logs.slice(-12).join(" | ")}`);
+  }
+  if (pauseFor) {
+    await evaluate("document.querySelector('video')?.pause()");
+    await wait(pauseFor * 1000);
+    const checkpoint = logs.length;
+    await evaluate(playbackExpression());
+    await retry(async () => {
+      if (logs.slice(checkpoint).some((line) => line.includes("audio decoded"))) return true;
+      const state = await evaluate("globalThis.__uncensoredDebugAudio?.().audioNeeded");
+      if (state === false) return true;
+      await evaluate(playbackExpression());
+      return false;
+    }, 90000);
+    console.log(`Firefox pause/resume smoke passed (${pauseFor}s).`);
+  }
   if (playUntil) {
     await retry(async () => {
       await evaluate(playbackExpression());
       return await evaluate("document.querySelector('video')?.currentTime") >= playUntil;
     }, (playUntil + 60) * 1000);
     const decoded = decodedThrough(logs);
-    if (decoded < playUntil - 20) throw new Error(`Firefox audio stopped at ${decoded}s.`);
+    const audioNeeded = await evaluate("globalThis.__uncensoredDebugAudio?.().audioNeeded");
+    if (audioNeeded !== false && decoded < playUntil - 20) {
+      throw new Error(`Firefox audio stopped at ${decoded}s.`);
+    }
   }
   for (secondId of nextUrls.map((url) => new URL(url).searchParams.get("v"))) {
     const timedTextCheckpoint = timedTextRequests;
-    if (!playlistMode) {
+    const logCheckpoint = logs.length;
+    if (!playlistMode && !directNavigation) {
       await retry(async () => await evaluate(searchExpression()));
       await retry(async () => await evaluate("location.pathname") === "/results");
     }
@@ -360,7 +431,16 @@ async function firefox() {
       const value = JSON.parse(await evaluate(`JSON.stringify(${playbackExpression(true)})`));
       return value.hook && value;
     });
+    if (!state.url.includes(secondId)) {
+      throw new Error(`Firefox navigation reverted before playback: ${state.url}`);
+    }
     await retry(() => timedTextRequests > timedTextCheckpoint);
+    const audioState = JSON.parse(await evaluate("JSON.stringify(globalThis.__uncensoredDebugAudio?.())"));
+    if (audioState.activeVideoId !== secondId) {
+      throw new Error(`Firefox hook retained ${audioState.activeVideoId} after navigating to ${secondId}.`);
+    }
+    await retry(() => audioState.audioNeeded === false ||
+      logs.slice(logCheckpoint).some((line) => line.includes("audio decoded")), 90000);
     console.log(`Firefox SPA smoke passed (${secondId}, ${timedTextRequests} caption requests).`);
   }
   await client.send("session.end");

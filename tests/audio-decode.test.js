@@ -1,7 +1,10 @@
 const assert = require("assert");
 
 global.location = { href: "https://www.youtube.com/watch?v=test" };
-global.document = { querySelector() { return null; } };
+global.document = {
+  querySelector() { return null; },
+  querySelectorAll() { return []; }
+};
 global.addEventListener = function addEventListener() {};
 global.UncensoredRules = {
   CENSORED_TOKEN_REGEX: /\[__\]/,
@@ -44,9 +47,17 @@ new Promise(function waitForDecode(resolve) {
   return first;
 }).then(function decodeNextSegment() {
   return audio.setSabrAudioData({ buffer: new ArrayBuffer(1), startMs: 10000 });
+}).then(function ignoreDuplicateSegment() {
+  assert.strictEqual(audio.debugState().mediaAudio.segments.length, 1);
+  audio.setOptions({ rulesEnabled: false, whisperEnabled: false, videoId: "test" });
+  audio.rememberTimedTextData({
+    tokens: [{ tokenIndex: 0, timeSeconds: 10, context: "say [__] now" }],
+    timeline: []
+  }, "lang=en&kind=asr", [], "test");
+  audio.setOptions({ rulesEnabled: false, whisperEnabled: true, videoId: "test" });
+  return audio.setSabrAudioData({ buffer: new ArrayBuffer(1), startMs: 10000 });
 }).then(function verifyRecovery() {
   assert.strictEqual(decodeCalls, 2);
-  assert.strictEqual(audio.debugState().mediaAudio.segments.length, 1);
   console.log("audio-decode.test.js passed");
 }).catch(function failed(error) {
   console.error(error);

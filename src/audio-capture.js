@@ -29,6 +29,7 @@
   var whisperQueueScheduled = false;
   var audioContext = null;
   var decodeQueue = Promise.resolve();
+  var decodedSegmentStarts = new Set();
   var whisperModelState = "idle";
   var navigationGeneration = 0;
   var activeVideoId = "";
@@ -41,7 +42,8 @@
   };
   var options = {
     rulesEnabled: true,
-    whisperEnabled: true
+    whisperEnabled: true,
+    audioNeeded: true
   };
   var SOURCE_PRIORITY = Object.freeze({
     deterministic: 1,
@@ -106,6 +108,7 @@
     mediaAudio.videoId = "";
     mediaAudio.segments = [];
     mediaAudio.error = "";
+    decodedSegmentStarts.clear();
     lastPatchedCaptionText = "";
     captionTimeline = [];
     captionTrackId = "";
@@ -122,11 +125,16 @@
   }
 
   function syncVideo(videoId) {
-    videoId = videoId || currentVideoId();
-    if (videoId === activeVideoId) return;
+    var current = currentVideoId();
+
+    if (videoId && videoId !== current) return false;
+    videoId = videoId || current;
+    if (videoId === activeVideoId) return true;
     resetForNavigation();
     activeVideoId = videoId;
     mediaAudio.videoId = videoId;
+    debugLog("new video", videoId || "unknown");
+    return true;
   }
 
   // ── Whisper via extension host ──
@@ -258,6 +266,10 @@
       audioContext = new AudioContextCtor();
     }
 
+    if (audioContext && audioContext.state === "suspended") {
+      audioContext.resume().catch(function ignoreResumeError() {});
+    }
+
     return Promise.resolve(audioContext);
   }
 
@@ -277,6 +289,8 @@
   }
 
   function setSabrAudioData(detail) {
+    var segmentKey;
+
     if (detail && detail.videoId && detail.videoId !== currentVideoId()) return decodeQueue;
     syncVideo(detail && detail.videoId);
     var generation = navigationGeneration;
@@ -285,26 +299,31 @@
       return decodeQueue;
     }
 
+    segmentKey = Number.isFinite(detail.startMs) ? Math.round(detail.startMs) : null;
+    if (segmentKey !== null && decodedSegmentStarts.has(segmentKey)) return decodeQueue;
+    if (segmentKey !== null) decodedSegmentStarts.add(segmentKey);
+
     decodeQueue = decodeQueue.then(function decodeNextSegment() {
-      if (!options.whisperEnabled) {
+      if (!options.whisperEnabled || !options.audioNeeded) {
+        if (segmentKey !== null && generation === navigationGeneration) decodedSegmentStarts.delete(segmentKey);
         return null;
       }
 
       return currentAudioContext().then(function decodeWithContext(context) {
         return decodeAudio(context, detail.buffer);
-      }).then(function decodedWithTiming(buffer) {
-        debugLog("audio decoded", mediaTimestamp((detail.startMs || 0) / 1000));
-        return buffer;
       });
     }).then(function decoded(buffer) {
-      if (!buffer || generation !== navigationGeneration) {
+      if (!buffer || generation !== navigationGeneration ||
+          !options.whisperEnabled || !options.audioNeeded) {
         return;
       }
 
       var startTime = typeof detail.startMs === "number" ? detail.startMs / 1000 : 0;
 
+      debugLog("audio decoded", mediaTimestamp(startTime));
       return addAudioSegment(startTime, buffer);
     }).catch(function failed(error) {
+      if (segmentKey !== null && generation === navigationGeneration) decodedSegmentStarts.delete(segmentKey);
       mediaAudio.error = error && (error.message || String(error));
       debugLog("audio decode failed", mediaAudio.error);
     });
@@ -418,7 +437,8 @@
   }
 
   function tokenCacheKey(token) {
-    return Math.round((token.timeSeconds || 0) * 10) + "\n" + normalizeContext(token.context);
+    return token.tokenIndex + "\n" + Math.round((token.timeSeconds || 0) * 10) +
+      "\n" + normalizeContext(token.context);
   }
 
   function sortedTokenValues(tokenMap) {
@@ -446,22 +466,23 @@
   }
 
   function notifyTimedTextResolution(token, word, source) {
+    var detail;
+
     if (!token || typeof token.tokenIndex !== "number" || token.tokenIndex < 0 || !word || sourcePriority(source) < sourcePriority("context")) {
       return;
     }
 
     try {
-      root.dispatchEvent(new root.CustomEvent("uncensored-whisper-resolution", {
-        detail: JSON.stringify({
-          tokenIndex: token.tokenIndex,
-          word: word,
-          source: source || "unknown",
-          videoId: mediaAudio.videoId || currentVideoId(),
-          trackId: captionTrackId,
-          timeSeconds: token.timeSeconds,
-          normalizedContext: normalizeContext(token.context)
-        })
-      }));
+      detail = JSON.stringify({
+        tokenIndex: token.tokenIndex,
+        word: word,
+        source: source || "unknown",
+        videoId: mediaAudio.videoId || currentVideoId(),
+        trackId: captionTrackId,
+        timeSeconds: token.timeSeconds,
+        normalizedContext: normalizeContext(token.context)
+      });
+      root.postMessage({ uncensoredWhisperResolution: detail }, "*");
     } catch (error) {
       return;
     }
@@ -927,7 +948,6 @@
       });
       scheduleWhisperQueue();
     });
-    scheduleWhisperQueue();
   }
 
   function rememberTimedTextTokens(tokens) {
@@ -1020,7 +1040,7 @@
   function rememberTimedTextData(data, trackId, savedResolutions, videoId) {
     var trackChanged;
 
-    syncVideo(videoId);
+    if (!syncVideo(videoId)) return;
     data = data || { tokens: [], timeline: [] };
     trackId = trackId || "";
     trackChanged = captionTrackId !== trackId;
@@ -1291,6 +1311,7 @@
 
   function captionSeekStarted() {
     seekGeneration += 1;
+    decodedSegmentStarts.clear();
     lastPatchedCaptionText = "";
     scheduleVisibleCaptionResolution();
     scheduleWhisperQueue();
@@ -1307,9 +1328,10 @@
       var previousRulesEnabled = options.rulesEnabled;
 
       nextOptions = nextOptions || {};
-      syncVideo(nextOptions.videoId);
+      if (!syncVideo(nextOptions.videoId)) return;
       options.rulesEnabled = nextOptions.rulesEnabled !== false;
       options.whisperEnabled = nextOptions.whisperEnabled !== false;
+      options.audioNeeded = nextOptions.audioNeeded !== false;
       if (previousRulesEnabled && !options.rulesEnabled) {
         resolvedTokens.forEach(function deleteRuleResolution(resolution, key) {
           if (resolution.source !== "media") {
@@ -1317,7 +1339,7 @@
           }
         });
       }
-      if (options.whisperEnabled && videoHasCensoredSlots) {
+      if (options.whisperEnabled && options.audioNeeded && videoHasCensoredSlots) {
         preloadWhisper();
         if (pendingTokens.size) {
           scheduleWhisperQueue();

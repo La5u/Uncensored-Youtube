@@ -9,44 +9,61 @@ function read(file) {
 const content = read("src/content.js");
 const pageHook = read("src/page-hook.js");
 const audioCapture = read("src/audio-capture.js");
+const sabrParser = read("src/sabr-parser.js");
 const background = read("src/background.js");
 const offscreen = read("src/offscreen.js");
 const whisperWorker = read("src/whisper-module-worker.js");
 const popup = read("src/popup.html");
 const popupScript = read("src/popup.js");
 const chromiumManifest = JSON.parse(read("manifest.chromium.json"));
+const firefoxManifest = JSON.parse(read("manifest.firefox.json"));
 
 assert.ok(audioCapture.includes("token.eventIndex === next.token.eventIndex"));
 assert.ok(audioCapture.includes("token.timeSeconds - AUDIO_CONTEXT_SECONDS"));
 assert.ok(audioCapture.includes("Math.round((token.timeSeconds || 0) * 10)"));
+assert.ok(audioCapture.includes('return token.tokenIndex + "\\n"'));
 assert.ok(audioCapture.includes("tokens.slice(startIndex)"));
 assert.ok(!audioCapture.includes("anchorCount"));
 assert.ok(audioCapture.includes("var startTime = tokenWindow(group[0].token).startTime"));
 assert.ok(!audioCapture.includes("availableTokenWindow"));
 assert.ok(!audioCapture.includes("visibleAtPlayhead"));
 
-assert.ok(content.includes("uncensoredSabr"));
-assert.ok(content.includes("hasCensoredSlots || Boolean(data.tokens.length)"));
-assert.ok(content.includes("audioNeeded !== true"));
+assert.ok(content.includes("createStreamDecoder"));
+assert.ok(content.includes("localArrayBuffer"));
+assert.ok(content.includes("settings.whisperEnabled && Boolean(activeVideoId)"));
+assert.ok(!content.includes("hasCensoredSlots"));
+assert.ok(content.includes("captureAudioEnabled !== true"));
 assert.ok(!content.includes("sabrRelayQueue"));
 assert.ok(!content.includes("sabrGeneration"));
 assert.ok(content.includes("message.videoId !== currentVideoId()"));
 assert.ok(content.includes("syncVideo(detail.videoId || currentVideoId())"));
 assert.ok(pageHook.includes("function timedTextVideoId(input)"));
-assert.ok(pageHook.includes("videoId !== currentVideoId() && !navigationPending"));
+assert.ok(pageHook.includes("if (videoId !== currentVideoId()) return response"));
+assert.ok(content.includes("detail.videoId !== currentVideoId()"));
 assert.strictEqual((content.match(/uncensoredIdle/g) || []).length, 1);
+assert.ok(content.includes("if (needed || !settings.whisperEnabled) setExtensionHostActive(needed)"));
+assert.ok(content.includes("setExtensionHostActive(false)"));
 assert.ok(content.indexOf("loadSettings().then") < content.indexOf("injectScriptsSequentially(scripts)"));
 assert.ok(background.includes("runtime.runtime.getContexts"));
 assert.ok(background.includes("src/offscreen.html"));
 assert.ok(background.includes("offscreen.closeDocument"));
 assert.ok(background.includes("message.uncensoredIdle"));
-assert.ok(offscreen.includes("src/sabr-worker.js"));
-assert.ok(read("src/sabr-worker.js").includes('text.indexOf("A_OPUS")'));
+assert.ok(sabrParser.includes('text.indexOf("A_OPUS")'));
+assert.ok(!background.includes("uncensoredSabr"));
+assert.ok(!offscreen.includes("sabr-worker"));
 assert.ok(offscreen.includes("src/whisper-module-worker.js"));
 assert.ok(whisperWorker.includes("runtimeReady = import"));
 assert.ok(chromiumManifest.permissions.includes("offscreen"));
 assert.strictEqual(chromiumManifest.message_serialization, "structured_clone");
 assert.strictEqual(chromiumManifest.minimum_chrome_version, "148");
+const injectedScripts = ["src/page-hook.js", "src/rules.js", "src/timedtext.js"];
+assert.deepStrictEqual(chromiumManifest.web_accessible_resources[0].resources, injectedScripts);
+assert.deepStrictEqual(firefoxManifest.web_accessible_resources[0].resources, injectedScripts);
+assert.ok(chromiumManifest.content_scripts[0].js.includes("src/sabr-parser.js"));
+assert.ok(firefoxManifest.content_scripts[0].js.includes("src/sabr-parser.js"));
+assert.ok(pageHook.includes("allowedResolutionWord"));
+assert.ok(pageHook.includes("allowedStretchedWord"));
+assert.ok(pageHook.includes("!Number.isInteger(detail.tokenIndex) || detail.tokenIndex < 0"));
 assert.ok(popup.includes("91.1% precision"));
 assert.ok(popup.includes("85.8% correct coverage"));
 assert.ok(popup.includes("80.3% precision"));
@@ -56,7 +73,7 @@ assert.ok(popupScript.includes("rulesEnabled: true"));
 assert.ok(popupScript.includes("whisperEnabled: true"));
 
 assert.ok(pageHook.includes("audioReplacements.clear();"));
-assert.ok(pageHook.includes("settings.audioNeeded === true"));
+assert.ok(pageHook.includes("settings.captureAudio === true"));
 assert.ok(pageHook.includes("waitForAudioDecision"));
 assert.ok(pageHook.includes("shouldObserveAudio() &&"));
 assert.ok(pageHook.includes("decisionTimedOut"));
@@ -71,8 +88,11 @@ assert.ok(pageHook.includes("videoId !== currentVideoId()"));
 assert.ok(!pageHook.includes("navigationGeneration"));
 assert.ok(pageHook.includes("navigationPending"));
 assert.ok(pageHook.includes("waitForNavigationFinish"));
+assert.ok(pageHook.includes("navigationPending ||\n      settings.captureAudio !== false"));
+assert.ok(pageHook.includes("requestDuringNavigation"));
+assert.ok(pageHook.includes("duringNavigation ? currentVideoId() : responseVideoId"));
 assert.strictEqual((pageHook.match(/installNetworkHooks\(\);/g) || []).length, 3);
-assert.ok(pageHook.includes("responseVideoId !== videoId && !duringNavigation"));
+assert.ok(pageHook.includes("videoId !== currentVideoId()"));
 assert.ok(pageHook.includes("isGoogleVideoPlaybackUrl(response && response.url)"));
 assert.ok(!pageHook.includes("captureMediaResponse"));
 assert.ok(!pageHook.includes("preserveNetworkHooks"));
@@ -83,7 +103,8 @@ assert.ok(audioCapture.includes("bgMessage(\"transcribe\""));
 assert.ok(audioCapture.includes("Whisper via extension host"));
 assert.ok(audioCapture.includes("var decodeQueue = Promise.resolve();"));
 assert.ok(audioCapture.includes("Audio decode timed out"));
-assert.ok(audioCapture.includes("uncensored-whisper-resolution"));
+assert.ok(audioCapture.includes("uncensoredWhisperResolution"));
+assert.ok(pageHook.includes("uncensoredWhisperResolution"));
 assert.ok(!audioCapture.includes("VISIBLE_REAPPLY_SECONDS"));
 assert.ok(audioCapture.includes("nearbyTimelineWords"));
 assert.ok(audioCapture.includes("visibleTokenMapping"));
@@ -103,6 +124,10 @@ assert.ok(audioCapture.includes("videoHasCensoredSlots"));
 assert.ok(audioCapture.includes("token.visibleOnly"));
 assert.ok(audioCapture.includes("whisper model starting"));
 assert.ok(audioCapture.includes("whisper model started"));
+assert.ok(audioCapture.includes('debugLog("new video", videoId || "unknown")'));
+assert.ok(!audioCapture.includes("root.console.clear()"));
+assert.ok(audioCapture.includes("uncensoredWhisperResolution"));
+assert.ok(pageHook.includes("uncensoredWhisperResolution"));
 assert.ok(audioCapture.includes("syncVideo(nextOptions.videoId)"));
 assert.ok(!audioCapture.includes('whisperModelState = "idle";\n      }'));
 assert.ok(!audioCapture.includes('root.addEventListener("yt-navigate-start", resetForNavigation)'));
@@ -278,5 +303,20 @@ global.location.href = "https://www.youtube.com/watch?v=third";
 audio.rememberTimedTextData({ tokens: [cachedToken], timeline: [] }, "lang=en&kind=asr", [], "third");
 navigationListeners["yt-navigate-finish"]();
 assert.strictEqual(audio.debugState().pendingTokens.length, 1);
+
+global.location.href = "https://www.youtube.com/watch?v=collision";
+const sameSlotContext = Object.assign({}, cachedToken, {
+  timeSeconds: 300,
+  context: "say [__] [__] now",
+  eventIndex: 3
+});
+audio.rememberTimedTextData({
+  tokens: [
+    Object.assign({}, sameSlotContext, { tokenIndex: 3, eventTokenIndex: 0 }),
+    Object.assign({}, sameSlotContext, { tokenIndex: 4, eventTokenIndex: 1 })
+  ],
+  timeline: []
+}, "lang=en&kind=asr", [], "collision");
+assert.strictEqual(audio.debugState().pendingTokens.length, 2);
 
 console.log("extension-wiring.test.js passed");

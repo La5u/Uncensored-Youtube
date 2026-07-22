@@ -117,4 +117,22 @@ flushParser.flush();
 assert.strictEqual(flushedSegments.length, 1);
 assert.deepStrictEqual(Array.from(flushedSegments[0].chunks[0]), [50, 51]);
 
+const streamDecoder = sabr.createStreamDecoder();
+const webmInit = Uint8Array.from([0x1a, 0x45, 0xdf, 0xa3, ...Buffer.from("A_OPUS")]);
+const decoderInit = concat([
+  part(20, initHeader),
+  part(21, concat([Uint8Array.from([1]), webmInit]))
+]);
+streamDecoder.push({ type: "start", streamId: 1 });
+assert.deepStrictEqual(streamDecoder.push({ type: "chunk", streamId: 1, buffer: decoderInit.buffer }), []);
+const decoded = streamDecoder.push({ type: "chunk", streamId: 1, buffer: mediaPayload.buffer });
+assert.strictEqual(decoded.length, 1);
+assert.strictEqual(decoded[0].startMs, 1200);
+assert.deepStrictEqual(Array.from(new Uint8Array(decoded[0].buffer)), [...webmInit, 20, 21, 22]);
+streamDecoder.push({ type: "end", streamId: 1 });
+streamDecoder.reset();
+const resumed = streamDecoder.push({ type: "chunk", streamId: 1, buffer: mediaPayload.buffer });
+assert.strictEqual(resumed.length, 1);
+assert.deepStrictEqual(Array.from(new Uint8Array(resumed[0].buffer)), [...webmInit, 20, 21, 22]);
+
 console.log("sabr-parser.test.js passed");

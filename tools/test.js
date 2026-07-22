@@ -50,9 +50,9 @@ function benchmark() {
 for (const file of fs.readdirSync(path.join(root, "tests")).filter((name) => name.endsWith(".test.js")).sort()) {
   run("node", [path.join("tests", file)]);
 }
-run("./build.sh", ["1.3.0"]);
-run("unzip", ["-tq", "dist/uncensored-youtube-firefox-1.3.0.zip"]);
-run("unzip", ["-tq", "dist/uncensored-youtube-chromium-1.3.0.zip"]);
+run("./build.sh", ["1.3.1"]);
+run("unzip", ["-tq", "dist/uncensored-youtube-firefox-1.3.1.zip"]);
+run("unzip", ["-tq", "dist/uncensored-youtube-chromium-1.3.1.zip"]);
 run("web-ext", ["lint", "--source-dir", "dist/firefox", "--warnings-as-errors"]);
 run("npm", ["audit", "--omit=dev"]);
 
