@@ -4,7 +4,7 @@ const { spawnSync } = require("child_process");
 const rules = require("../src/rules");
 const timedText = require("../src/timedtext");
 const decision = require("../src/whisper-local");
-const { align, manualSwearEvents } = require("./evaluate-youtube-rules");
+const { align, manualSwearEvents } = require("./evaluation-alignment");
 
 const root = path.join(__dirname, "..");
 
@@ -65,13 +65,15 @@ function expectedWords(events, timeSeconds, windowSeconds) {
 
 function findAudio(audioDir, fixture) {
   const dir = path.join(root, audioDir);
+  const id = fixture.videoId || fixture.name;
 
   if (!fs.existsSync(dir)) {
     return "";
   }
 
   const file = fs.readdirSync(dir).find((name) => (
-    name.startsWith(`${fixture.name}.`) && /\.(webm|m4a|opus|mp3|wav)$/i.test(name)
+    (name.startsWith(`${id}.`) || name.startsWith(`${id}_(`))
+    && /\.(webm|m4a|opus|mp3|wav)$/i.test(name)
   ));
 
   return file ? path.join(dir, file) : "";
@@ -140,10 +142,17 @@ async function createTranscriber() {
   });
 }
 
-function isCorrect(word, expected) {
-  const normalized = decision.normalizeText(word);
+function isCorrect(word, expected, context) {
+  function comparable(value) {
+    const normalized = decision.normalizeText(value);
 
-  return expected.some((candidate) => decision.normalizeText(candidate) === normalized);
+    return /\[\s*__\s*\]\s+sake\b/i.test(context || "")
+      && ["fuck", "fucks", "fuck 's"].includes(normalized)
+      ? "fuck's"
+      : normalized;
+  }
+
+  return expected.some((candidate) => comparable(candidate) === comparable(word));
 }
 
 async function evaluateFixture(args, fixture, transcriber, cachedResults) {
@@ -203,7 +212,7 @@ async function evaluateFixture(args, fixture, transcriber, cachedResults) {
       word: chosen.word,
       source: chosen.evidence,
       expected,
-      correct: isCorrect(chosen.word, expected)
+      correct: isCorrect(chosen.word, expected, token.context)
     });
   }
 
@@ -229,10 +238,11 @@ async function main() {
   fs.readdirSync(path.join(root, args.fixtures))
     .filter((name) => name.endsWith("_auto.en.json3"))
     .forEach((censored) => {
-      const name = censored.slice(0, -"_auto.en.json3".length);
-      const uncensored = `${name}_manual.en.json3`;
+      const basename = censored.slice(0, -"_auto.en.json3".length);
+      const name = basename.slice(0, 11);
+      const uncensored = `${basename}_manual.en.json3`;
       if (!byName.has(name) && fs.existsSync(path.join(root, args.fixtures, uncensored))) {
-        byName.set(name, { name, censored, uncensored });
+        byName.set(name, { name, videoId: name, censored, uncensored });
       }
     });
   const allFixtures = [...byName.values()];

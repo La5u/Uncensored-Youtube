@@ -17,15 +17,18 @@ if (!fixtures.length || requested.size !== fixtures.length) {
 fs.mkdirSync(path.join(outputDir, "audio"), { recursive: true });
 
 for (const item of fixtures) {
+  const autoBase = item.censored.replace(/\.en\.json3$/, "");
+  const manualBase = item.uncensored.replace(/\.en\.json3$/, "");
+  const audioBase = autoBase.replace(/_auto$/, "");
   const commands = [
-    [item.censored, ["--write-auto-subs", "--sub-langs", "en", "--sub-format", "json3", "--skip-download", "-o", path.join(outputDir, `${item.name}_auto.%(ext)s`)]],
-    [item.uncensored, ["--write-subs", "--sub-langs", "en", "--sub-format", "json3", "--skip-download", "-o", path.join(outputDir, `${item.name}_manual.%(ext)s`)]],
-    ["audio", ["-f", "ba[ext=webm]/ba", "-o", path.join(outputDir, "audio", `${item.name}.%(ext)s`)]]
+    [item.censored, ["--write-auto-subs", "--sub-langs", "en", "--sub-format", "json3", "--skip-download", "-o", path.join(outputDir, `${autoBase}.%(ext)s`)]],
+    [item.uncensored, ["--write-subs", "--sub-langs", "en", "--sub-format", "json3", "--skip-download", "-o", path.join(outputDir, `${manualBase}.%(ext)s`)]],
+    ["audio", ["-f", "ba[ext=webm]/ba", "-o", path.join(outputDir, "audio", `${audioBase}.%(ext)s`)]]
   ];
 
   for (const [file, args] of commands) {
     const exists = file === "audio"
-      ? fs.readdirSync(path.join(outputDir, "audio")).some((name) => name.startsWith(`${item.name}.`))
+      ? fs.readdirSync(path.join(outputDir, "audio")).some((name) => name.startsWith(`${audioBase}.`))
       : fs.existsSync(path.join(outputDir, file));
     if (exists) continue;
 
