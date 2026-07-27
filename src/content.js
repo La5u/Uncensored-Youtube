@@ -67,10 +67,6 @@
     if (globalThis.UncensoredAudioInference && globalThis.UncensoredAudioInference.setOptions) {
       globalThis.UncensoredAudioInference.setOptions(detail);
     }
-
-    if (settings.whisperEnabled && globalThis.UncensoredAudioInference && globalThis.UncensoredAudioInference.startVisibleCaptionResolver) {
-      globalThis.UncensoredAudioInference.startVisibleCaptionResolver();
-    }
   }
 
   function dispatchSettingsSoon() {
@@ -101,7 +97,9 @@
   function updateAudioNeeded() {
     var needed = settings.whisperEnabled && Boolean(activeVideoId);
     var shouldDecode = needed && (!captionDecisionKnown || videoHasCensoredSlots);
+    var shouldCapture = shouldDecode;
     var decodeChanged = decodeAudioEnabled !== shouldDecode;
+    var captureChanged = captureAudioEnabled !== shouldCapture;
 
     if (decodeChanged) {
       decodeAudioEnabled = shouldDecode;
@@ -109,13 +107,13 @@
         debugLog("audio decoding stopped", { reason: "no censored captions" });
       }
     }
-    if (captureAudioEnabled === needed) {
+    if (!captureChanged) {
       if (decodeChanged) dispatchSettings();
       return;
     }
-    captureAudioEnabled = needed;
+    captureAudioEnabled = shouldCapture;
     dispatchSettings();
-    if (needed || !settings.whisperEnabled) setExtensionHostActive(needed);
+    setExtensionHostActive(shouldCapture);
   }
 
   function setExtensionHostActive(active) {
@@ -227,6 +225,21 @@
     if (audioInference.rememberTimedTextData) {
       audioInference.rememberTimedTextData(data, trackId, savedResolutions, activeVideoId);
     }
+  });
+
+  window.addEventListener("uncensored-no-captions", function stopNoCaptionAudio(event) {
+    var detail;
+
+    try {
+      detail = JSON.parse(event && event.detail);
+    } catch (error) {
+      return;
+    }
+    if (!detail || detail.videoId !== currentVideoId()) return;
+    syncVideo(detail.videoId);
+    captionDecisionKnown = true;
+    videoHasCensoredSlots = false;
+    updateAudioNeeded();
   });
 
   window.addEventListener("message", function relaySabrAudio(event) {

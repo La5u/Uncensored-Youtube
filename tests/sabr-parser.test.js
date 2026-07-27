@@ -128,6 +128,7 @@ assert.deepStrictEqual(streamDecoder.push({ type: "chunk", streamId: 1, buffer: 
 const decoded = streamDecoder.push({ type: "chunk", streamId: 1, buffer: mediaPayload.buffer });
 assert.strictEqual(decoded.length, 1);
 assert.strictEqual(decoded[0].startMs, 1200);
+assert.strictEqual(decoded[0].durationMs, 300);
 assert.deepStrictEqual(Array.from(new Uint8Array(decoded[0].buffer)), [...webmInit, 20, 21, 22]);
 streamDecoder.push({ type: "end", streamId: 1 });
 streamDecoder.reset();

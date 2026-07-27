@@ -360,6 +360,7 @@
 
           state.segments.push({
             startMs: typeof segment.header.startMs === "number" ? segment.header.startMs : null,
+            durationMs: typeof segment.header.durationMs === "number" ? segment.header.durationMs : null,
             buffer: chunksToArrayBuffer(chunks)
           });
         }

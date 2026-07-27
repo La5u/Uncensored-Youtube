@@ -114,14 +114,7 @@
     captionTrackId = "";
     captionGeneration += 1;
     seekGeneration += 1;
-    if (captionObserver) captionObserver.disconnect();
-    captionObserver = null;
-    captionObserverTarget = null;
-    if (observedVideo && observedVideo.removeEventListener) {
-      observedVideo.removeEventListener("seeking", captionSeekStarted);
-      observedVideo.removeEventListener("seeked", captionSeekFinished);
-    }
-    observedVideo = null;
+    stopCaptionWatching();
   }
 
   function syncVideo(videoId) {
@@ -273,6 +266,16 @@
     return Promise.resolve(audioContext);
   }
 
+  function closeAudioContext() {
+    var context = audioContext;
+
+    audioContext = null;
+    decodedSegmentStarts.clear();
+    if (context && context.state !== "closed" && context.close) {
+      context.close().catch(function ignoreCloseError() {});
+    }
+  }
+
   function decodeAudio(context, buffer) {
     var timer;
 
@@ -296,6 +299,9 @@
     var generation = navigationGeneration;
 
     if (!detail || !(detail.buffer instanceof ArrayBuffer)) {
+      return decodeQueue;
+    }
+    if (!encodedSegmentNeeded(detail)) {
       return decodeQueue;
     }
 
@@ -329,6 +335,27 @@
     });
 
     return decodeQueue;
+  }
+
+  function encodedSegmentNeeded(detail) {
+    var startTime;
+    var endTime;
+    var needed = false;
+
+    if (!tokenMetadataKnown || !Number.isFinite(detail.startMs) || !Number.isFinite(detail.durationMs)) {
+      return true;
+    }
+    startTime = detail.startMs / 1000;
+    endTime = startTime + detail.durationMs / 1000;
+    pendingTokens.forEach(function findCoveredToken(token) {
+      var window = tokenWindow(token);
+
+      if (!needed && shouldResolveWithWhisper(token) && !token.resolved &&
+          endTime > window.startTime && startTime < window.endTime) {
+        needed = true;
+      }
+    });
+    return needed;
   }
 
   function readMediaSlice(buffer, startTime, endTime) {
@@ -456,9 +483,14 @@
   }
 
   function resolutionForTokenIndex(tokenIndex) {
-    return resolvedTokenValues().find(function matchingTokenIndex(resolution) {
-      return tokenIsCurrent(resolution) && resolution.tokenIndex === tokenIndex;
+    var match;
+
+    resolvedTokens.forEach(function matchingTokenIndex(resolution) {
+      if (!match && tokenIsCurrent(resolution) && resolution.tokenIndex === tokenIndex) {
+        match = resolution;
+      }
     });
+    return match;
   }
 
   function sourcePriority(source) {
@@ -1057,16 +1089,16 @@
       ? Boolean(data.tokens && data.tokens.length)
       : videoHasCensoredSlots || Boolean(data.tokens && data.tokens.length);
     if (trackChanged || data.timeline && data.timeline.length) {
-      captionTimeline = (data.timeline || []).map(function normalizeTimelineEvent(event) {
-        return Object.assign({}, event, {
-          words: normalizeContext(event.text).split(/\s+/).filter(Boolean)
-        });
-      });
+      captionTimeline = data.timeline || [];
     }
     restoreSavedResolutions(data.tokens || [], savedResolutions);
     rememberTimedTextTokens(data.tokens || []);
-    watchVideoSeeks();
-    scheduleVisibleCaptionResolution();
+    if (pendingTokens.size || resolvedTokens.size) {
+      watchVideoSeeks();
+      scheduleVisibleCaptionResolution();
+    } else {
+      stopCaptionWatching();
+    }
   }
 
   function captionSegments() {
@@ -1145,7 +1177,7 @@
         event.startTime <= playhead + TIMELINE_TIME_RADIUS_SECONDS;
     }).reduce(function flattenEvents(words, event) {
       var eventTokenIndex = 0;
-      event.words.forEach(function appendWord(word) {
+      normalizeContext(event.text).split(/\s+/).filter(Boolean).forEach(function appendWord(word) {
         words.push({
           word: word,
           tokenIndex: word === rules.CENSORED_TOKEN ? event.firstTokenIndex + eventTokenIndex++ : -1
@@ -1296,6 +1328,17 @@
     watchCaptionMutations();
   }
 
+  function stopCaptionWatching() {
+    if (captionObserver) captionObserver.disconnect();
+    captionObserver = null;
+    captionObserverTarget = null;
+    if (observedVideo && observedVideo.removeEventListener) {
+      observedVideo.removeEventListener("seeking", captionSeekStarted);
+      observedVideo.removeEventListener("seeked", captionSeekFinished);
+    }
+    observedVideo = null;
+  }
+
   function watchVideoSeeks() {
     var video = findVideo();
 
@@ -1346,10 +1389,15 @@
         }
       } else {
         mediaAudio.segments = [];
+        closeAudioContext();
+      }
+      if (resolvedTokens.size || options.whisperEnabled && pendingTokens.size) {
+        startLiveCaptionResolver();
+      } else {
+        stopCaptionWatching();
       }
     },
     rememberTimedTextData: rememberTimedTextData,
-    startVisibleCaptionResolver: startLiveCaptionResolver,
     debugState: function debugState() {
       return {
         mediaAudio: {
@@ -1387,9 +1435,11 @@
   if (root.addEventListener) {
     root.addEventListener("yt-navigate-finish", function navigationFinished() {
       syncVideo(currentVideoId());
-      watchCaptionMutations();
-      scheduleVisibleCaptionResolution();
-      scheduleWhisperQueue();
+      if (pendingTokens.size || resolvedTokens.size) {
+        watchCaptionMutations();
+        scheduleVisibleCaptionResolution();
+        scheduleWhisperQueue();
+      }
     });
   }
   if (typeof module === "object" && module.exports) {

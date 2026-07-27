@@ -11,6 +11,7 @@ const headless = args.includes("--headless");
 const firefoxOnly = args.includes("--firefox-only");
 const chromiumOnly = args.includes("--chromium-only");
 const directNavigation = args.includes("--direct");
+const initialOnly = args.includes("--initial-only");
 const playUntil = Number((args.find((arg) => arg.startsWith("--until=")) || "").split("=")[1]) || 0;
 const pauseFor = Number((args.find((arg) => arg.startsWith("--pause=")) || "").split("=")[1]) || 0;
 const urls = args.filter((arg) => /^https:\/\//.test(arg));
@@ -283,10 +284,16 @@ async function chromium() {
     await wait(5000);
     const captions = await client.send("Runtime.evaluate", {
       expression: `JSON.stringify({time: document.querySelector("video")?.currentTime,
-        captions: [...document.querySelectorAll(".ytp-caption-segment")].map(node => node.textContent)})`,
+        captions: [...document.querySelectorAll(".ytp-caption-segment")].map(node => node.textContent),
+        tracks: document.querySelector("#movie_player")?.getOption?.("captions", "tracklist")?.length,
+        responseCaptions: !!document.querySelector("#movie_player")?.getPlayerResponse?.()?.captions})`,
       returnByValue: true
     });
     console.log(`Visible captions at ${firstSeekTime}: ${captions.result.value}`);
+  }
+  if (initialOnly) {
+    client.socket.close();
+    return;
   }
   for (secondId of nextUrls.map((url) => new URL(url).searchParams.get("v"))) {
     const checkpoint = logs.length;
@@ -384,7 +391,8 @@ async function firefox() {
     const value = JSON.parse(await evaluate(`JSON.stringify(${playbackExpression()})`));
     return value.hook && value;
   });
-  await retry(() => timedTextRequests > 0);
+  await retry(async () => timedTextRequests > 0 ||
+    await evaluate("globalThis.__uncensoredDebugAudio?.().audioNeeded") === false);
   try {
     await retry(async () => logs.some((line) => line.includes("audio decoded")) ||
       await evaluate("globalThis.__uncensoredDebugAudio?.().audioNeeded") === false, 90000);
@@ -417,6 +425,11 @@ async function firefox() {
       throw new Error(`Firefox audio stopped at ${decoded}s.`);
     }
   }
+  if (initialOnly) {
+    await client.send("session.end");
+    client.socket.close();
+    return;
+  }
   for (secondId of nextUrls.map((url) => new URL(url).searchParams.get("v"))) {
     const timedTextCheckpoint = timedTextRequests;
     const logCheckpoint = logs.length;
@@ -434,7 +447,8 @@ async function firefox() {
     if (!state.url.includes(secondId)) {
       throw new Error(`Firefox navigation reverted before playback: ${state.url}`);
     }
-    await retry(() => timedTextRequests > timedTextCheckpoint);
+    await retry(async () => timedTextRequests > timedTextCheckpoint ||
+      await evaluate("globalThis.__uncensoredDebugAudio?.().audioNeeded") === false);
     const audioState = JSON.parse(await evaluate("JSON.stringify(globalThis.__uncensoredDebugAudio?.())"));
     if (audioState.activeVideoId !== secondId) {
       throw new Error(`Firefox hook retained ${audioState.activeVideoId} after navigating to ${secondId}.`);

@@ -57,7 +57,14 @@ new Promise(function waitForDecode(resolve) {
   audio.setOptions({ rulesEnabled: false, whisperEnabled: true, videoId: "test" });
   return audio.setSabrAudioData({ buffer: new ArrayBuffer(1), startMs: 10000 });
 }).then(function verifyRecovery() {
-  assert.strictEqual(decodeCalls, 2);
+  assert.strictEqual(decodeCalls, 3);
+  return audio.setSabrAudioData({
+    buffer: new ArrayBuffer(1),
+    startMs: 100000,
+    durationMs: 10000
+  });
+}).then(function ignoreAudioAwayFromCensoredSlots() {
+  assert.strictEqual(decodeCalls, 3);
   console.log("audio-decode.test.js passed");
 }).catch(function failed(error) {
   console.error(error);

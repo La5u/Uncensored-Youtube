@@ -301,13 +301,43 @@
       clearPatchedTimedTextCache();
     }
     savedResolutions = readSavedResolutions(trackId);
+    globalThis.setTimeout(function dispatchTimedText() {
+      try {
+        globalThis.dispatchEvent(new CustomEvent("uncensored-timedtext", {
+          detail: JSON.stringify({
+            body: body,
+            trackId: trackId,
+            savedResolutions: savedResolutions,
+            videoId: videoId
+          })
+        }));
+      } catch (error) {}
+    }, 0);
+  }
+
+  function notifyMissingCaptions(attempt) {
+    var player = document.querySelector("#movie_player");
+    var response;
     try {
-      globalThis.dispatchEvent(new CustomEvent("uncensored-timedtext", {
-        detail: JSON.stringify({ body: body, trackId: trackId, savedResolutions: savedResolutions, videoId: videoId })
-      }));
-    } catch (error) {
+      response = player && player.getPlayerResponse && player.getPlayerResponse();
+    } catch (error) {}
+    var videoId = response && response.videoDetails && response.videoDetails.videoId;
+    var tracks = response && response.captions &&
+      response.captions.playerCaptionsTracklistRenderer &&
+      response.captions.playerCaptionsTracklistRenderer.captionTracks;
+
+    if ((!videoId || videoId !== currentVideoId() || !Array.isArray(tracks) || !tracks.length) &&
+        attempt < 8) {
+      globalThis.setTimeout(function retryCaptionCheck() {
+        notifyMissingCaptions(attempt + 1);
+      }, 250);
       return;
     }
+    if (!videoId || videoId !== currentVideoId()) return;
+    if (Array.isArray(tracks) && tracks.length) return;
+    globalThis.dispatchEvent(new CustomEvent("uncensored-no-captions", {
+      detail: JSON.stringify({ videoId: videoId })
+    }));
   }
 
   function postAudioMessage(message, transfer) {
@@ -590,6 +620,12 @@
 
       if (isTimedTextUrl(input)) {
         if (videoId !== currentVideoId()) return response;
+        if (!settings.rulesEnabled) {
+          response.clone().text().then(function observeTimedText(body) {
+            notifyTimedText(body, input, videoId);
+          }, function ignoreTimedTextError() {});
+          return response;
+        }
         return response.clone().text().then(function rewriteTimedText(body) {
           var patchedBody;
           try {
@@ -683,6 +719,9 @@
   }
 
   installNetworkHooks();
+  globalThis.setTimeout(function checkInitialCaptions() {
+    notifyMissingCaptions(0);
+  }, 0);
 
   globalThis.addEventListener("yt-navigate-start", function navigationStarted() {
     installNetworkHooks();
@@ -696,5 +735,6 @@
     releaseNavigationWaiters();
     syncVideo(currentVideoId());
     discardSavedResolutionsForOtherVideo();
+    notifyMissingCaptions(0);
   });
 })();
