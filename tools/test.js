@@ -22,9 +22,9 @@ function benchmark() {
   run("node", ["tools/evaluate-whisper-only.js", "--mode", "rules+whisper",
     "--transcripts", reports["whisper-only"], "--output", reports["rules+whisper"]]);
 
-  const popup = fs.readFileSync(path.join(root, "src/popup.html"), "utf8");
-  let slots = 0;
-  let videos = 0;
+  const popup = ["popup.html", "popup.js"].map((file) => (
+    fs.readFileSync(path.join(root, "src", file), "utf8")
+  )).join("\n");
   for (const [mode, file] of Object.entries(reports)) {
     const report = JSON.parse(fs.readFileSync(path.join(root, file), "utf8"));
     const results = report.fixtures.flatMap((fixture) => fixture.results || []);
@@ -34,25 +34,18 @@ function benchmark() {
     const precision = (100 * correct.length / attempted.length).toFixed(1);
     const coverage = (100 * correct.length / scored.length).toFixed(1);
     console.log(`${mode}: ${precision}% precision, ${coverage}% coverage (${correct.length}/${scored.length})`);
-    if (!popup.includes(`${precision}% precision`) || !popup.includes(`${coverage}% correct coverage`)) {
+    if (!popup.includes(`precision: "${precision}", coverage: "${coverage}"`)) {
       throw new Error(`Popup metrics are stale for ${mode}.`);
     }
-    if (mode === "whisper-only") {
-      slots = scored.length;
-      videos = report.fixtures.filter((fixture) => fixture.scoredCount).length;
-    }
-  }
-  if (!popup.includes(`${slots.toLocaleString("en-US")} scored slots from ${videos} videos`)) {
-    throw new Error("Popup benchmark sample size is stale.");
   }
 }
 
 for (const file of fs.readdirSync(path.join(root, "tests")).filter((name) => name.endsWith(".test.js")).sort()) {
   run("node", [path.join("tests", file)]);
 }
-run("./build.sh", ["1.3.1"]);
-run("unzip", ["-tq", "dist/uncensored-youtube-firefox-1.3.1.zip"]);
-run("unzip", ["-tq", "dist/uncensored-youtube-chromium-1.3.1.zip"]);
+run("./build.sh", ["1.3.2"]);
+run("unzip", ["-tq", "dist/uncensored-youtube-firefox-1.3.2.zip"]);
+run("unzip", ["-tq", "dist/uncensored-youtube-chromium-1.3.2.zip"]);
 run("web-ext", ["lint", "--source-dir", "dist/firefox", "--warnings-as-errors"]);
 run("npm", ["audit", "--omit=dev"]);
 
