@@ -20,7 +20,7 @@ h1 {
   font-weight: 700;
 }
 
-.recommendation {
+.coverage {
   margin: 0 0 10px;
 }
 
@@ -52,4 +52,48 @@ strong {
 small {
   margin-top: 2px;
   color: #52616f;
+}
+
+footer {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.info {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  border: 1px solid #52616f;
+  border-radius: 50%;
+  color: #52616f;
+  text-align: center;
+  cursor: help;
+}
+
+.tooltip {
+  position: absolute;
+  bottom: 24px;
+  left: 0;
+  z-index: 1;
+  width: 218px;
+  padding: 8px;
+  border-radius: 5px;
+  color: #ffffff;
+  background: #1f2933;
+  text-align: left;
+  visibility: hidden;
+  opacity: 0;
+}
+
+.info:hover .tooltip,
+.info:focus .tooltip {
+  visibility: visible;
+  opacity: 1;
+}
+
+.version {
+  margin: 0;
+  text-align: right;
 }
