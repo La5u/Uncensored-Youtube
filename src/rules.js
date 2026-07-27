@@ -6,60 +6,47 @@
   var CENSORED_TOKEN_REGEX = /\[\s*__\s*\]/gu;
   var SENTENCE_END_REGEX = /[.!?]/;
 
-  // Non-censored words to note: shitty, dick
-  var ALLOWED_WORDS = Object.freeze([
-    "fuck",
-    "fucks",
-    "fuck's",
-    "fucking",
-    "shit",
-    "shithole",
-    "shitting",
-    "bitch",
-    "bitches",
-    "twat",
-    "moron",
-    "bullshit",
-    "dipshit", // dipsh?
-    "fucker",
-    "fuckers",
-    "motherfucker",
-    "cocksucker",
-    "fucked",
-    "pussy",
-    "cock",
-    "cockshit", //cocksh-?
-    "arsehole",
-    "asshole",
-    "cunt",
-    "cum",
-    "cripple"
-  ]);
-
-  var SWEAR_SLOT = Object.freeze({
-    INTENSIFIER: "[fucking]",
-    NOUN_THING: "[shit|bullshit]",
-    VERB: "[fuck]",
-    PHRASAL_VERB: "[fuck]",
-    INSULT_PERSON: "[bitch|asshole|moron|fucker|cunt]",
-    SEXUAL_NOUN: "[cock|pussy]",
-    STATE_ADJ: "[fucked]"
+  var WORD_FAMILIES = Object.freeze({
+    fuck: Object.freeze(["fuck", "fucks", "fuck's", "fucking", "fucked", "fucker", "fuckers", "fuckery"]),
+    motherfucker: Object.freeze(["motherfuck", "motherfucker", "motherfuckers", "motherfucking"]),
+    shit: Object.freeze(["shit", "shithole", "shitting", "shithead", "shitheads", "shitter"]),
+    bitch: Object.freeze(["bitch", "bitches"]),
+    cock: Object.freeze(["cock", "cocks", "cocksucker"]),
+    asshole: Object.freeze(["arsehole", "asshole", "assholes"]),
+    dick: Object.freeze(["dicked", "dicking", "dickin", "dickhead", "dickheads"]),
+    twat: Object.freeze(["twat", "twats"]),
+    whore: Object.freeze(["whore", "whores"]),
+    cunt: Object.freeze(["cunt", "cunts"]),
+    pussy: Object.freeze(["pussy", "pussies"])
   });
 
+  // Non-censored words to note: shitty, dick
+  var ALLOWED_WORDS = Object.freeze([].concat(
+    WORD_FAMILIES.fuck,
+    WORD_FAMILIES.motherfucker,
+    WORD_FAMILIES.shit,
+    WORD_FAMILIES.bitch,
+    ["moron", "bullshit", "dipshit"],
+    WORD_FAMILIES.cock,
+    WORD_FAMILIES.asshole,
+    WORD_FAMILIES.dick,
+    WORD_FAMILIES.twat,
+    WORD_FAMILIES.whore,
+    WORD_FAMILIES.cunt,
+    WORD_FAMILIES.pussy,
+    ["slut", "cum", "cripple"]
+  ));
+
   var SUBJECT_PRONOUNS = Object.freeze(["I", "you", "he", "she", "we", "they"]);
-  var THIRD_PERSON_TARGETS = Object.freeze(["you", "he", "she", "they"]);
   var BE_FORMS = Object.freeze(["is", "was", "were", "I'm", "he's", "she's", "we're", "they're"]);
-  var QUESTION_WORDS = Object.freeze(["what", "how", "where", "when", "who", "why"]);
-  var FUCK_THE_SUFFIXES = Object.freeze(["up", "is", "are", "did", "do", "does", "am", "on", "you", "was", "were", "say", "want", "know", "can", "have", "outta"]);
-  var FUCK_YOU_PREFIXES = Object.freeze([".", "!", "?", "and", "or", "yeah", "yeah,", "oh", "oh,", "no", "no,", "so", "dude", "dude,", "big"]);
-  var FUCK_VERB_PREFIXES = Object.freeze(["I can", "can I", "wanting to", "wanted to", "wants to", "would rather", "would you rather", "would you rather we", "do you want to"]);
+  var QUESTION_WORDS = Object.freeze(["what", "how", "where", "who", "why"]);
+  var FUCK_THE_SUFFIXES = Object.freeze(["is", "are", "did", "do", "does", "am", "you", "was", "were", "say", "want", "know", "can", "have", "outta", "what"]);
+  var FUCK_YOU_PREFIXES = Object.freeze([".", "!", "?", "and", "or", "yeah", "yeah,", "no", "no,", "so", "dude", "dude,", "big", "well", "go", "to", "yes", "me"]);
+  var FUCK_VERB_PREFIXES = Object.freeze(["wanting to", "wanted to", "would rather", "would you rather", "would you rather we", "do you want to"]);
   var FUCK_UP_VERB_PREFIXES = Object.freeze([
-    "don't",
-    "do not",
-    "didn't",
-    "did not",
-    "can't",
-    "cannot",
+    "don't", "do not",
+    "didn't", "did not",
+    "can't", "cannot",
     "won't",
     "wouldn't",
     "shouldn't",
@@ -82,15 +69,11 @@
     "I might",
     "you might",
     "I will",
-    "you will"
+    "you will",
+    "I'll"
   ]);
-  var FUCK_UP_OBJECTS = Object.freeze([
-    "this",
-    "that",
-    "it",
+  var PHRASAL_UP_OBJECTS = Object.freeze([
     "everything",
-    "my life",
-    "your life",
     "the whole thing",
     "the plan",
     "the game",
@@ -101,151 +84,271 @@
   var FUCK_UP_PRONOUN_SUFFIXES = Object.freeze(["[fuck] you up", "[fuck] him up", "[fuck] her up", "[fuck] us up", "[fuck] them up"]);
   var PERFECT_PREFIXES = Object.freeze(["have", "has", "had", "I've", "you've", "we've", "they've"]);
   var FUCKING_WITH_PREFIXES = Object.freeze(["are you", "I'm", "I'm just", "you're", "who's"]);
-  var FUCKED_UP_PREFIXES = Object.freeze(["that's so", "so", "it's so", "really", "massively", "most", "kind of", "special kind of", "too", "real", "completely"]);
-  var SHIT_NOUN_PREFIXES = Object.freeze(["full of", "jack", "eat", "beat the", "my own", "taking a", "do some", "cheap", "funny"]);
-  var SHIT_OUT_PREFIXES = Object.freeze(["scaring", "scared", "freaked", "freaks", "irritates"]);
+  var FUCKED_UP_PREFIXES = Object.freeze(["that's", "that's so", "so", "it's so", "really", "massively", "most", "kind of", "special kind of", "too", "real", "completely"]);
+  var SHIT_NOUN_PREFIXES = Object.freeze(["eat", "taking a", "cheap", "funny"]);
+  var SHIT_OUT_PREFIXES = Object.freeze(["scaring", "scared", "freaks", "irritates"]);
+  var SHIT_OUT_ACTIONS = Object.freeze([
+    "beat", "beating", "kick", "kicked", "kicking", "smack", "smacking",
+    "shoot", "push", "pushed", "scares", "stab", "punch"
+  ]);
   var SHIT_TOGETHER_PREFIXES = Object.freeze(["get your", "get our", "get my", "pull your", "pull my", "got your", "got my"]);
   var SHIT_INITIAL_SUFFIXES = Object.freeze(["quality", "starts getting", "started getting", "hits the fan", "happens", "his pants"]);
-  var FUCKING_TRAILING_WORDS = Object.freeze(["pissed", "useless", "stupid", "embarrassing", "raw", "concentrate", "idiot", "idiots", "nightmare", "terrible", "disgusting", "mental", "joke", "eyes", "tongue"]);
-  var FUCKING_VERB_SUBJECTS = Object.freeze(SUBJECT_PRONOUNS.concat(["it", "no one", "nobody", "someone", "everybody"]));
-  var FUCKING_VERBS = Object.freeze(["care", "dare", "did", "does", "hate", "jump", "kills", "knew", "know", "knows", "love", "need", "needs", "sucks", "told", "understand"]);
-  var FUCKING_AUXILIARIES = Object.freeze(["can't", "can't even", "cannot", "couldn't", "didn't", "do not", "does not", "don't", "don't even", "doesn't", "haven't even", "let's", "shouldn't", "won't", "wouldn't"]);
-  var FUCKING_BASE_VERBS = Object.freeze(["breathe", "care", "dare", "defrosted", "die", "do", "end", "get", "go", "know", "launch", "lie", "like", "move", "need", "redo", "stop", "suck", "touch", "understand", "work"]);
-  var FUCKING_ADJECTIVE_PREFIXES = Object.freeze(["I'll be", "I'm", "you're", "he's", "she's", "we're", "they're", "it is", "that is", "this is", "are you", "is so", "I'm so", "you're so", "so", "really", "virtually"]);
-  var FUCKING_ADJECTIVES = Object.freeze(["close", "confused", "cool", "dead", "done", "easy", "fast", "great", "happy", "hard", "high", "hot", "impossible", "insane", "nuts", "random", "sick", "smooth", "sorry", "tired"]);
-  // Broad prefixes retained only when the full OpenSubtitles corpus had no errors.
-  var SAFE_FUCKING_PREFIXES = Object.freeze(["absolutely", "can't even", "completely", "doesn't", "don't even", "entire", "genuinely", "great", "here", "million", "should have", "straight up", "that is", "they're", "this is"]);
-  var BULLSHIT_PREFIXES = Object.freeze(["sounds like", "seems like", "feels like", "such", "pure", "corporate", "political", "marketing", "legal", "fake", "made up"]);
-  var BULLSHIT_SUFFIXES = Object.freeze(["excuse", "claim", "argument", "reason", "rule", "policy", "explanation", "logic", "system"]);
+  var FUCKING_SHARED_FALLBACK_WORDS = Object.freeze(["bad", "close", "dead", "easy", "great", "hard", "nuts", "scared"]);
+  var FUCKING_SHARED_STATE_WORDS = Object.freeze(["done", "good", "hot", "huge", "impossible", "insane", "joking", "sick", "sorry"]);
+  var FUCKING_BARE_NOUNS = Object.freeze([
+    "day", "eyes", "hell", "idiot", "joke", "mess", "mind", "money", "nightmare", "place", "sense", "time"
+  ]);
+  var FUCKING_BARE_PREDICATES = Object.freeze(["amazing", "crazy", "disgusting", "pathetic", "pissed", "ridiculous", "stupid", "weird"]);
+  var FUCKING_TRAILING_WORDS = Object.freeze(FUCKING_SHARED_FALLBACK_WORDS.concat(
+    FUCKING_BARE_NOUNS, FUCKING_BARE_PREDICATES, [
+    "air", "annoying", "badass", "ball", "bastard", "battle",
+    "beast", "better", "brilliant", "cares", "chair", "christ", "concentrate",
+    "creepy", "damage", "dark", "death", "double", "embarrassing", "fantastic",
+    "fire", "fly", "freaky", "fun", "genius", "gross", "hair", "hammer",
+    "help", "hope", "horrible", "horse", "ice", "idiots", "key", "know",
+    "legs", "long", "loud", "love", "made", "map", "mean", "mental",
+    "morons", "move", "murder", "music", "nerve", "ninja", "nonsense",
+    "party", "pay", "power", "raw", "reason", "record", "red", "robot", "roll",
+    "same", "scary", "shark", "shoot", "slow", "sound", "speed", "suck",
+    "sweet", "terrible", "terrifying", "tongue", "tree", "trees", "useless",
+    "video", "wall", "water", "work",
+    "worked", "worry"
+  ]));
+  var FUCKING_ADJECTIVE_PREFIXES = Object.freeze(["I'll be", "I'm", "you're", "he's", "she's", "we're", "they're", "it is", "that is", "this is", "are you", "is so", "I'm so", "you're so", "so", "really", "pretty", "virtually", "not", "was"]);
+  var FUCKING_ADJECTIVES = Object.freeze(FUCKING_SHARED_FALLBACK_WORDS.concat(
+    FUCKING_SHARED_STATE_WORDS, [
+    "bruised", "cold", "confused", "cool", "fast", "funny", "happy",
+    "high", "obvious", "proud", "random", "smooth", "strange", "tired"
+  ]));
+  // Broad prefixes retained only at >=90% corpus precision.
+  var SAFE_FUCKING_PREFIXES = Object.freeze([
+    "absolutely", "big", "by a", "can't even", "didn't even",
+    "doesn't", "don't even", "don't you", "down the", "entire", "even", "every",
+    "feel", "for a", "from the", "genuinely", "get some", "god the", "got some",
+    "got the", "great", "had a", "have no", "have to", "he's", "I can't",
+    "I need to", "I'm", "I'm going to", "in a", "into a", "into the", "is just",
+    "just a", "just how", "look at the", "many", "million", "not going to",
+    "not gonna", "off the", "oh it's", "outright",
+    "put some", "she's", "sheer", "should have", "so", "so many", "stop",
+    "straight up", "super", "than", "that is", "that's just", "that's pretty",
+    "the first", "there's no", "they're", "this is", "through the", "to be",
+    "too", "very", "what are you", "whole", "with a", "with the", "would be",
+    "yeah you", "you want to", "you're"
+  ]);
+  var BULLSHIT_PREFIXES = Object.freeze(["seems like", "corporate", "political", "marketing", "legal", "made up"]);
+  var BULLSHIT_SUFFIXES = Object.freeze(["rule", "policy", "explanation"]);
+  var FUCKING_DETERMINERS = Object.freeze(["a", "an", "the", "this", "that", "these", "those", "my", "your", "his", "her", "our", "their", "every", "no"]);
+  var FUCKING_NOUNS = Object.freeze(FUCKING_BARE_NOUNS.concat([
+    "animal", "anchor", "ass", "asshole", "baby", "balls", "bar", "bed", "best",
+    "bitch", "body", "boar", "boss", "brains", "break", "business", "cake", "car",
+    "cheater", "chicken", "choice", "checkpoint", "clothes", "clue", "cop", "cops", "coward",
+    "date", "deal", "dick", "disaster", "dog", "door", "drill", "epipen", "fish",
+    "face", "family", "fault", "finger", "floor", "grain",
+    "god", "ground", "gun", "guns", "guy", "guys", "hand", "hands", "head", "house",
+    "idea", "island", "job", "jobs", "jump", "keys", "kid", "kids",
+    "kilo", "knife", "leg", "level", "liar", "lie", "life", "lights", "lives", "load", "loser", "lunatic",
+    "monster", "moron", "mother", "mouth", "name", "night",
+    "nose", "pants", "phone", "picture", "pig", "places", "platform", "problem",
+    "point", "psycho", "psychopath", "pulse", "rat", "robbery", "room", "rules", "shit",
+    "rhythm game", "slut", "space", "street", "sword", "teenager", "thing", "things", "throat", "toes", "trunk", "truck",
+    "truth", "van", "waste", "way", "weapons", "wife", "window", "word", "words",
+    "world", "year"
+  ]));
+  var FUCKING_COPULAS = Object.freeze(BE_FORMS.concat(["am", "are", "be", "been", "being", "you're", "it's", "that's", "are you"]));
+  var FUCKING_PREDICATES = Object.freeze(FUCKING_SHARED_STATE_WORDS.concat(
+    FUCKING_BARE_PREDICATES, [
+      "around", "awful", "awesome", "bullshit", "dead", "exhausting", "freezing",
+      "gone", "great", "hard", "her", "hilarious", "incredible", "kidding",
+      "killing", "lying", "mad", "not", "nuts", "serious", "starving", "talking",
+      "terrified", "trying", "wrong"
+  ]));
+  var FUCKING_SUBJECTS = Object.freeze(SUBJECT_PRONOUNS.concat([
+    "it", "no one", "nobody", "someone",
+    "everybody", "everyone", "I'll", "you'll", "he'll", "she'll", "we'll",
+    "they'll", "I'm gonna", "you're gonna", "we're gonna", "they're gonna"
+  ]));
+  var FUCKING_BASE_ACTIONS = Object.freeze([
+    "believe", "care", "dare", "die", "do", "get", "go", "kill", "know",
+    "listen", "move", "need", "say", "see", "stop", "tell", "touch",
+    "understand", "want"
+  ]);
+  var FUCKING_ACTIONS = Object.freeze(FUCKING_BASE_ACTIONS.concat([
+    "did", "does", "doing", "find", "got", "hate", "hear", "jump", "kidding",
+    "killed", "kills", "knew", "knows", "left", "let", "lied", "love", "needs",
+    "shot", "sucks", "think", "told", "warned"
+  ]));
+  var FUCKING_AUXILIARY_PREFIXES = Object.freeze([
+    "can", "can't", "can't even", "cannot", "could", "couldn't", "didn't",
+    "do not", "does not", "don't", "don't even", "don't you", "doesn't", "haven't even", "better not",
+    "let's", "must", "should", "shouldn't", "will", "won't", "would", "wouldn't"
+  ]);
+  var FUCKING_AUXILIARY_ACTIONS = Object.freeze(FUCKING_BASE_ACTIONS.concat([
+    "attack", "be", "breathe", "defrosted", "end", "fight", "have", "launch",
+    "lie", "like", "look", "matter", "party", "redo", "stand", "start", "suck",
+    "talk", "trust", "work"
+  ]));
+  var NUMBER_WORD_PATTERN = "(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion)";
+  var NUMBER_PATTERN = "(?:\\d+(?:[,.]\\d+)*|" + NUMBER_WORD_PATTERN + "(?:[-\\s]+" + NUMBER_WORD_PATTERN + "){0,3})";
+  var COUNT_UNIT_PATTERN = "(?:seconds?|minutes?|hours?|days?|weeks?|months?|years?|times?)";
 
-  var FIXED_IDIOM_RULE_PATTERNS = Object.freeze([
-    "no [shit].",
+  // Tier 1: exact idioms. These must win over every productive or fallback rule.
+  var EXACT_IDIOM_RULE_PATTERNS = Object.freeze([
     [["start with this", "start this"], "[bullshit]"],
-    "what is this [shit|bullshit]",
-    "oh god oh [fuck]",
-    [["fancy", "basic", "holy", "oh"], "[shit|fuck]"],
+    "holy [shit|fuck|fucking]",
     "this [shit] happened",
-    "all the [fucking] time",
-    "all the [shit]",
     [["none of that", "that kind of", "this kind of", "this type of", "that type of"], "[shit]"],
-    [["a load", "a crock", "pile", "sack"], "of [shit]"],
+    [["crock", "pile", "sack"], "of [shit]"],
     "the actual [fuck]",
-    "what in the [fuck]",
-    "what is that [shit]",
-    "you look like [shit]",
-    "you don't know [shit]",
-    "I can't see [shit]",
-    "cut the [bullshit|shit]",
+    "don't know [shit] about",
+    "can't see [shit]",
     [["lose your", "lose my"], "[shit]"],
-    "enough of this [bullshit|shit]",
     "zero [fucking] deaths",
     "pure [fucking] respect",
     "piece of [fucking] ass",
+    "piece of [fucking] [shit]",
+    "write this [shit|fucking] down",
+    "stole my [shit]",
     "apply that [shit]",
-    ["I", "[shit]", ["my", "in my"]],
-    "load of [shit]",
     [["live for", "redoing", "struggle at"], "this [shit]"],
     "respect women and [shit]",
     "all this [shit] again",
     "delete your [shit]",
-    "pathetic little [moron]",
-    "good [shit].",
-    [["give a", "gives a"], "[fuck|shit]"],
+    "pathetic little [moron|bitch]",
+    [["give a", "gives a"], "[shit|fuck]"],
+    "a [shit|fucking|fuck] ton",
+    "that's the [shit] right there",
+    "the whole [fucking] ",
     "bull [fucking] [shit]",
-    "dumb [fuck|shit]",
     "this is some [bullshit]",
     [BULLSHIT_PREFIXES, "[bullshit]"],
     ["[bullshit]", BULLSHIT_SUFFIXES],
-    "that [shit|bullshit].",
-    "zero [fucks]"
+    "zero [fucks].",
+    "[fuck] yeah dude",
+    [["empty the", "using the"], "[shitter]"],
+    "use the [shitter] as much",
+    "cool [shit]",
+    "any of this [shit|fucking]",
+    "a whole bunch of [shit|bullshit]",
+    "there's so much [shit|fucking]",
+    "lot of [shit|fucking] going"
+  ]);
+
+  // Tier 2: productive expressions with enough context to remain high precision.
+  var PRODUCTIVE_EXPRESSION_RULE_PATTERNS = Object.freeze([
+    [["in deep", "smells like"], "[shit]"],
+    [["can't do", "cannot do", "didn't do", "doesn't know", "didn't say", "not telling you"], "[shit]"],
+    [["go", "going", "went", "gone"], "to [shit]."],
+    [["yeah no", "yeah, no", "me like", "some crazy", "see this"], "[shit]"],
+    ["or some", "[shit]"],
+    "of that [shit|fucking|bullshit|fuck|fucker]",
+    [["sick of", "don't need", "listen to", "up with"], "this [shit]"],
+    "you believe that [shit]",
+    "cut that [shit] out",
+    "like ah [shit]",
+    "and [shit] like that",
+    "[shit|fuck] out of me",
+    "[fuck|fucked|fucking] that guy",
+    "[fuck] right off",
+    "to [fuck|shit] with",
+    "[shit] all the time",
+    "I [shit|fuck] you not",
+    "to [shit|fucking] on",
+    [["freak", "freaks", "freaked", "freaking"], "me the [fuck] out"],
+    "the living [shit] out of",
+    [["clean this", "clean that"], "[shit] up"],
+    "like a [fucking|bitch|shit|moron|fuck]",
+    "watch this [shit|fuck|fucking]",
+    [["all this", "all that"], "[shit|fucking|bullshit|pussy|fuck]"],
+    [["look at this", "look at that"], "[shit|fucking|fuck|bullshit|whore|fucker]"]
   ]);
 
   var PHRASAL_VERB_RULE_PATTERNS = Object.freeze([
-    "want to [fuck] ",
-    "try to [fuck] ",
+    "try to [fucking|fuck|shit] ",
     "better not [fuck] things up",
+    "[fuck] him up",
     [FUCKING_WITH_PREFIXES, "[fucking] with"],
     [["dream about", "dream of"], "[fucking] "],
-    [SUBJECT_PRONOUNS, "[fucked] it up"],
-    [["was", "were"], "[fucked] with"],
+    [["I", "he", "she", "we", "they"], "[fucked] it up"],
+    "were [fucked] with",
     "don't you [fuck] with",
     "don't [fuck] with",
+    "I can [fuck] with",
     [["have", "has", "had"], "[fucked]", ["it", "me"]],
     [["am", "is", "are", "was", "were"], "[fucking] it"],
     [["is", "was", "keeps"], "[fucking] me"],
+    [["am", "is", "are", "was", "were", "be", "been", "being", "I'm", "you're", "he's", "she's", "we're", "they're", "just"], "[dicking|fucking|dickin|fucked] around"],
     "good at [fucking] it",
-    [["will", "can", "to"], "[fuck]", ["it", "me"]],
+    [["will", "can", "to"], "[fuck] me"],
     "almost [fucked] me",
-    ["[fuck]", ["yourself", "off"]],
-    "[fuck|shit|bullshit|fucked] this",
-    "[fuck|fucking|fucked] me",
-    "[fuck|fucking|fucked|shit|bullshit|bitch] it",
-    [FUCK_UP_VERB_PREFIXES, SWEAR_SLOT.PHRASAL_VERB + " up"],
+    [["are you", "gotta be", "got to be", "to be"], "[shitting] me"],
+    "don't [bullshit] me",
+    [FUCK_UP_VERB_PREFIXES, "[fuck] up"],
     [FUCK_UP_VERB_PREFIXES, FUCK_UP_PRONOUN_SUFFIXES],
     [["make", "let", "help"], "you [fuck] up"],
-    [SWEAR_SLOT.PHRASAL_VERB + " up", FUCK_UP_OBJECTS],
+    ["[fuck] up", PHRASAL_UP_OBJECTS],
     ["to", "[fuck] up"],
     [PERFECT_PREFIXES, "[fucked] up"],
     [["keep", "keeps", "stop", "stopped"], "[fucking] up"],
     "kept [fucking|fucked] up",
     "you are [fucking] up",
     "you're [fucking|fucked] up",
-    ["go", "[fuck]", ["yourself", "himself", "herself", "themselves"]],
-    [["[fuck] you"], ["man", "game", "link", "piece of", "Jesus", "Jimmy", "everyone"]],
+    ["go", "[fuck]", ["himself", "herself", "themselves"]],
+    [["[fuck] you"], ["man", "game", "link", "piece of", "Jesus", "Jimmy", "everyone", "all", "I", "too", "doing", "dude", "and"]],
+    "[fuck] you,",
+    [["[fuck] all of you", "[fuck] outta here"]],
+    "we're all [fucked]",
     "get [fucked] by",
     "you're getting [fucked] now",
-    [["got", "get", "getting", "being", "been"], "[fucked] over"],
-    "can get [fucked].",
-    "let's get [fucked] up",
+    "kind of [dicked|fucked] me over",
+    [["got", "get", "getting", "being", "been"], "[fucked|dicked] over"],
+    "can get [fucked]",
+    "get [fucked] up",
     [["we are", "we're", "is so", "I'm so", "you're so"], "[fucked]."],
     "shut the [fuck]",
+    "getting the [fuck] out of",
     [SHIT_OUT_PREFIXES, "the [shit|fuck] out"],
-    [["scares", "kick", "smack", "beat"], "the [shit] out"],
-    "freaking the [fuck] out",
+    "freaked the [fuck|shit] out",
+    [SHIT_OUT_ACTIONS, "the [shit|fuck] out"],
+    "freaking the [fuck|shit] out",
     [SHIT_TOGETHER_PREFIXES, "[shit] together"],
     [["make", "made"], "this [shit] up"]
   ]);
 
-  var SYNTACTIC_GRAMMAR_RULE_PATTERNS = Object.freeze([
+  var SYNTACTIC_RULE_PATTERNS = Object.freeze([
     "whatever the [fuck]",
     ["the [fuck]", FUCK_THE_SUFFIXES],
-    ["get the [fuck]", ["away", "out", "outta", "down", "back", "over"]],
-    [["sit", "calm", "slow", "stay"], "the [fuck] down"],
-    "stay the [fuck] back",
+    "come the [fuck] on",
+    "wake the [fuck] up",
+    [["get the", "stay the"], "[fuck]", ["away", "out", "outta", "down", "back", "over", "in"]],
+    [["sit", "calm", "slow"], "the [fuck] down"],
+    "it the [fuck] down",
     "the [fuck's] going on",
-    "so the [fuck] what",
     "[fuck's] sake",
-    [QUESTION_WORDS, "the [fuck]"],
     "did you just [fucking] call",
+    "how [fucking] dare you",
+    [["oh", "oh,"], "[fuck|shit] you"],
     [FUCK_YOU_PREFIXES, "[fuck] you"],
     [FUCK_VERB_PREFIXES, "[fuck] "],
-    ["[fuck]", ["yeah."]],
     "flying [fuck]",
-    "[fuck|shit|cock] all",
-    "the [fuck] man",
-    "[fuck] is this",
-    "this [shit|bullshit].",
-    "how [shit|fucked] you are",
+    "[fuck] yeah.",
     [SHIT_NOUN_PREFIXES, "[shit]"],
     [["piece", "pieces"], "of [shit]"],
     [["fucking", "dog", "horse"], "[shit]"],
     "absolute [shit] show",
     "don't give me [shit] about",
     [["miss", "sell"], "the [shit] out of"],
-    [["tired of your", "tired of this"], "[bullshit|shit]"],
-    "bunch of [bullshit|shit|bitches]",
     [["stuck up", "stuck up little"], "[bitch]"],
     ["[shit]", SHIT_INITIAL_SUFFIXES],
     "all [shit] themselves",
     "getting the [shit] kicked",
+    ["[cocks]", ["its head", "his head", "her head", "their head", "an eyebrow", "his eyebrow", "her eyebrow", "their eyebrow"]],
 
     [["your", "r", "his", "my"], "[shit] together"],
-    "that's [fucked|bullshit]",
     "of [fucking] control",
-    [["I", "he", "she", "we", "they"], "[fucked] up"],
-    "you [fucked|fuck|fucking] up",
+    [["I", "he", "she", "they"], "[fucked] up"],
+    "you [fucked|fuck|fucking|fuckers] up",
     [FUCKED_UP_PREFIXES, "[fucked] up"],
-    [THIRD_PERSON_TARGETS, "[fucked] my"],
+    [["he", "she", "they"], "[fucked] my"],
     [BE_FORMS.concat(["all", "team", "station", "fish station"]), "[fucked] up"],
     "re [fucked]."
   ]);
@@ -254,120 +357,120 @@
     "wish a [bitch] would",
     "your [cock] shouldn't",
     "son of a [bitch]",
-    "sons of [bitches]",
+    [["son of", "sons of"], "[bitches]"],
     "[bitch] and moan",
     "an [asshole|arsehole]",
     "sick [fuck|fucker].",
-    "don't be a [pussy|bitch]",
-    "come on, you [bitch]",
-    [["am I the", "not the", "you are the", "call them a"], "[asshole]"]
+    "am I the [asshole]",
+    "call them a [asshole]",
+    "consumer [whore]",
+    [["where is", "where's"], "this [motherfucker]"],
+    "wretched [cunts]",
+    "is for [pussies]"
   ]);
 
-  var FUCKING_RULE_PATTERNS = Object.freeze([
+  var CONTEXTUAL_FUCKING_RULE_PATTERNS = Object.freeze([
     // Fixed expressions.
-    "oh my [fucking] god",
+    [["the", "this"], "[fucking]", ["game", "cat"]],
+    "the [fucking] light",
+    "these [fucking] people",
     ["god", "[fucking]", ["damn it", "dammit", "damn"]],
     "jesus [fucking] christ",
     "swear to [fucking] god",
     "the last [fucking] time",
-    "give me a [fucking] break",
     "[fucking] pieces of",
-    [["be", "are you"], "[fucking] kidding"],
-
     // Verbs and commands.
-    "I'll [fucking] do it",
     "just [fucking] do it",
-    "I didn't [fucking] do it",
     ["just", "[fucking]", ["tell me", "tell us"]],
     ["I'll", "[fucking]", ["show you", "take the", "gut you"]],
-    "I'm gonna [fucking] murder you",
-    [FUCKING_VERB_SUBJECTS, "[fucking]", FUCKING_VERBS],
-    [["I", "we", "they", "he"], "[fucking] do"],
-    "you [fucking] do well",
-    [["I", "we", "you", "she"], "[fucking] got"],
-    ["I", "[fucking]", ["get", "work"]],
+    "gonna [fucking] murder you",
+    "I [fucking] work",
     "it [fucking] works",
-    [FUCKING_AUXILIARIES, "[fucking]", FUCKING_BASE_VERBS],
+    [["I have", "I had", "you have", "you had", "we have", "we had", "they have", "they had"], "[fucking] no"],
     "have to [fucking] redo",
     "does not [fucking] ever end",
     "does this level [fucking] ever end",
-    "can you [fucking] stop",
+    "don't have [fucking] time",
     ["just", "[fucking]", ["die", "snorted"]],
     "that [fucking] kills",
     "[fucking] unsubscribe",
 
     // Adjectives and adverbs.
     "being [fucking] nonchalant",
-    [["are you", "I'm", "you're", "he's", "she's"], "[fucking] serious"],
-    [FUCKING_ADJECTIVE_PREFIXES, "[fucking]", FUCKING_ADJECTIVES],
     [["goddamn", "god damn"], "[fucking] hot"],
-    "that was [fucking] smooth",
     "I'll be [fucking] annoyed",
-    "it's [fucking] impossible",
-    "going to be [fucking] easy",
     "look how [fucking] far",
     "just [fucking] great",
-    "not [fucking] funny",
+    "a [fucking] good",
     "a [fucking] dead",
     "[fucking] cancerous",
     "right [fucking] there",
 
     // Objects, people, places, and quantities.
-    [["open", "shut"], "the [fucking] door"],
-    [["get in", "stop"], "the [fucking] car"],
-    [["get on", "stay on"], "the [fucking] ground"],
-    [["get your", "keep your"], "[fucking] hands off"],
-    "shut your [fucking] mouth",
-    "do your [fucking] job",
-    [["where's my", "where's the"], "[fucking] money"],
-    ["every", "[fucking]", ["time", "day"]],
     [["goddamn", "god damn"], "[fucking] light"],
-    "the [fucking] lights",
-    "my [fucking] toes",
     "smallest [fucking] mouse",
-    "no [fucking] space",
-    "what a [fucking] load of",
     ["[fucking]", ["speedrun", "tail", "ripper"]],
-    "that [fucking] place",
     "[fucking] speedun",
     "[fucking] piece of",
-    "you [fucking] god",
-    "no [fucking] sense",
-    [["my", "where's my"], "[fucking] checkpoint"],
-    [["my", "give me my"], "[fucking] lives"],
-    "the [fucking] light",
-    [["the", "this"], "[fucking]", ["level", "jump", "thing", "game", "hand", "sword", "cat", "boar", "fish"]],
-    [["the", "these"], "[fucking]", ["places", "guys"]],
-    "these [fucking] people",
-    [["a", "this"], "[fucking]", ["rhythm game", "platform", "pig"]],
-    "40 [fucking] minutes",
-    "three [fucking] years",
-    "500 [fucking] times",
-
-    // Corpus-validated broad fallbacks stay last.
-    [SAFE_FUCKING_PREFIXES, "[fucking] "],
-    ["[fucking]", FUCKING_TRAILING_WORDS],
+    "to [fucking] die",
+    "just [fucking] go",
   ]);
 
-  var FALLBACK_SAFE_RULE_PATTERNS = Object.freeze([
+  // Tier 4: ambiguous fallbacks. Tier 3 grammar rules are compiled below.
+  var FALLBACK_RULE_PATTERNS = Object.freeze([
+    "what in the [fuck]",
+    [["what is that", "what is this"], "[shit|bullshit|fucking|motherfucker]"],
+    [QUESTION_WORDS, "the [fuck|fucking|fuckers]"],
+    [["back", "bounce", "butt", "come", "drop", "go", "move", "moving", "roll", "spread", "walk", "want"], "the [fuck] out"],
+    [["get me", "get you", "get him", "get her", "get us", "get them", "get 'em", "get everyone", "get that"], "the [fuck] out"],
     [["chill", "knocked", "leave me"], "the [fuck]"],
-    [["the [fuck]", "right [fuck]"], ["out", "away", "alone"]],
+    ["right [fuck]", ["out", "away", "alone"]],
     "super [fucked] up",
     "show some [fucking] respect",
     "sit [fucking] still",
-    "as [fuck]",
-    // Broad fallbacks: keep these behind specific grammar and idioms.
-    "this [shit] is"
+    "[fuck] me",
+    ["[fuck]", ["yourself", "off"]],
+    "this [shit|motherfucker|bitch|bullshit|fucker|fucking] is",
+    "oh [shit|fuck|fucking]",
+    "[fuck|shit|bullshit|fucked|fucking|bitch|motherfucker|fucker] this",
+    "[fuck|fucking|fucked|shit|bullshit|bitch] it",
+    [SAFE_FUCKING_PREFIXES, "[fucking] "],
+    ["[fucking]", FUCKING_TRAILING_WORDS],
+    "in the [fucking|shit|fuck] ",
+    "I'm a [fucking|fuck|bitch|whore] ",
+    "have a [fucking|shit|bullshit] ",
+    "there's a [fucking|fuck] ",
+    "got a [fucking|shit|fucked] ",
+    "[fucking|shit|fuck|bitch] cool",
+    "[fucking|fuck|bitch] nothing",
+    "[fucking|shit] sucks",
+    "[shit|fucking] like this",
+    "[shit] all over the",
+    "[fucking|shit|asshole|fucked] thing",
+    "[fucking|bitch|fuck|bullshit|pussy] ass",
+    "[fucking|fuck|fuckers|motherfucker|fucker] kill",
+    "[fucking|fuck] awesome",
+    "completely [fucking|fucked|fuck|bitch|shit] ",
+    "were [fucking|bullshit|shit|asshole|assholes|shitting] ",
+    "let's [fucking|fuck|fucker] ",
+    "can I [fucking|fuck|shit] ",
+    [["ain't got", "do cool", "the good"], "[shit] "],
+    "all your [shit|fucking] ",
+    [["cuz", "to say"], "[fuck] "],
+    "woo [fuck|bitches] ",
+    "[fuck|cock] away"
   ]);
 
-  var RULE_PATTERNS = Object.freeze([].concat(
-    FIXED_IDIOM_RULE_PATTERNS,
+  var EXACT_RULE_PATTERNS = EXACT_IDIOM_RULE_PATTERNS;
+  var PRODUCTIVE_RULE_PATTERNS = Object.freeze([].concat(
+    PRODUCTIVE_EXPRESSION_RULE_PATTERNS,
     PHRASAL_VERB_RULE_PATTERNS,
-    SYNTACTIC_GRAMMAR_RULE_PATTERNS,
+    SYNTACTIC_RULE_PATTERNS,
     INSULT_NOUN_RULE_PATTERNS,
-    FUCKING_RULE_PATTERNS,
-    FALLBACK_SAFE_RULE_PATTERNS
+    CONTEXTUAL_FUCKING_RULE_PATTERNS
   ));
+  var SPECIFIC_RULE_PATTERNS = Object.freeze(EXACT_RULE_PATTERNS.concat(PRODUCTIVE_RULE_PATTERNS));
+  var RULE_PATTERNS = Object.freeze(SPECIFIC_RULE_PATTERNS.concat(FALLBACK_RULE_PATTERNS));
 
   function rule(template) {
     return Object.freeze({
@@ -437,7 +540,26 @@
     return patterns;
   }
 
+  var SPECIFIC_RULE_COUNT = SPECIFIC_RULE_PATTERNS.flatMap(expandPatternEntry).length;
   var DETERMINISTIC_RULES = Object.freeze(RULE_PATTERNS.flatMap(expandPatternEntry).map(pattern));
+  var CONTINUING_PREFIXES = Object.freeze([].concat(
+    DETERMINISTIC_RULES.filter(function openEndedRule(candidate) {
+      return /\[__\]\s$/.test(candidate.template);
+    }).map(function openEndedPrefix(candidate) {
+      return candidate.template.replace(/\[__\]\s$/, "").trim();
+    }),
+    FUCKING_DETERMINERS,
+    FUCKING_COPULAS,
+    FUCKING_SUBJECTS,
+    FUCKING_AUXILIARY_PREFIXES,
+    FUCKING_ADJECTIVE_PREFIXES
+  ).filter(function nonemptyPrefix(prefix, index, prefixes) {
+    return prefix && prefixes.indexOf(prefix) === index;
+  }));
+  var CONTINUING_PREFIX_REGEX = new RegExp(
+    "(^|[^\\p{L}\\p{N}_'’])(?:" + regexAlternatives(CONTINUING_PREFIXES) + ")\\s*$",
+    "iu"
+  );
 
   function escapeRegExp(value) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -504,7 +626,9 @@
 
     if (!/[.!?]$/.test(primary)) {
       primary += punctuationAfterToken(matchedText) ||
-        (nextWordIsTitleCase(afterToken) && !/^\s+(?:hell|christ|god)\b/i.test(afterToken) && !(questionPhraseBeforeToken && pronounAfterToken) ? "." : "");
+        (nextWordIsTitleCase(afterToken) && !phraseContinuesAfterToken(beforeToken) &&
+          !/^\s+(?:hell|christ|god)\b/i.test(afterToken) &&
+          !(questionPhraseBeforeToken && pronounAfterToken) ? "." : "");
     }
 
     return {
@@ -524,11 +648,57 @@
     return {
       index: index,
       rule: rule,
-      regex: new RegExp((startsWithPunctuation ? "()" : "(^|[^\\p{L}\\p{N}_])") + "(" + escaped + ")" + (endsWithSpace ? "" : "(?=$|[^\\p{L}\\p{N}_])"), "giu")
+      regex: new RegExp((startsWithPunctuation ? "()" : "(^|[^\\p{L}\\p{N}_'’])") + "(" + escaped + ")" +
+        (endsWithSpace ? "" : "(?=$|[^\\p{L}\\p{N}_'’])"), "giu")
     };
   }
 
-  var COMPILED_RULES = DETERMINISTIC_RULES.map(compileRule);
+  var RULE_ENTRIES = DETERMINISTIC_RULES.map(function createRuleEntry(rule, index) {
+    return {
+      index: index,
+      rule: rule,
+      regex: null
+    };
+  });
+
+  function ensureCompiled(entry) {
+    if (!entry.regex) {
+      entry.regex = compileRule(entry.rule, entry.index).regex;
+    }
+    return entry;
+  }
+
+  function regexAlternatives(values) {
+    return values.slice().sort(function longestFirst(left, right) {
+      return right.length - left.length;
+    }).map(function compileAlternative(value) {
+      return escapeRegExp(value).replace(/'/g, "['\u2019]").replace(/ /g, "\\s+");
+    }).join("|");
+  }
+
+  function compileExpressionRule(template, word, phrase, index) {
+    return {
+      index: index,
+      rule: rule(template, word),
+      regex: new RegExp("(^|[^\\p{L}\\p{N}_'’])(" + phrase + ")(?=$|[^\\p{L}\\p{N}_'’])", "giu")
+    };
+  }
+
+  function compileGrammarRule(template, word, prefixes, suffixes, index) {
+    return compileExpressionRule(template, word, "(?:" + regexAlternatives(prefixes) +
+      ")\\s+\\[__\\]\\s+(?:" + regexAlternatives(suffixes) + ")", index);
+  }
+
+  // Tier 3: reusable grammar frames. They run after contextual expressions but
+  // before broad fallbacks.
+  var COMPILED_GRAMMAR_RULES = Object.freeze([
+    compileGrammarRule("<determiner> [__] <noun>", "fucking", FUCKING_DETERMINERS, FUCKING_NOUNS, RULE_ENTRIES.length),
+    compileGrammarRule("<copula> [__] <predicate>", "fucking", FUCKING_COPULAS, FUCKING_PREDICATES, RULE_ENTRIES.length + 1),
+    compileGrammarRule("<subject> [__] <action>", "fucking", FUCKING_SUBJECTS, FUCKING_ACTIONS, RULE_ENTRIES.length + 2),
+    compileGrammarRule("<auxiliary> [__] <action>", "fucking", FUCKING_AUXILIARY_PREFIXES, FUCKING_AUXILIARY_ACTIONS, RULE_ENTRIES.length + 3),
+    compileGrammarRule("<modifier> [__] <adjective>", "fucking", FUCKING_ADJECTIVE_PREFIXES, FUCKING_ADJECTIVES, RULE_ENTRIES.length + 4),
+    compileExpressionRule("<number> [__] <count unit>", "fucking", NUMBER_PATTERN + "\\s+\\[__\\]\\s+" + COUNT_UNIT_PATTERN, RULE_ENTRIES.length + 5)
+  ]);
 
   function trieNode() {
     return {
@@ -560,7 +730,7 @@
     return rootNode;
   }
 
-  var RULE_TRIE = buildRuleTrie(COMPILED_RULES);
+  var RULE_TRIE = buildRuleTrie(RULE_ENTRIES);
 
   function candidateRulesForText(text) {
     var words = ruleWords(text);
@@ -582,7 +752,18 @@
 
     return Array.from(selected.values()).sort(function sortByRuleOrder(left, right) {
       return left.index - right.index;
+    }).map(ensureCompiled);
+  }
+
+  function orderedRulesForText(text) {
+    var candidates = candidateRulesForText(text);
+    var fallbackOffset = candidates.findIndex(function isFallback(compiled) {
+      return compiled.index >= SPECIFIC_RULE_COUNT;
     });
+
+    fallbackOffset = fallbackOffset < 0 ? candidates.length : fallbackOffset;
+    return candidates.slice(0, fallbackOffset)
+      .concat(COMPILED_GRAMMAR_RULES, candidates.slice(fallbackOffset));
   }
 
   function findTokenRange(value) {
@@ -653,6 +834,10 @@
     return /^\s*["'(\[]*(?:I\b|[A-Z][a-z]|[A-Z]{2,}\s+[a-z])/.test(afterToken);
   }
 
+  function phraseContinuesAfterToken(beforeToken) {
+    return CONTINUING_PREFIX_REGEX.test(beforeToken);
+  }
+
   function insertVirtualSentencePunctuation(text) {
     return text.replace(CENSORED_TOKEN_REGEX, function punctuateToken(token, offset) {
       var beforeToken = text.slice(0, offset);
@@ -663,6 +848,15 @@
       }
 
       if (/(?:whatever|what|how|why|where|who|when)\s+the\s*$/i.test(beforeToken) && /^\s*(?:I|you|he|she|they|we|it)\b/.test(afterToken)) {
+        return token;
+      }
+
+      // A title-cased destination is not a new caption after an intensifier.
+      if (/\b(?:go|going|went|gone)\s+to\s*$/i.test(beforeToken)) {
+        return token;
+      }
+
+      if (phraseContinuesAfterToken(beforeToken)) {
         return token;
       }
 
@@ -688,7 +882,7 @@
     var replacements = [];
     var occupiedRanges = [];
 
-    candidateRulesForText(normalizedText).forEach(function applyRule(compiled) {
+    orderedRulesForText(normalizedText).forEach(function applyRule(compiled) {
       var match;
 
       compiled.regex.lastIndex = 0;
@@ -743,7 +937,7 @@
           end: tokenEnd
         });
       }
-    });
+      });
 
     replacements.sort(function sortByPosition(left, right) {
       return left.textStart - right.textStart;

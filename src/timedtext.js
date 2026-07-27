@@ -123,10 +123,10 @@
       }
 
       deterministic = deterministicByTokenIndex.get(absoluteTokenIndex);
-      return deterministic && deterministic.word ? deterministic.word : "";
+      return deterministic && deterministic.word ? deterministic.word : "…";
     });
 
-    return ((previousEventText || "").replace(CENSORED_TOKEN_REGEX, "") + " " + currentContext).trim();
+    return ((previousEventText || "").replace(CENSORED_TOKEN_REGEX, "…") + " " + currentContext).trim();
   }
 
   function adjacentTokenGroups(eventText) {
@@ -282,7 +282,7 @@
     eventTexts = payload.events.map(function mapEventText(event) {
       return event && Array.isArray(event.segs) ? getEventText(event) : "";
     });
-    result = deterministic ? rules.applyDeterministicRules(eventTexts.join("\n")) : { replacements: [] };
+    result = deterministic ? rules.applyDeterministicRules(eventTexts.join(" ")) : { replacements: [] };
 
     if (typeof body === "string") {
       deterministicAnalysisCache = {
