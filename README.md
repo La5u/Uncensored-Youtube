@@ -1,326 +1,120 @@
 # Uncensored
 
-Uncensored restores words hidden as `[__]` in YouTube captions. YouTube's
-caption censorship is particularly harmful to deaf and hard-of-hearing viewers,
-who otherwise receive less information than hearing viewers.
+Uncensored restores words hidden as `[__]` in YouTube captions, primarily for
+deaf and hard-of-hearing viewers. Audio, captions, and inference stay local.
 
-The extension intercepts YouTube JSON3 timed-text responses and can combine
-deterministic text rules with a small, fully local Whisper model. No audio,
-captions, or inference requests are sent to a remote service.
+## Modes
 
-## How it works
-
-### Caption interception
-
-`src/page-hook.js` installs in the YouTube page world and intercepts caption
-`fetch`/XHR responses. `src/timedtext.js` parses each JSON3 caption event,
-normalizes variants such as `[ __ ]` to `[__]`, and assigns every censored slot
-a stable token index. Resolved words are also applied to later timed-text
-responses so a YouTube caption redraw does not restore `[__]`.
-
-### Deterministic rules
-
-`src/rules.js` uses surrounding caption text to produce one or more candidates.
-Candidates are written in likelihood order:
-
-```js
-"give a [fuck|shit]"
-"oh [shit|fuck]"
-```
-
-If the preceding meaningful word is all caps, the restored swear is displayed
-in all caps as well. One-letter words such as `A` and `I` are ignored.
-
-With rules enabled and Whisper disabled, the first candidate is used. With both
-enabled, an unambiguous rule can resolve immediately and Whisper handles the
-remaining cases. With rules disabled, only Whisper resolutions may replace a
-slot. If Whisper emits an ambiguous masked f-word such as `f*`, the ordered
-f-word candidates from these rules select its grammatical form; other rule
-results remain disabled.
-
-### Local Whisper inference
-
-`src/sabr-parser.js` keeps each YouTube SABR stream in the content-script
-lifetime and emits the audio segments already fetched for playback.
-`src/audio-capture.js` decodes and stitches enough PCM around each slot. Every
-resolution word must belong to the rules vocabulary. It then sends
-one inference request at a time to the quantized local `whisper-tiny.en` model.
-The shared before/after audio margin is controlled by
-`AUDIO_CONTEXT_SECONDS`. It is currently 1.5 seconds.
-
-When audio inference is enabled, lightweight SABR parsing starts with the video
-so a late caption response cannot strand Whisper without stream state. PCM
-decoding stops once English caption data confirms that the video has
-no `[__]` slots; it continues only for videos that need Whisper. Decoded
-segments are released as soon as no unresolved token window overlaps them, and
-the model itself starts only when captions contain `[__]` slots. The model stays
-warm across same-tab
-YouTube navigation, including an intermediate search page; closing the tab or
-leaving YouTube releases the worker host. A capped `sessionStorage` cache reuses
-words after a same-tab reload only when video, track, token time, and context
-still match; another video or closing the tab discards it.
-
-Multiple slots in one caption event are inferred as a group. Separate requests
-do not reuse audio already consumed by the immediately preceding resolved slot.
-Incomplete groups apply nothing positionally and retry the unresolved slots
-individually.
-
-Each slot uses its nearest preceding ordinary JSON3 word to locate its result in
-the Whisper transcript. If that anchor is absent or ambiguous, ordinal placement
-is used instead; no visible-caption history is required.
-
-### Rolling live captions
-
-YouTube continually rebuilds its two visible caption rows. The content script
-therefore keeps resolved tokens independently of the current DOM:
-
-1. The top and bottom rows are treated as one rolling caption window.
-2. A compact JSON timeline supplies event times, text, and stable token indices;
-   Whisper supplies only swear words.
-3. The playhead selects nearby events, then ordinary visible words must identify
-   one unique alignment before any slot is changed.
-4. Resolutions are scoped by video and caption track, so repeated text and track
-   changes cannot reuse another slot's result.
-5. A caption-scoped mutation observer reapplies retained results after YouTube
-   scrolls or redraws rows. Extension-authored mutations are ignored.
-
-Navigation generations prevent late results from an old video being applied to
-a new one. Inference and SABR decoding are serialized, timed-out workers are
-discarded, and decoded audio is released after its covered tokens are processed.
-
-Navigation handling follows the same invariants for a fresh load, recommendation
-click, search-page detour, browser back/forward, or reload: media observed during
-navigation waits for a committed video ID; known old-video media is rejected;
-caption, audio, cache, and DOM resolutions all carry video and track identity;
-and a newer navigation generation invalidates unfinished older work.
-
-## Settings behavior
-
-| Context Rules | Audio Inference | Result |
+| Context rules | Audio inference | Behavior |
 | --- | --- | --- |
+| On | On | Rules resolve clear cases; Whisper handles the rest. |
 | On | Off | Use the first deterministic candidate. |
-| On | On | Apply unambiguous rules; use audio for uncertain slots. |
-| Off | On | Replace only from Whisper audio results. |
+| Off | On | Use only local Whisper results. |
 | Off | Off | Leave captions unchanged. |
 
-Settings are loaded before the page hooks are activated, which prevents rules
-from briefly replacing words during Whisper-only startup.
+In the fixed audio benchmark, the default hybrid mode scored 91.1% precision
+and 85.8% coverage; Whisper-only scored 90.3%/85.4%. On the complete paired
+caption corpus, rules-only scored 87.3% precision and 37.6% coverage across
+39,002 scorable slots.
 
-## Debugging Whisper
+### Evaluation caveats
 
-Console messages prefixed with `[uncensored]` describe the pipeline:
+The larger rules-development corpus is heavily concentrated by creator:
 
-Enable them in the YouTube tab with
-`localStorage.setItem("uncensoredDebug", "1")`, reload, and enable the Verbose
-log level in Chromium DevTools.
+| Source | Paired videos | Scorable slots |
+| --- | ---: | ---: |
+| Jacksepticeye | 872 (66.9%) | 29,259 (75.0%) |
+| Stephanie Sterling / The Jimquisition | 277 (21.2%) | 6,576 (16.9%) |
+| Other 12 channels | 155 (11.9%) | 3,167 (8.1%) |
 
-- `whisper model starting` / `started`: local model initialization.
-- `audio decoded`: a playback segment became available; its timestamp is shown
-  as `minutes:seconds`.
-- `whisper slice`: a single-slot PCM window is ready.
-- `whisper group`, `group slice`, `group decision`: grouped-slot processing.
-- `whisper decision`: selected word, evidence type, and local transcript.
-- `whisper resolved`: all tokens resolved by that request.
-- `whisper queue state`: pending work and the next runnable token.
+This is an English, playlist-selected development corpus, weighted toward gaming
+and video-game commentary. Videos qualify only when separate automatic and
+manual English captions exist, the automatic track contains `[__]`, and the
+manual track supplies a supported swear. It therefore does not represent
+YouTube generally or the natural prevalence of censored captions.
 
-`next: null` while work remains normally means the next token does not
-yet have a complete buffered audio window. It does not mean the worker is busy.
+Rules were tuned and measured on this same corpus, so rules-only results are
+in-sample development figures rather than held-out estimates. Metrics are
+micro-averaged per caption slot, which gives prolific creators more influence.
+Of 46,046 detected slots, 39,002 (84.7%) could be aligned to an allowed
+ground-truth word and scored. Manual caption omissions, paraphrases, and timing
+differences can still introduce alignment error.
 
-## Known limitations
+## Architecture
 
-- Inference is intentionally single-filed and resolves the earliest buffered
-  token first. On slow hardware, a live caption may still scroll away before its
-  result is ready; timed-text patching preserves it when YouTube redraws it.
-- A visible window with no ordinary words, or with multiple identical nearby
-  alignments, is left unchanged rather than guessed.
-- The final token near the end of a video can wait if YouTube never supplies
-  enough trailing audio to complete the configured context window.
-- A suspended background tab may produce no audio logs because YouTube itself
-  is not fetching playback data; capture resumes when playback requests resume.
-- Firefox may unload the MV3 background event page while playback is paused.
-  Resuming can reload the Whisper model, but SABR parser state remains in the
-  content script and decoding continues from the existing stream.
-- Live DOM matching depends on YouTube's caption markup and may need adjustment
-  if that markup changes.
-- Seeking backward does not recreate audio that was discarded after earlier
-  tokens were processed. Revisiting an unresolved slot may therefore require a
-  fresh playback segment before Whisper can retry it.
-- Chromium 148 or newer is required for structured-clone extension messaging.
-  Chromium hosts Whisper in one offscreen extension document; Firefox hosts it
-  in its restartable background event page.
+- `page-hook.js` observes YouTube JSON3 captions and SABR media responses.
+- `timedtext.js` parses captions and gives every `[__]` slot a stable identity.
+- `rules.js` supplies deterministic replacements and Whisper candidates.
+- `sabr-parser.js` extracts audio already downloaded for playback.
+- `audio-capture.js` decodes only token-adjacent audio, queues inference, and
+  reapplies results when YouTube redraws its rolling caption rows.
+- `background.js`, `offscreen.js`, and `whisper-module-worker.js` keep Whisper
+  off the page thread. Chromium uses an offscreen document; Firefox uses its
+  background page.
 
-More implementation detail is in [LIVE_DOM_DEFERRED.md](LIVE_DOM_DEFERRED.md).
+Caption, audio, cache, and DOM state are scoped by video, track, and navigation
+generation. Decoding and the model stop when captions contain no censored slots.
+Decoded segments are discarded when no pending token needs them.
 
-### Seek recovery
+The local quantized `whisper-tiny.en` model runs through vendored
+Transformers.js and ONNX Runtime Web. No remote code is loaded.
 
-Seeking invalidates scheduled visible-caption work and reprioritizes Whisper
-around the new playhead without moving the video. Whisper groups and resolves
-one timed-text row at a time.
+## Limitations
 
-The same timeline can reset only the affected token windows after a seek and
-request fresh audio for them, without retaining decoded audio for the whole
-video.
+- Local inference can finish after a caption scrolls away on slow hardware.
+- Ambiguous visible rows are left unchanged rather than guessed.
+- A final slot may lack enough trailing audio to complete its inference window.
+- Seeking to discarded audio requires YouTube to fetch that media again.
+- Live replacement depends on YouTube's caption markup.
+- Chromium 148+ and Firefox 140+ are required.
 
-### TODO
+Enable debug logs in the YouTube tab, reload, and show Verbose messages:
 
-- Independently fetch audio beginning at the earliest visible subtitle row
-  after a seek, without moving playback. This requires a separate stateful SABR
-  request; merely retaining decoded audio cannot recover bytes YouTube did not
-  send.
-- Add optional WebGPU inference with capability detection and automatic WASM
-  fallback. The current local Whisper path is WASM-only.
-
-### Audio pipeline invariants
-
-Two rules keep the capture path reliable; both were broken once and made audio
-decoding appear to stop at random:
-
-- Every page-to-extension audio message must be acknowledged, even one that
-  will be discarded. The page-side pump sends each chunk only after the
-  previous chunk's acknowledgement, so a silently dropped message wedges the
-  whole stream for up to the 120-second relay timeout per chunk.
-- Never wait for `AudioContext` resumption before advancing the serialized
-  decode queue. `decodeAudioData` works on a suspended context, so resumption is
-  fire-and-forget and the decode timeout remains only a failure watchdog.
+```js
+localStorage.setItem("uncensoredDebug", "1")
+```
 
 ## Development
 
-Add or reorder deterministic patterns in `RULE_PATTERNS` in `src/rules.js`.
-Whisper-only work should not change those rules unless rule behavior is the
-explicit subject of the change.
+Whisper-only work should not change deterministic patterns unless rule behavior
+is explicitly in scope.
 
-### Repeatable testing
-
-Run the complete local regression, package, lint, ZIP-integrity, and production
-dependency checks:
+Run tests, both builds, ZIP validation, Firefox lint, and dependency audit:
 
 ```sh
 npm test
 ```
 
-Run the paired-caption accuracy benchmark and fail if the popup percentages or
-sample size no longer match the generated reports:
+Optional checks:
 
 ```sh
 npm test -- --benchmark
+npm test -- --browsers URL [URL...]
+npm test -- --all
 ```
 
-Run isolated, muted Chromium and Firefox smoke tests. The script starts with the
-first URL, exercises the same-document watch → search → watch lifecycle while
-loading the second video, verifies that the page hook survives, and closes both
-browsers when finished:
+Browser arguments include `--chromium-only`, `--firefox-only`, `--headless`,
+`--direct`, `--until=SECONDS`, `--pause=SECONDS`, and `--verbose`.
 
-```sh
-npm test -- --browsers \
-  'https://www.youtube.com/watch?v=kTeQSzHGWyw&t=9s' \
-  'https://www.youtube.com/watch?v=an5iFYcjWUM'
-```
-
-Add `--verbose` to print extension logs. A `t=` value on the first URL makes
-Chromium load the video from the beginning and then exercise an actual seek to
-that timestamp. If the first URL contains a playlist, the runner uses YouTube's
-playlist Next control. Pass each expected next video as another URL to test
-consecutive transitions.
-Use `--chromium-only` or `--firefox-only` to rerun one browser.
-Use `--direct` to test consecutive watch-to-watch transitions without the
-intermediate search page.
-Use `--until=SECONDS` to require continuous decoding through that point.
-Use `--pause=SECONDS` to pause after initial decoding and require decoding to
-resume afterward.
-
-Use `npm test -- --all` for every check. Browser smoke testing requires
-Chromium, Firefox, `web-ext`, and a graphical session for off-screen Chromium.
-Each run chooses isolated local debugging ports. Firefox runs headlessly;
-Chromium is placed off-screen because headless Chromium does not reliably fetch
-YouTube media. Installed uBlock Origin Lite is loaded automatically when found.
-The temporary profiles are isolated from normal browser profiles.
-
-When Codex runs these commands, approving the project-scoped `npm test` command
-prefix once allows later runs without approving every browser subprocess. No
-approval is needed when running the command directly in a terminal.
-
-### Browser testing notes
-
-Findings from driving real Firefox and Chromium builds; read before writing
-browser-level tests or changing the message relay:
-
-- Firefox content scripts see page-posted data through Xray wrappers in the
-  page's realm. `buffer instanceof ArrayBuffer` is false there even for a real
-  ArrayBuffer. Validate it with `Object.prototype.toString.call(buffer)`, then
-  use the content realm's `globalThis.structuredClone` before reading it.
-- YouTube's Trusted Types CSP blocks assigning strings to
-  `script.textContent`. Test drivers injected into the page must go through a
-  `trustedTypes.createPolicy(...).createScript(...)` wrapper.
-- A `postMessage` evaluated through WebDriver BiDi never reaches
-  content-script `window` message listeners. To simulate page-hook traffic,
-  inject a real page-realm script element and post from there.
-- Headless YouTube caption display is unreliable, so browser smoke tests assert
-  continuous audio decoding independently of visible caption replacement.
-  Whisper word accuracy remains covered by the local audio fixtures.
-- `build.sh` hardlinks (`cp -l`) `dist/*/src` to `src/`. Editing a built file
-  edits the repository source; only ever edit `src/` and rebuild.
-- Console output from content scripts and injected page scripts is captured by
-  BiDi `log.entryAdded` (Firefox) and CDP `Runtime.consoleAPICalled`
-  (Chromium), but background page and worker logs are not; debug the
-  background/worker indirectly by logging in the content script what they
-  return.
-
-### Accuracy benchmark
-
-The popup figures come from 1,448 scorable `[__]` slots in 54 videos that
-publish separate English automatic and human-written caption tracks. Precision
-is correct replacements divided by attempted replacements; coverage is correct
-replacements divided by all scorable slots.
-
-| Mode | Precision | Coverage |
-| --- | ---: | ---: |
-| Rules + Whisper | 91.1% | 85.8% |
-| Rules only | 80.3% | 34.0% |
-| Whisper only | 90.3% | 85.4% |
-
-The combined mode sent 25.8% fewer slots to Whisper than Whisper-only mode.
-These are benchmark results, not a guarantee for every channel or accent.
-
-Download audio plus paired auto/manual captions, then evaluate Whisper directly:
+Accuracy fixtures require `yt-dlp` and separate automatic and human English
+caption tracks:
 
 ```sh
 node tools/download-whisper-fixtures.js
-npm install
 node tools/evaluate-whisper-only.js
 node tools/evaluate-whisper-only.js --mode rules-only
 node tools/evaluate-whisper-only.js --mode rules+whisper \
-  --transcripts corpus/generated/whisper-only-report.json \
-  --output corpus/generated/rules-whisper-report.json
+  --transcripts corpus/generated/whisper-only-report.json
 ```
 
-Pass video IDs to the downloader to fetch a subset, or `--names ID,ID` to the
-evaluator to run one. Fixtures go to `test-fixtures/` and reports to
-`corpus/generated/`; both are ignored by git. The evaluator fails before loading
-Whisper if any requested audio or caption file is missing. Human-caption errors
-can be corrected with a small `expectedByToken` entry in the fixture manifest.
-`--transcripts` reuses a prior Whisper report when comparing combined mode.
-Before adding a video, verify `yt-dlp --list-subs URL` shows both an automatic
-English track and a separate English track under `subtitles`. Auto-only videos
-are valid browser smoke cases but must not be included in accuracy percentages.
-
-Useful caption and corpus tools:
-
-```sh
-node tools/example-report.js british.json
-node tools/compare-captions.js mov_censored.json mov.json
-node tools/subtitle-report.js example.json
-node corpus/evaluate-swear-corpus.js --input reddit_comments.zip --output corpus/generated/reddit --field body
-PYTHONPATH=/tmp/uncensored-pyarrow node corpus/evaluate-opensubtitles-parquet.js --input opensubtitlesen-es.parquet --output corpus/generated/opensubtitles
-```
+Fixtures are stored in ignored `test-fixtures/`; reports go to
+`corpus/generated/`.
 
 ## Build
 
 ```sh
-./build.sh 1.3.1
+./build.sh 1.3.2
 ```
 
-This creates separate Firefox and Chromium zip files in `dist/`. Firefox runs
-Whisper in its restartable background event page; Chromium keeps it in an
-offscreen extension page while YouTube requests are active. See
-[AMO_SOURCE.md](AMO_SOURCE.md)
-for source and vendored-runtime notes.
+This creates separate Chromium and Firefox ZIPs in `dist/`. See
+[AMO_SOURCE.md](AMO_SOURCE.md) for submission and vendored-runtime notes.
