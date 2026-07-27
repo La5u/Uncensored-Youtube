@@ -2,63 +2,57 @@
   "use strict";
 
   var runtime = root.browser || root.chrome;
-  var workers = Object.create(null);
+  var worker = null;
   var pending = new Map();
   var nextId = 1;
 
-  function failWorker(kind, error) {
-    var worker = workers[kind];
-    delete workers[kind];
+  function stopWorker(error) {
     if (worker) worker.terminate();
-    pending.forEach(function fail(request, id) {
-      if (request.kind !== kind) return;
+    worker = null;
+    pending.forEach(function fail(request) {
       clearTimeout(request.timer);
-      pending.delete(id);
-      request.reject(new Error(error || kind + " worker failed"));
+      request.reject(new Error(error || "Whisper worker failed"));
     });
+    pending.clear();
   }
 
-  function stopWorkers() {
-    Object.keys(workers).forEach(function stopWorker(kind) {
-      failWorker(kind, "Extension host stopped");
-    });
-  }
+  function getWorker() {
+    var created;
 
-  function getWorker(kind) {
-    if (workers[kind]) return workers[kind];
+    if (worker) return worker;
 
-    var worker = new Worker(runtime.runtime.getURL("src/whisper-module-worker.js"), { type: "module" });
-    worker.onmessage = function workerMessage(event) {
+    worker = new Worker(runtime.runtime.getURL("src/whisper-module-worker.js"), { type: "module" });
+    created = worker;
+    created.onmessage = function workerMessage(event) {
       var message = event.data || {};
       var request = pending.get(message.id);
       if (!request) return;
       clearTimeout(request.timer);
       pending.delete(message.id);
       if (message.ok === false) {
-        request.reject(new Error(message.error || kind + " worker failed"));
+        request.reject(new Error(message.error || "Whisper worker failed"));
       } else {
         request.resolve(message.decision || message);
       }
     };
-    worker.onerror = function workerError(event) {
-      failWorker(kind, event && event.message);
+    created.onerror = function workerError(event) {
+      if (worker === created) stopWorker(event && event.message);
     };
-    workers[kind] = worker;
-    return worker;
+    return created;
   }
 
-  function request(kind, message, transfer, timeoutMs) {
+  function request(message, transfer, timeoutMs) {
     var id = nextId;
     nextId += 1;
     return new Promise(function waitForWorker(resolve, reject) {
       var timer = setTimeout(function timedOut() {
-        failWorker(kind, kind + " worker timed out");
+        stopWorker("Whisper worker timed out");
       }, timeoutMs);
-      pending.set(id, { kind: kind, resolve: resolve, reject: reject, timer: timer });
+      pending.set(id, { resolve: resolve, reject: reject, timer: timer });
       try {
-        getWorker(kind).postMessage(Object.assign({ id: id }, message), transfer || []);
+        getWorker().postMessage(Object.assign({ id: id }, message), transfer || []);
       } catch (error) {
-        failWorker(kind, error && (error.message || String(error)));
+        stopWorker(error && (error.message || String(error)));
       }
     });
   }
@@ -67,22 +61,17 @@
     if (!message || !message.uncensoredOffscreen) return;
 
     if (message.kind === "shutdown") {
-      stopWorkers();
+      stopWorker("Extension host stopped");
       sendResponse({ ok: true });
       return;
     }
+    if (message.kind !== "whisper") return;
 
     var data = message.data || {};
-    var task;
-    if (message.kind === "whisper") {
-      task = request("whisper", Object.assign({ type: data.type }, data.data || {}),
-        data.type === "transcribe" && data.data && data.data.audio ? [data.data.audio] : [],
-        data.type === "preload" ? 30000 : 60000);
-    } else {
-      return;
-    }
-
-    task.then(sendResponse, function failed(error) {
+    request(Object.assign({ type: data.type }, data.data || {}),
+      data.type === "transcribe" && data.data && data.data.audio ? [data.data.audio] : [],
+      data.type === "preload" ? 30000 : 60000
+    ).then(sendResponse, function failed(error) {
       sendResponse({ error: error && (error.message || String(error)), segments: [] });
     });
     return true;
