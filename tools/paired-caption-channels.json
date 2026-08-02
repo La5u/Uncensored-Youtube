@@ -1,0 +1,651 @@
+{
+  "channels": [
+    {
+      "name": "SsethTzeentach",
+      "sources": [
+        "https://www.youtube.com/@SsethTzeentach/videos"
+      ]
+    },
+    {
+      "name": "YourMovieSucks / YMS",
+      "sources": [
+        "https://www.youtube.com/@YMS/videos",
+        "https://www.youtube.com/playlist?list=PLRoNIkmOtWKRRm69UF0ykCwNsV2y6J_m9",
+        "https://www.youtube.com/playlist?list=PLRoNIkmOtWKSH2VcMW3O26P78-3Gjfjx_"
+      ]
+    },
+    {
+      "name": "hbomberguy",
+      "sources": [
+        "https://www.youtube.com/playlist?list=PLnpbQOy7TfC0d-ftXljdEMalClw-Iufk3",
+        "https://www.youtube.com/@hbomberguy/videos"
+      ]
+    },
+    {
+      "name": "The Jimquisition",
+      "sources": [
+        "https://www.youtube.com/playlist?list=PLlRceUcRZcK0E1Id3NHchFaxikvCvAVQe",
+        "https://www.youtube.com/@Jimquisition/videos"
+      ]
+    },
+    {
+      "name": "ContraPoints",
+      "sources": [
+        "https://www.youtube.com/playlist?list=PLoa-Hy7hWIu6P0elpBsyXBihZiNyE06fj",
+        "https://www.youtube.com/@ContraPoints/videos"
+      ]
+    },
+    {
+      "name": "Drawfee",
+      "sources": [
+        "https://www.youtube.com/playlist?list=PL1XAXnLXDKl_CQX0U9R7R340oSbQYcLP6",
+        "https://www.youtube.com/@Drawfee/videos"
+      ]
+    },
+    {
+      "name": "Philosophy Tube",
+      "sources": [
+        "https://www.youtube.com/playlist?list=PLvoAL-KSZ32fWaihOgPSUnMoVSupZxjo8",
+        "https://www.youtube.com/@PhilosophyTube/videos"
+      ]
+    },
+    {
+      "name": "RedLetterMedia",
+      "sources": [
+        "https://www.youtube.com/@RedLetterMedia/videos",
+        "https://www.youtube.com/playlist?list=PLJ_TJFLc25JRrUJFPO6Iwy2vkn8QtqBCE",
+        "https://www.youtube.com/playlist?list=PLJ_TJFLc25JSmtBkyIYqgD5KabbU57yzY"
+      ]
+    },
+    {
+      "name": "Dimension 20",
+      "sources": [
+        "https://www.youtube.com/@dimension20show/videos",
+        "https://www.youtube.com/playlist?list=PLhOoxQxz2yFPI_0_7EviC1tX_nwq8SNxe",
+        "https://www.youtube.com/playlist?list=PLhOoxQxz2yFOMM8Du_js4wuFpG-6H69wX"
+      ]
+    },
+    {
+      "name": "Critical Role",
+      "sources": [
+        "https://www.youtube.com/@CriticalRole/videos",
+        "https://www.youtube.com/playlist?list=PL1tiwbzkOjQxygnACZdKLhzTTB3CoM8gi"
+      ]
+    },
+    {
+      "name": "The Russian Badger",
+      "sources": [
+        "https://www.youtube.com/@TheRussianBadger/videos",
+        "https://www.youtube.com/playlist?list=PLMCxZgdmXDVuM3cxrBNF8oJBxvPFOjsmu"
+      ]
+    },
+    {
+      "name": "Cold Ones",
+      "sources": [
+        "https://www.youtube.com/@coldones/videos",
+        "https://www.youtube.com/playlist?list=PLyzy14k8Iy3iR8gIjxK2eqTnUMnkaWnjQ"
+      ]
+    },
+    {
+      "name": "The Yard",
+      "sources": [
+        "https://www.youtube.com/@theyardpod/videos",
+        "https://www.youtube.com/@TheYardPodcast/videos"
+      ]
+    },
+    {
+      "name": "Are You Garbage?",
+      "sources": [
+        "https://www.youtube.com/@AreYouGarbage/videos",
+        "https://www.youtube.com/playlist?list=PLCJp1IfokN9CITIm-4chFFNhoBmrI6V-V",
+        "https://www.youtube.com/playlist?list=PLCJp1IfokN9Cy1Hi79LSGAykCKfRDM_y9"
+      ]
+    },
+    {
+      "name": "Legion of Skanks",
+      "sources": [
+        "https://www.youtube.com/@LegionPodcast/videos"
+      ]
+    },
+    {
+      "name": "Matt and Shane's Secret Podcast",
+      "sources": [
+        "https://www.youtube.com/@mattandshanessecretpodcast/videos"
+      ]
+    },
+    {
+      "name": "Have A Word Podcast",
+      "sources": [
+        "https://www.youtube.com/@HaveAWordPod/videos"
+      ]
+    },
+    {
+      "name": "The Goons Podcast",
+      "sources": [
+        "https://www.youtube.com/@goonspodcast/videos"
+      ]
+    },
+    {
+      "name": "Aunty Donna",
+      "sources": [
+        "https://www.youtube.com/@TheAuntyDonnaChannel/videos",
+        "ytsearch40:Aunty Donna"
+      ]
+    },
+    {
+      "name": "Internet Comment Etiquette",
+      "sources": [
+        "https://www.youtube.com/@commentiquette/videos"
+      ]
+    },
+    {
+      "name": "Nogla",
+      "sources": [
+        "https://www.youtube.com/@DaithiDeNogla/videos"
+      ]
+    },
+    {
+      "name": "Criken",
+      "sources": [
+        "https://www.youtube.com/@CrikensCatalogue/videos"
+      ]
+    },
+    {
+      "name": "OfficialNerdCubed",
+      "sources": [
+        "https://www.youtube.com/@NerdCubed/videos"
+      ]
+    },
+    {
+      "name": "Flagrant",
+      "sources": [
+        "https://www.youtube.com/@OfficialFlagrant/videos"
+      ]
+    },
+    {
+      "name": "I Hate Everything",
+      "sources": [
+        "https://www.youtube.com/@IHE/videos"
+      ]
+    },
+    {
+      "name": "Neebs Gaming",
+      "sources": [
+        "https://www.youtube.com/@NeebsGaming/videos"
+      ]
+    },
+    {
+      "name": "VanossGaming",
+      "sources": [
+        "https://www.youtube.com/@VanossGaming/videos"
+      ]
+    },
+    {
+      "name": "Smii7y",
+      "sources": [
+        "https://www.youtube.com/@Smii7y/videos"
+      ]
+    },
+    {
+      "name": "BasicallyIDoWrk",
+      "sources": [
+        "https://www.youtube.com/@BasicallyIDoWrk/videos"
+      ]
+    },
+    {
+      "name": "Wildcat",
+      "sources": [
+        "https://www.youtube.com/@Wildcat/videos"
+      ]
+    },
+    {
+      "name": "Terroriser",
+      "sources": [
+        "https://www.youtube.com/@Terroriser/videos"
+      ]
+    },
+    {
+      "name": "Kryoz",
+      "sources": [
+        "https://www.youtube.com/@Kryoz/videos"
+      ]
+    },
+    {
+      "name": "Grizzy",
+      "sources": [
+        "https://www.youtube.com/@Grizzy/videos"
+      ]
+    },
+    {
+      "name": "BigJigglyPanda",
+      "sources": [
+        "https://www.youtube.com/@BigJigglyPanda/videos"
+      ]
+    },
+    {
+      "name": "Soup",
+      "sources": [
+        "https://www.youtube.com/@Soup/videos"
+      ]
+    },
+    {
+      "name": "McNasty",
+      "sources": [
+        "https://www.youtube.com/@McNasty/videos"
+      ]
+    },
+    {
+      "name": "CallMeKevin",
+      "sources": [
+        "https://www.youtube.com/@CallMeKevin/videos"
+      ]
+    },
+    {
+      "name": "RTGame",
+      "sources": [
+        "https://www.youtube.com/@RTGame/videos"
+      ]
+    },
+    {
+      "name": "LetsGameItOut",
+      "sources": [
+        "https://www.youtube.com/@LetsGameItOut/videos"
+      ]
+    },
+    {
+      "name": "GrayStillPlays",
+      "sources": [
+        "https://www.youtube.com/@GrayStillPlays/videos"
+      ]
+    },
+    {
+      "name": "Jerma985",
+      "sources": [
+        "https://www.youtube.com/@Jerma985/videos"
+      ]
+    },
+    {
+      "name": "Northernlion",
+      "sources": [
+        "https://www.youtube.com/@Northernlion/videos"
+      ]
+    },
+    {
+      "name": "MandaloreGaming",
+      "sources": [
+        "https://www.youtube.com/@MandaloreGaming/videos"
+      ]
+    },
+    {
+      "name": "Martincitopants",
+      "sources": [
+        "https://www.youtube.com/@Martincitopants/videos"
+      ]
+    },
+    {
+      "name": "Max0r",
+      "sources": [
+        "https://www.youtube.com/@Max0r/videos"
+      ]
+    },
+    {
+      "name": "NakeyJakey",
+      "sources": [
+        "https://www.youtube.com/@NakeyJakey/videos"
+      ]
+    },
+    {
+      "name": "UpIsNotJump",
+      "sources": [
+        "https://www.youtube.com/@UpIsNotJump/videos"
+      ]
+    },
+    {
+      "name": "Zanny",
+      "sources": [
+        "https://www.youtube.com/@Zanny/videos"
+      ]
+    },
+    {
+      "name": "Markiplier",
+      "sources": [
+        "https://www.youtube.com/@markiplier/videos"
+      ]
+    },
+    {
+      "name": "Jacksepticeye",
+      "sources": [
+        "https://www.youtube.com/@Jacksepticeye/videos"
+      ]
+    },
+    {
+      "name": "Insym",
+      "sources": [
+        "https://www.youtube.com/@Insym/videos"
+      ]
+    },
+    {
+      "name": "DashieGames",
+      "sources": [
+        "https://www.youtube.com/@DashieGames/videos"
+      ]
+    },
+    {
+      "name": "Berleezy",
+      "sources": [
+        "https://www.youtube.com/@Berleezy/videos"
+      ]
+    },
+    {
+      "name": "ralphthemoviemaker",
+      "sources": [
+        "https://www.youtube.com/@ralphthemoviemaker/videos"
+      ]
+    },
+    {
+      "name": "Pyrocynical",
+      "sources": [
+        "https://www.youtube.com/@Pyrocynical/videos"
+      ]
+    },
+    {
+      "name": "Turkey Tom",
+      "sources": [
+        "https://www.youtube.com/@TurkeyTom/videos"
+      ]
+    },
+    {
+      "name": "Count Dankula",
+      "sources": [
+        "https://www.youtube.com/@CountDankula/videos"
+      ]
+    },
+    {
+      "name": "J Aubrey",
+      "sources": [
+        "https://www.youtube.com/@JAubrey/videos"
+      ]
+    },
+    {
+      "name": "SuperMega",
+      "sources": [
+        "https://www.youtube.com/@SuperMega/videos"
+      ]
+    },
+    {
+      "name": "h3h3productions",
+      "sources": [
+        "https://www.youtube.com/@h3h3productions/videos"
+      ]
+    },
+    {
+      "name": "SomeOrdinaryGamers",
+      "sources": [
+        "https://www.youtube.com/@SomeOrdinaryGamers/videos"
+      ]
+    },
+    {
+      "name": "MoistCr1TiKaL",
+      "sources": [
+        "https://www.youtube.com/@penguinz0/videos"
+      ]
+    },
+    {
+      "name": "Wendigoon",
+      "sources": [
+        "https://www.youtube.com/@Wendigoon/videos"
+      ]
+    },
+    {
+      "name": "Papa Meat",
+      "sources": [
+        "https://www.youtube.com/@PapaMeat/videos"
+      ]
+    },
+    {
+      "name": "Bad Friends",
+      "sources": [
+        "https://www.youtube.com/@BadFriends/videos"
+      ]
+    },
+    {
+      "name": "TigerBelly",
+      "sources": [
+        "https://www.youtube.com/@TigerBelly/videos"
+      ]
+    },
+    {
+      "name": "Theo Von",
+      "sources": [
+        "https://www.youtube.com/@theovon/videos"
+      ]
+    },
+    {
+      "name": "Tom Segura",
+      "sources": [
+        "https://www.youtube.com/@TomSegura/videos"
+      ]
+    },
+    {
+      "name": "Don't Tell Comedy",
+      "sources": [
+        "https://www.youtube.com/@DontTellComedy/videos"
+      ]
+    },
+    {
+      "name": "Netflix Is A Joke",
+      "sources": [
+        "https://www.youtube.com/@NetflixIsAJoke/videos"
+      ]
+    },
+    {
+      "name": "Laugh Factory",
+      "sources": [
+        "https://www.youtube.com/@LaughFactory/videos"
+      ]
+    },
+    {
+      "name": "Funhaus",
+      "sources": [
+        "https://www.youtube.com/@Funhaus/videos"
+      ]
+    },
+    {
+      "name": "Achievement Hunter",
+      "sources": [
+        "https://www.youtube.com/@AchievementHunter/videos"
+      ]
+    },
+    {
+      "name": "Yogscast",
+      "sources": [
+        "https://www.youtube.com/@Yogscast/videos"
+      ]
+    },
+    {
+      "name": "Many A True Nerd",
+      "sources": [
+        "https://www.youtube.com/@ManyATrueNerd/videos"
+      ]
+    },
+    {
+      "name": "UberHaxorNova",
+      "sources": [
+        "https://www.youtube.com/@UberHaxorNova/videos"
+      ]
+    },
+    {
+      "name": "ChilledChaos",
+      "sources": [
+        "https://www.youtube.com/@ChilledChaos/videos"
+      ]
+    },
+    {
+      "name": "SovietWomble",
+      "sources": [
+        "https://www.youtube.com/@SovietWomble/videos"
+      ]
+    },
+    {
+      "name": "Trash Taste",
+      "sources": [
+        "https://www.youtube.com/@TrashTaste/videos"
+      ]
+    }
+  ],
+  "searchChannels": [
+    "Moo Snuckel",
+    "Blarg",
+    "WorstPremadeEver",
+    "Kevduit",
+    "TomSka",
+    "Alchestbreach",
+    "BedBananas",
+    "Stimpee",
+    "AmbiguousAmphibian",
+    "ManlyBadassHero",
+    "John Wolfe",
+    "Gab Smolders",
+    "IGP",
+    "Fooster",
+    "The Librarian",
+    "Hollow",
+    "8-BitRyan",
+    "CoryxKenshin",
+    "Elvis the Alien",
+    "D'Angelo Wallace",
+    "Danny Gonzalez",
+    "Drew Gooden",
+    "Kurtis Conner",
+    "Chad Chad",
+    "Jarvis Johnson",
+    "Scott Cramer",
+    "Eddy Burback",
+    "Ted Nivison",
+    "Mega64",
+    "H3 Podcast",
+    "The Official Podcast",
+    "Flashgitz",
+    "Internet Today",
+    "The Weekly Planet",
+    "Mr Sunday Movies",
+    "Tuesdays with Stories",
+    "We Might Be Drunk",
+    "Soder",
+    "The Bonfire",
+    "Your Mom's House",
+    "2 Bears 1 Cave",
+    "Whiskey Ginger",
+    "Take Your Shoes Off",
+    "Scissor Bros",
+    "The Adam Friedland Show",
+    "Stavvy's World",
+    "Brilliant Idiots",
+    "Taste Buds",
+    "Hey Babe",
+    "Chrissy Chaos",
+    "Real Ass Podcast",
+    "Bi Guys",
+    "Skanks for the Memories",
+    "Harland Highway",
+    "About Last Night",
+    "The HoneyDew",
+    "Bertcast",
+    "Blocks Podcast",
+    "This Is Important",
+    "Conan O'Brien Needs a Friend",
+    "The Always Sunny Podcast",
+    "Are We Still Talking About This",
+    "Trash Tuesday",
+    "Guys We F****d",
+    "The Read",
+    "Sibling Rivalry",
+    "Las Culturistas",
+    "Disrespectfully",
+    "Cancelled with Tana Mongeau",
+    "Emergency Intercom",
+    "Therapy Gecko",
+    "Going Deep with Chad and JT",
+    "800 Pound Gorilla Media",
+    "Comedy Central Stand-Up",
+    "The Stand NYC",
+    "Dry Bar Comedy",
+    "Just For Laughs",
+    "All Things Comedy",
+    "Comedy Dynamics",
+    "The Comedy Store",
+    "Helium Comedy Studios",
+    "Chocolate Sundaes Comedy",
+    "Dead Parrot",
+    "NextUp Comedy",
+    "Hot Water Comedy Club",
+    "Live at the Apollo",
+    "George Carlin",
+    "Richard Pryor",
+    "Bill Hicks",
+    "Doug Stanhope",
+    "Joey Diaz",
+    "Big Jay Oakerson",
+    "Luis J Gomez",
+    "Dave Attell",
+    "Patrice O'Neal",
+    "Anthony Jeselnik",
+    "Frankie Boyle",
+    "Dylan Moran",
+    "Jimmy Carr",
+    "Jim Jefferies",
+    "Daniel Sloss",
+    "Ricky Gervais",
+    "Bill Burr",
+    "Katt Williams",
+    "Earthquake",
+    "Corey Holcomb",
+    "Nikki Glaser",
+    "Jessica Kirson",
+    "Ms Pat",
+    "Ali Wong",
+    "Michelle Wolf",
+    "Sam Morril",
+    "Mark Normand",
+    "Shane Gillis",
+    "Dan Soder",
+    "Joe List",
+    "Stavros Halkias",
+    "Ari Shaffir",
+    "Bobby Lee",
+    "Andrew Schulz",
+    "Not Another D&D Podcast",
+    "Dungeons and Daddies",
+    "Oxventure",
+    "High Rollers DnD",
+    "Legends of Avantris",
+    "The Glass Cannon Network",
+    "Natural Six",
+    "Rotating Heroes",
+    "Worlds Beyond Number",
+    "Just Roll With It",
+    "The Adventure Zone",
+    "Viva La Dirt League D&D",
+    "Tabletop Notch",
+    "Fairbairn Films",
+    "Misfit Minds",
+    "The Inspired Unemployed",
+    "Friendlyjordies",
+    "Isaac Butterfield",
+    "Lewis Spears",
+    "The Fellas Podcast",
+    "JaackMaate's Happy Hour",
+    "The Mild High Club",
+    "The Ricky Gervais Show",
+    "Limmy",
+    "Big Lez Show",
+    "RackaRacka",
+    "Boy Boy",
+    "I Did a Thing",
+    "MaxMoeFoe",
+    "Anything4Views",
+    "Misfits Podcast",
+    "CheapShow",
+    "Abroad in Japan Podcast"
+  ]
+}
