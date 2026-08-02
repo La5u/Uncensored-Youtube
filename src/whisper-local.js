@@ -13,8 +13,8 @@
           ? currentLocation.replace(/src\/(?:whisper-local|whisper-module-worker|whisper-worker)\.js(?:\?.*)?$/, "")
         : "";
   var DEFAULT_MODEL = "whisper-tiny.en";
-  var MASKED_F_REGEX = /\bf\s*[*-]+(?=\s|[.,!?]|$)/giu;
-  var MASKED_F_TEST_REGEX = /\bf\s*[*-]+(?=\s|[.,!?]|$)/iu;
+  var MASKED_F_REGEX = /\bf\s*[*#_\u2010-\u2015-]+(?=\s|[.,!?]|$)/giu;
+  var MASKED_F_TEST_REGEX = /\bf\s*[*#_\u2010-\u2015-]+(?=\s|[.,!?]|$)/iu;
   var MASKED_F_MARKER = "maskedfword";
   var transcriberPromise = null;
 
@@ -122,9 +122,10 @@
         return /ing\b/.test(match.replace(/[\W_]+/g, "")) ? " fucking " : " fuck ";
       })
       .replace(/\bsh[\W_]*i[\W_]*t\b/g, " shit ")
-      .replace(/\bf[\W_]*\*{2,}/g, " fuck ")
-      .replace(/\bf[\W_]*-+/g, " fuck ")
-      .replace(/\bf\*+/g, " fuck ")
+      .replace(/\bsh?\s*[*#_\u2010-\u2015-]+\s*t\b/g, " shit ")
+      .replace(/\bb\s*[*#_\u2010-\u2015-]+\s*tch\b/g, " bitch ")
+      .replace(/\bf\s*[*#_\u2010-\u2015-]+\s*(?:[ck]\s*)?ing\b/g, " fucking ")
+      .replace(/f\s*[*#_\u2010-\u2015-]+\s*[ck]?(?=[^a-z0-9]|$)/g, " fuck ")
       .replace(/[^a-z0-9']+/g, " ")
       .replace(/\s+/g, " ")
       .trim();
@@ -132,7 +133,16 @@
 
   function normalizeTranscriptText(text) {
     return normalizeText(text)
-      .replace(/\bmother\s+fucker\b/g, " motherfucker ")
+      .replace(/\bfu{3,}\b/g, " fuck ")
+      .replace(/\bfu{2,}t\b/g, " fuck ")
+      .replace(/\bshi{3,}\b/g, " shit ")
+      .replace(/\b(?:ficking|fucken|vecking)\b/g, " fucking ")
+      .replace(/\bfack\b/g, " fuck ")
+      .replace(/\bbish\b/g, " bitch ")
+      .replace(/\bpoozies\b/g, " pussies ")
+      .replace(/\bmother\s+(fuckers?|fucking)\b/g, function joinMotherFucker(match, suffix) {
+        return " mother" + suffix + " ";
+      })
       .replace(/\bcock\s+sucker\b/g, " cocksucker ")
       .replace(/\bdip\s*shits?\b/g, " dip shit ")
       .replace(/\bship\s+storm\b/g, " shit storm ")
@@ -226,10 +236,60 @@
     });
   }
 
+  function contextFWord(word, context) {
+    var words;
+    var slot;
+    var previous;
+    var previousTwo;
+    var next;
+
+    if (!/^(?:fuck|fucks|fuck's|fucking|fucked|fuckers?)$/.test(word)) return word;
+    words = String(context || "").toLowerCase()
+      .replace(/\u2019/g, "'")
+      .replace(/\[\s*__\s*\]/g, " slot ")
+      .replace(/[^a-z0-9']+/g, " ")
+      .trim()
+      .split(/\s+/);
+    slot = words.indexOf("slot");
+    if (slot < 0) return word;
+    previous = words[slot - 1] || "";
+    previousTwo = words[slot - 2] || "";
+    next = words[slot + 1] || "";
+
+    if (/^(?:what|whatever|where|who|why|how)$/.test(previousTwo) &&
+        previous === "the" &&
+        /^(?:is|are|was|were|did|do|does|am|this|that|what|who|why|how|where|when|you|i|we|they|he|she|it|up|out|off|happened|happening|going)$/.test(next)) {
+      return "fuck";
+    }
+    if (previousTwo === "shut" && previous === "the" && next === "up") return "fuck";
+    if ((previous === "jesus" && next === "christ") ||
+        (previous === "god" && /^(?:damn|dammit)$/.test(next))) return "fucking";
+    if (previous === "this" && /^(?:thing|game|guy|train|shit)$/.test(next)) return "fucking";
+    if (/^(?:get|got|getting)$/.test(previous) &&
+        (/^(?:up|by|over|now)$/.test(next) || previous === "getting" && !next)) return "fucked";
+    return word;
+  }
+
+  function hiddenCompoundPart(word, context) {
+    var normalizedContext = String(context || "").toLowerCase();
+
+    if (["fuck", "fucks", "fuck's"].indexOf(word) !== -1 &&
+        /\[\s*__\s*\]\s+sake\b/u.test(normalizedContext)) return "fuck's";
+    if (word === "shitballs" && /\[\s*__\s*\]\s+balls\b/u.test(normalizedContext)) return "shit";
+    if (word === "shitshow" && /\[\s*__\s*\]\s+show\b/u.test(normalizedContext)) return "shit";
+    if (word === "dogshit" && /\bdog\s+\[\s*__\s*\]/u.test(normalizedContext)) return "shit";
+    if (word === "clusterfuck" && /\bcluster\s+\[\s*__\s*\]/u.test(normalizedContext)) return "fuck";
+    return word;
+  }
+
   function decisionFromTranscript(transcript, candidates, context, options) {
     var fCandidates = options && options.fCandidates || [];
     if ((candidates || []).indexOf("cum") !== -1 && /\[\s*__\s*\]\s+joke\b/iu.test(context || "")) {
       transcript = String(transcript || "").replace(/\bcome(?=\s+joke\b)/giu, "cum");
+    }
+    if ((candidates || []).indexOf("fuck's") !== -1 &&
+        /\[\s*__\s*\]\s+sake\b/iu.test(context || "")) {
+      transcript = String(transcript || "").replace(/\b(?:fox|flux|flax)(?=\s+(?:like|sake)\b)/giu, "fuck");
     }
     var entries = transcriptEntries(transcript, candidates,
       options && options.fCandidatesBySlot || [fCandidates]);
@@ -237,6 +297,11 @@
       return entry.candidate;
     }).filter(Boolean);
     var slotWords = alignedSlotWords(entries, options);
+    if (options && Array.isArray(options.contexts)) {
+      slotWords = slotWords.map(function refineSlotWord(slotWord, slotIndex) {
+        return contextFWord(slotWord, options.contexts[slotIndex]);
+      });
+    }
     var anchoredWord = wordAfterAnchor(entries, options && options.previousWord,
       options && options.previousWordOffset);
     var word;
@@ -257,6 +322,10 @@
     } else {
       word = words[0] || "";
     }
+    word = hiddenCompoundPart(word, context);
+    var refinedWord = contextFWord(word, context);
+    if (refinedWord !== word) evidence = "transcript-context";
+    word = refinedWord;
     if (word && evidence === "none") evidence = "transcript";
 
     return {

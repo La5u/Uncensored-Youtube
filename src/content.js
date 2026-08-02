@@ -15,6 +15,8 @@
   var activeVideoId = currentVideoId();
   var scripts = [
     "src/page-hook.js",
+    "src/rules-compiler.js",
+    "src/rules-data.js",
     "src/rules.js",
     "src/timedtext.js"
   ];
@@ -215,10 +217,15 @@
     }
 
     data = timedText.collectTimedTextData(body, settings.rulesEnabled);
+    debugLog("timedtext parsed", {
+      trackId: trackId,
+      parsed: data.parsed,
+      tokens: data.tokens.length
+    });
     if (data.tokens.length) {
       captionDecisionKnown = true;
       videoHasCensoredSlots = true;
-    } else if (isEnglishTrack(trackId)) {
+    } else if (data.parsed && isEnglishTrack(trackId)) {
       captionDecisionKnown = true;
     }
     updateAudioNeeded();

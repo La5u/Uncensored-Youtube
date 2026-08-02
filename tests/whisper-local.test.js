@@ -83,6 +83,20 @@ assert.deepStrictEqual(
 
 assert.deepStrictEqual(
   whisper.decisionFromTranscript(
+    "say fucking then fuck",
+    ["fuck", "fucking"],
+    "what the [__] is this Jesus [__] Christ",
+    {
+      contexts: ["what the [__] is this", "Jesus [__] Christ"],
+      slotCount: 2,
+      previousWords: ["say", "then"]
+    }
+  ).slotWords,
+  ["fuck", "fucking"]
+);
+
+assert.deepStrictEqual(
+  whisper.decisionFromTranscript(
     "Fuck you and they asked, you fucking piece of fucking shit of fucking hate you.",
     ["fuck", "fucking", "shit"],
     "[__] piece of [__] [__] up [__]",
@@ -194,6 +208,77 @@ assert.strictEqual(
   ).word,
   "fuck"
 );
+
+[
+  ["f-", ["fuck", "fucking"], "fuck"],
+  ["f—", ["fuck", "fucking"], "fuck"],
+  ["f***ing", ["fuck", "fucking"], "fucking"],
+  ["f-ing", ["fuck", "fucking"], "fucking"],
+  ["f**king", ["fuck", "fucking"], "fucking"],
+  ["f**k", ["fuck", "fucking"], "fuck"],
+  ["dawf**k", ["fuck", "fucking"], "fuck"],
+  ["fuuuuuu", ["fuck", "fucking"], "fuck"],
+  ["fuuut", ["fuck", "fucking"], "fuck"],
+  ["sh-t", ["shit"], "shit"],
+  ["b-tch", ["bitch"], "bitch"],
+  ["ficking", ["fuck", "fucking"], "fucking"],
+  ["fucken", ["fuck", "fucking"], "fucking"],
+  ["fack", ["fuck", "fucking"], "fuck"],
+  ["bish", ["bitch"], "bitch"],
+  ["poozies", ["pussies"], "pussies"],
+  ["mother fuckers", ["fuckers", "motherfuckers"], "motherfuckers"],
+  ["flux like", ["fuck", "fuck's"], "fuck's"],
+  ["fucks sake", ["fuck", "fucks", "fuck's"], "fuck's"]
+].forEach(([transcript, candidates, expected]) => {
+  assert.strictEqual(
+    whisper.decisionFromTranscript(
+      transcript,
+      candidates,
+      /(?:fucks sake|flux like)/.test(transcript) ? "[__] sake" : "[__]",
+      {}
+    ).word,
+    expected
+  );
+});
+
+[
+  ["shitballs", "Oh [__] balls", "shit"],
+  ["shitshow", "a complete [__] show", "shit"],
+  ["dogshit", "looks like dog [__]", "shit"],
+  ["clusterfuck", "a cluster [__]", "fuck"],
+  ["shitballs", "Oh [__]", "shitballs"]
+].forEach(([transcript, context, expected]) => {
+  assert.strictEqual(
+    whisper.decisionFromTranscript(
+      transcript,
+      ["shit", "fuck", "shitballs", "shitshow", "dogshit", "clusterfuck"],
+      context,
+      {}
+    ).word,
+    expected
+  );
+});
+
+[
+  ["fucking", "whatever the [__] you want", "fuck"],
+  ["fucking", "shut the [__] up", "fuck"],
+  ["fuck", "Jesus [__] Christ", "fucking"],
+  ["fuck", "this [__] train", "fucking"],
+  ["fuck", "you're getting [__] now", "fucked"],
+  ["fucking", "how the [__] game works", "fucking"],
+  ["fucked", "the [__] up bee", "fucked"],
+  ["shit", "Jesus [__] Christ", "shit"]
+].forEach(([transcript, context, expected]) => {
+  assert.strictEqual(
+    whisper.decisionFromTranscript(
+      transcript,
+      ["fuck", "fucking", "fucked", "shit"],
+      context,
+      {}
+    ).word,
+    expected
+  );
+});
 
 [
   ["You're ahead aboutcha, you'll be fine. Fuuuuck!", "fuuuuck"],

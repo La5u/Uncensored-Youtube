@@ -102,6 +102,7 @@
         byTokenIndex.set(replacement.tokenIndex + index, {
           word: displayPieces[index] || replacement.displayWord || replacement.word,
           candidates: deterministicCandidatePieces(replacement, index),
+          ambiguous: replacement.rule.candidates.length > 1,
           replacement: replacement
         });
       }
@@ -206,6 +207,9 @@
             context: contextForToken(eventText, tokenIndex, firstEventTokenIndex, deterministicByTokenIndex, previousEventText),
             deterministicWord: deterministic ? deterministic.word : "",
             deterministicCandidates: deterministic ? deterministic.candidates : [],
+            deterministicAmbiguous: deterministic ? deterministic.ambiguous : false,
+            deterministicRuleTemplate: deterministic ? deterministic.replacement.rule.template : "",
+            deterministicTier: deterministic ? deterministic.replacement.tier : "",
             fCandidates: fRule ? fRule.candidates.filter(function fWord(candidate) {
               return String(candidate).toLowerCase().indexOf("fuck") !== -1;
             }) : [],
@@ -392,19 +396,21 @@
   function collectTimedTextData(body, useDeterministic) {
     try {
       var payload = JSON.parse(body);
+      var parsed = Array.isArray(payload.events) && payload.events.length > 0;
       var ruleResult = deterministicAnalysis(payload, body, true).result;
-      var result = useDeterministic === false ? { replacements: [] } : ruleResult;
+      var result = useDeterministic === false ? { decisions: [] } : ruleResult;
 
       return {
-        tokens: collectCensoredTokens(
+        parsed: parsed,
+        tokens: parsed ? collectCensoredTokens(
           payload,
-          deterministicTokenMap(result.replacements),
-          deterministicTokenMap(ruleResult.replacements)
-        ),
-        timeline: collectCaptionTimeline(payload)
+          deterministicTokenMap(result.decisions || result.replacements),
+          deterministicTokenMap(ruleResult.decisions || ruleResult.replacements)
+        ) : [],
+        timeline: parsed ? collectCaptionTimeline(payload) : []
       };
     } catch (error) {
-      return { tokens: [], timeline: [] };
+      return { parsed: false, tokens: [], timeline: [] };
     }
   }
 

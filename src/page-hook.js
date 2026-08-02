@@ -326,7 +326,7 @@
       response.captions.playerCaptionsTracklistRenderer &&
       response.captions.playerCaptionsTracklistRenderer.captionTracks;
 
-    if ((!videoId || videoId !== currentVideoId() || !Array.isArray(tracks) || !tracks.length) &&
+    if ((!videoId || videoId !== currentVideoId() || !response || !response.captions) &&
         attempt < 8) {
       globalThis.setTimeout(function retryCaptionCheck() {
         notifyMissingCaptions(attempt + 1);
@@ -334,7 +334,11 @@
       return;
     }
     if (!videoId || videoId !== currentVideoId()) return;
-    if (Array.isArray(tracks) && tracks.length) return;
+    if (response && response.captions) return;
+    debugLog("no captions fallback", {
+      videoId: videoId,
+      tracks: Array.isArray(tracks) ? tracks.length : null
+    });
     globalThis.dispatchEvent(new CustomEvent("uncensored-no-captions", {
       detail: JSON.stringify({ videoId: videoId })
     }));

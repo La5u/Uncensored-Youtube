@@ -104,14 +104,14 @@ const payload = {
 
 const result = timedText.patchTimedTextJson(payload);
 
-assert.strictEqual(result.patchCount, 6);
+assert.strictEqual(result.patchCount, 5);
 assert.strictEqual(payload.events[0].segs.map((seg) => seg.utf8).join(""), "\"Timmy, what the fuck are you");
 assert.strictEqual(payload.events[0].segs.length, 6);
 assert.strictEqual(payload.events[0].segs[3].utf8, " fuck");
 assert.strictEqual(payload.events[0].segs[3].tOffsetMs, 1440);
 assert.strictEqual(payload.events[1].segs[1].utf8, " [\u00a0__\u00a0]");
 assert.strictEqual(payload.events[2].segs.map((seg) => seg.utf8).join(""), "Stop. Fucking hell");
-assert.strictEqual(payload.events[3].segs.map((seg) => seg.utf8).join(""), "oh shit. Timmy");
+assert.strictEqual(payload.events[3].segs.map((seg) => seg.utf8).join(""), "oh [\u00a0__\u00a0] Timmy");
 assert.strictEqual(payload.events[5].segs.map((seg) => seg.utf8).join(""), "Fuck yeah.");
 assert.strictEqual(payload.events[6].segs.map((seg) => seg.utf8).join(""), "Holy shit.");
 assert.strictEqual(payload.events[9].segs.map((seg) => seg.utf8).join(""), "shit if something");
@@ -175,6 +175,15 @@ assert.deepStrictEqual(audioData.timeline[0], {
   firstTokenIndex: 0,
   tokenCount: 1
 });
+assert.strictEqual(audioData.parsed, true);
+assert.strictEqual(timedText.collectTimedTextData("").parsed, false);
+assert.strictEqual(timedText.collectTimedTextData("not json").parsed, false);
+assert.strictEqual(timedText.collectTimedTextData(JSON.stringify({ events: [] })).parsed, false);
+const cleanTrack = timedText.collectTimedTextData(JSON.stringify({
+  events: [{ tStartMs: 0, segs: [{ utf8: "no swears here" }] }]
+}));
+assert.strictEqual(cleanTrack.parsed, true);
+assert.strictEqual(cleanTrack.tokens.length, 0);
 
 const leadingTokenPayload = {
   events: [
@@ -216,7 +225,27 @@ assert.ok(deterministicTokens[0].candidates.includes("fuck"));
 assert.strictEqual(deterministicTokens[1].deterministicWord, "fuck");
 assert.strictEqual(whisperOnlyTokens[0].deterministicWord, "");
 assert.deepStrictEqual(whisperOnlyTokens[0].fCandidates, ["fuck", "fucking"]);
-assert.deepStrictEqual(whisperOnlyTokens[1].fCandidates, ["fuck", "fucking", "fuckers"]);
+assert.deepStrictEqual(whisperOnlyTokens[1].fCandidates, ["fuck"]);
+
+const cueSplitPayload = {
+  events: [
+    { segs: [{ utf8: "what the" }] },
+    { segs: [{ utf8: "\n" }] },
+    { segs: [{ utf8: "[__]" }] }
+  ]
+};
+assert.strictEqual(
+  JSON.parse(timedText.patchTimedTextBody(JSON.stringify(cueSplitPayload))).events[2].segs[0].utf8,
+  "fuck"
+);
+
+const adjacentCueSplitPayload = {
+  events: cueSplitPayload.events.concat([
+    { segs: [{ utf8: "\n" }] },
+    { segs: [{ utf8: "[__]" }] }
+  ])
+};
+assert.strictEqual(timedText.patchTimedTextBody(JSON.stringify(adjacentCueSplitPayload)), JSON.stringify(adjacentCueSplitPayload));
 
 const ambiguousPayload = {
   events: [
@@ -232,8 +261,23 @@ const ambiguousPayload = {
 const ambiguousTokens = timedText.collectTimedTextTokens(JSON.stringify(ambiguousPayload));
 
 assert.strictEqual(ambiguousTokens.length, 1);
-assert.strictEqual(ambiguousTokens[0].deterministicWord, "shit");
-assert.deepStrictEqual(ambiguousTokens[0].deterministicCandidates, ["shit", "fuck", "fucking"]);
+assert.strictEqual(ambiguousTokens[0].deterministicWord, "");
+assert.deepStrictEqual(ambiguousTokens[0].deterministicCandidates, ["fuck", "shit"]);
+
+const multiCandidateTokens = timedText.collectTimedTextTokens(JSON.stringify({
+  events: [{ segs: [{ utf8: "holy [__]" }] }]
+}));
+assert.strictEqual(multiCandidateTokens[0].deterministicWord, "shit");
+assert.deepStrictEqual(multiCandidateTokens[0].deterministicCandidates, ["shit", "fuck", "fucking"]);
+assert.strictEqual(multiCandidateTokens[0].deterministicAmbiguous, true);
+assert.strictEqual(multiCandidateTokens[0].deterministicRuleTemplate, "holy [__]");
+assert.strictEqual(multiCandidateTokens[0].deterministicTier, "exact");
+
+const formattedSingleCandidate = timedText.collectTimedTextTokens(JSON.stringify({
+  events: [{ segs: [{ utf8: "Stop. [__] hell" }] }]
+}))[0];
+assert.deepStrictEqual(formattedSingleCandidate.deterministicCandidates, ["fucking", "Fucking"]);
+assert.strictEqual(formattedSingleCandidate.deterministicAmbiguous, false);
 
 const broadGrammarPayload = {
   events: ["[__] it", "[__] this", "[__] me", "[__] all", "you [__] up"].map((text) => ({
@@ -244,10 +288,10 @@ const broadGrammarTokens = timedText.collectTimedTextTokens(JSON.stringify(broad
 
 assert.deepStrictEqual(broadGrammarTokens.map((token) => token.deterministicCandidates), [
   ["fuck", "fucking", "fucked", "shit", "bullshit", "bitch"],
-  ["fuck", "shit", "bullshit", "fucked", "fucking", "bitch", "motherfucker", "fucker"],
-  ["fuck"],
   [],
-  ["fucked", "fuck", "fucking", "fuckers"]
+  ["fuck", "fucked", "fucking", "shitting"],
+  [],
+  ["fucked", "fuck", "fucking", "fuckers", "fucks"]
 ]);
 
 const multiTokenPayload = {
@@ -309,6 +353,6 @@ const whisperBody = timedText.patchTimedTextBodyWithOverrides(JSON.stringify(amb
 assert.strictEqual(JSON.parse(whisperBody).events[0].segs.map((seg) => seg.utf8).join(""), "oh [__]");
 
 const rulesOnlyBody = timedText.patchTimedTextBodyWithOverrides(JSON.stringify(ambiguousPayload), [], true, true);
-assert.strictEqual(JSON.parse(rulesOnlyBody).events[0].segs.map((seg) => seg.utf8).join(""), "oh shit");
+assert.strictEqual(JSON.parse(rulesOnlyBody).events[0].segs.map((seg) => seg.utf8).join(""), "oh [__]");
 
 console.log("timedtext.test.js passed");

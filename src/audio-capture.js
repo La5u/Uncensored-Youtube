@@ -590,7 +590,9 @@
   }
 
   function deterministicIsAmbiguous(token) {
-    return token && token.deterministicCandidates && token.deterministicCandidates.length > 1;
+    return token && (typeof token.deterministicAmbiguous === "boolean"
+      ? token.deterministicAmbiguous
+      : token.deterministicCandidates && token.deterministicCandidates.length > 1);
   }
 
   function tokenIsCurrent(token) {
@@ -720,6 +722,9 @@
       });
 
       return whisperTranscribe(pcm16, candidates, context, {
+        contexts: group.map(function groupTokenContext(entry) {
+          return entry.token.context || "";
+        }),
         fCandidatesBySlot: group.map(function groupFCandidates(entry) {
           return entry.token.fCandidates || [];
         }),
