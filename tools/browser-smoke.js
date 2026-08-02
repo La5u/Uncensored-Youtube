@@ -2,10 +2,11 @@ const fs = require("fs");
 const net = require("net");
 const os = require("os");
 const path = require("path");
-const { spawn } = require("child_process");
+const { spawn, execSync } = require("child_process");
 
 const root = path.join(__dirname, "..");
 const args = process.argv.slice(2);
+const cleanupOnly = args.includes("--cleanup");
 const verbose = args.includes("--verbose");
 const headless = args.includes("--headless");
 const firefoxOnly = args.includes("--firefox-only");
@@ -60,14 +61,68 @@ function portReady(port) {
 }
 
 function launch(command, args) {
-  const child = spawn(command, args, { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(command, args, {
+    cwd: root,
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: true
+  });
   children.push(child);
+  child.on("exit", () => {
+    const index = children.indexOf(child);
+    if (index !== -1) children.splice(index, 1);
+  });
   child.stdout.on("data", (data) => process.stdout.write(data));
   child.stderr.on("data", (data) => {
     const text = String(data);
     if (text.includes("[uncensored]") || text.includes("Extension ID")) process.stderr.write(text);
   });
   return child;
+}
+
+function pkill(pattern, signal) {
+  try {
+    execSync(`pkill -${signal} -f '${pattern}'`);
+  } catch (ignored) {}
+}
+
+const HEADLESS_FIREFOX = "^/usr/lib/firefox/firefox .* -headless( |$)";
+const CHROMIUM_SMOKE = "uncensored-chromium-smoke-";
+
+function terminateChildren() {
+  children.slice().forEach((child) => {
+    try {
+      child.kill("SIGTERM");
+    } catch (ignored) {}
+  });
+  pkill(HEADLESS_FIREFOX, "TERM");
+  pkill(CHROMIUM_SMOKE, "TERM");
+}
+
+function hardTerminate() {
+  children.forEach((child) => {
+    try {
+      child.kill("SIGKILL");
+    } catch (ignored) {}
+  });
+  pkill(HEADLESS_FIREFOX, "KILL");
+  pkill(CHROMIUM_SMOKE, "KILL");
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => {
+  terminateChildren();
+  setTimeout(hardTerminate, 3000).unref();
+});
+process.on("SIGINT", () => {
+  terminateChildren();
+  setTimeout(hardTerminate, 3000).unref();
+});
+
+function cleanupOrphanedSmokeBrowsers() {
+  pkill(HEADLESS_FIREFOX, "KILL");
+  pkill(CHROMIUM_SMOKE, "KILL");
+  pkill("web-ext.*dist/(chromium|firefox)", "KILL");
+  console.log("Cleaned leftover headless smoke browsers.");
 }
 
 function socketClient(url, onEvent) {
@@ -462,14 +517,18 @@ async function firefox() {
 }
 
 (async () => {
+  if (cleanupOnly) {
+    cleanupOrphanedSmokeBrowsers();
+    return;
+  }
   try {
     if (!firefoxOnly) {
       await chromium();
-      children.splice(0).forEach((child) => child.kill("SIGTERM"));
+      terminateChildren();
     }
     if (!chromiumOnly) await firefox();
   } finally {
-    children.forEach((child) => child.kill("SIGTERM"));
+    terminateChildren();
   }
 })().catch((error) => {
   console.error(error.stack || error);
