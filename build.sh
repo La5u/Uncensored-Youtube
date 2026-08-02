@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-version="${1:-1.3.2}"
+version="${1:-1.3.3}"
 root="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 dist="$root/dist"
 
@@ -21,6 +21,8 @@ copy_tree() {
 
 cp "$root/manifest.chromium.json" "$dist/chromium/manifest.json"
 cp "$root/manifest.firefox.json" "$dist/firefox/manifest.json"
+sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$version\"/" "$dist/chromium/manifest.json"
+sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$version\"/" "$dist/firefox/manifest.json"
 copy_tree "$root/src" "$dist/chromium/src"
 copy_tree "$root/src" "$dist/firefox/src"
 cp "$root/LICENSE" "$dist/chromium/LICENSE"

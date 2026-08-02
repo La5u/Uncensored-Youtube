@@ -8,43 +8,38 @@ deaf and hard-of-hearing viewers. Audio, captions, and inference stay local.
 | Context rules | Audio inference | Behavior |
 | --- | --- | --- |
 | On | On | Rules resolve clear cases; Whisper handles the rest. |
-| On | Off | Use the first deterministic candidate. |
+| On | Off | Use deterministic rules; uncertain matches abstain. |
 | Off | On | Use only local Whisper results. |
 | Off | Off | Leave captions unchanged. |
 
-In the fixed audio benchmark, the default hybrid mode scored 91.1% precision
-and 85.8% coverage; Whisper-only scored 90.3%/85.4%. On the complete paired
-caption corpus, rules-only scored 87.3% precision and 37.6% coverage across
-39,002 scorable slots.
+In the fixed audio benchmark (23 videos, 525 scored slots), the default hybrid
+mode scored 93.9% precision and 90.5% coverage; Whisper-only scored 93.5%/88.2%.
+On the complete paired-caption development corpus, rules-only scored 92.2%
+precision and 40.7% coverage across 10,723 aligned slots from 391 discovered
+caption-pair fixtures. The separate any-candidate diagnostic scored 93.3%
+precision and 47.7% coverage.
 
 ### Evaluation caveats
 
-The larger rules-development corpus is heavily concentrated by creator:
-
-| Source | Paired videos | Scorable slots |
-| --- | ---: | ---: |
-| Jacksepticeye | 872 (66.9%) | 29,259 (75.0%) |
-| Stephanie Sterling / The Jimquisition | 277 (21.2%) | 6,576 (16.9%) |
-| Other 12 channels | 155 (11.9%) | 3,167 (8.1%) |
-
-This is an English, playlist-selected development corpus, weighted toward gaming
-and video-game commentary. Videos qualify only when separate automatic and
-manual English captions exist, the automatic track contains `[__]`, and the
-manual track supplies a supported swear. It therefore does not represent
-YouTube generally or the natural prevalence of censored captions.
+This is an English, playlist-selected development corpus. Videos qualify only
+when separate automatic and manual English captions exist, the automatic track
+contains `[__]`, and the manual track supplies a supported swear. It therefore
+does not represent YouTube generally or the natural prevalence of censored
+captions.
 
 Rules were tuned and measured on this same corpus, so rules-only results are
 in-sample development figures rather than held-out estimates. Metrics are
 micro-averaged per caption slot, which gives prolific creators more influence.
-Of 46,046 detected slots, 39,002 (84.7%) could be aligned to an allowed
-ground-truth word and scored. Manual caption omissions, paraphrases, and timing
-differences can still introduce alignment error.
+Manual caption omissions, paraphrases, and timing differences can still
+introduce alignment error.
 
 ## Architecture
 
 - `page-hook.js` observes YouTube JSON3 captions and SABR media responses.
 - `timedtext.js` parses captions and gives every `[__]` slot a stable identity.
-- `rules.js` supplies deterministic replacements and Whisper candidates.
+- `rules-compiler.js` validates and expands reusable rule declarations.
+- `rules-data.js` contains the deterministic patterns and candidate priors;
+  `rules.js` matches them and supplies replacements and Whisper candidates.
 - `sabr-parser.js` extracts audio already downloaded for playback.
 - `audio-capture.js` decodes only token-adjacent audio, queues inference, and
   reapplies results when YouTube redraws its rolling caption rows.
@@ -102,18 +97,115 @@ caption tracks:
 ```sh
 node tools/download-whisper-fixtures.js
 node tools/evaluate-whisper-only.js
-node tools/evaluate-whisper-only.js --mode rules-only
+node tools/audit-paired-rules.js
 node tools/evaluate-whisper-only.js --mode rules+whisper \
   --transcripts corpus/generated/whisper-only-report.json
 ```
 
-Fixtures are stored in ignored `test-fixtures/`; reports go to
-`corpus/generated/`.
+The evaluator uses only `tools/whisper-audio-fixtures.json` by default. Pass
+`--discoverPaired true` to include every caption pair in `test-fixtures/`.
+Fixtures are stored in ignored `test-fixtures/`; reports go to `corpus/generated/`.
+Pairs whose manual track has no recognized ground-truth word are skipped. Results
+below 50% alignment are retained for their valid slots but marked
+`reviewRecommended`; inspect them with:
+
+```sh
+jq '.fixtures[] | select(.reviewRecommended) | {name, scoredCount, unscoredCount}' \
+  corpus/generated/paired-rules-only-report.json
+```
+
+Keep strict accuracy separate from the candidate-oracle benchmark, which counts
+a slot as correct when its answer appears anywhere in a matched rule's `|`
+options:
+
+```sh
+node tools/evaluate-whisper-only.js --mode rules-only --discoverPaired true \
+  --skipMissing true --output corpus/generated/paired-rules-only-report.json
+node tools/evaluate-whisper-only.js --mode rules-only --rulesScoring any-candidate \
+  --discoverPaired true --skipMissing true \
+  --output corpus/generated/paired-rules-any-candidate-report.json
+```
+
+### Unpaired rules vs whisper
+
+Auto-only captions (no manual track) have no ground truth, so precision is
+undefined there; only fill rate is measurable. Compare what rules resolve vs
+what local Whisper resolves on the same auto-only slots to find candidate new
+rules (slots rules miss but Whisper fills) and candidate rule mistakes (slots
+where the two disagree):
+
+```sh
+node tools/evaluate-whisper-only.js --mode rules-only --discoverUnpaired true \
+  --unpairedMinBlanks 1 --allowUnscored true --skipMissing true \
+  --output corpus/generated/unpaired-rules-only-report.json
+node tools/evaluate-whisper-only.js --mode whisper-only --discoverUnpaired true \
+  --unpairedMinBlanks 1 --allowUnscored true --skipMissing true --limit 25 \
+  --checkpointEvery 10 \
+  --output corpus/generated/unpaired-whisper-only-report.json
+node tools/compare-unpaired-modes.js \
+  corpus/generated/unpaired-rules-only-report.json \
+  corpus/generated/unpaired-whisper-only-report.json
+```
+
+The whisper run is heavy and checkpoint-resumable: re-run it with
+`--transcripts corpus/generated/unpaired-whisper-only-report.json` to reuse
+finished slots. The comparison writes `unpaired-mode-compare.json`/`.md`.
+
+### Rule mining
+
+Generate complete normalized text samples, then mine every source together:
+
+```sh
+node corpus/evaluate-swear-corpus.js --input corpus/reddit_comments.zip \
+  --output corpus/generated/mining/reddit --field body \
+  --limit 1000000 --sampleLimit 0
+node corpus/evaluate-opensubtitles-parquet.js \
+  --input corpus/opensubtitlesen-es.parquet \
+  --output corpus/generated/mining/opensubtitles \
+  --limit 1000000 --sampleLimit 0
+node tools/mine-rule-opportunities.js \
+  corpus/generated/paired-rules-only-report.json \
+  corpus/generated/mining/opportunities.json \
+  --sample reddit=corpus/generated/mining/reddit/reddit-samples.jsonl \
+  --sample opensubtitles=corpus/generated/mining/opensubtitles/opensubtitles-samples.jsonl \
+  --whisper corpus/generated/mining/unpaired-whisper.json
+```
+
+Whisper can supply discovery-only labels for captions without a human pair:
+
+```sh
+node tools/evaluate-whisper-only.js --mode whisper-only \
+  --discoverUnpaired true --unpairedMinBlanks 0 --allowUnscored true \
+  --skipMissing true --limit 3 \
+  --transcripts corpus/generated/youtube-whisper-only-all-videos-sample-report.json \
+  --output corpus/generated/mining/unpaired-whisper.json
+```
+
+The miner considers only `ALLOWED_WORDS`, deduplicates exact rows, reports
+precision separately by source, and uses only high-confidence
+`transcript-anchor` Whisper results. Add candidates in
+batches, rerun every ground-truth evaluator, and remove rules with fewer than
+three realized matches or at most 80% realized precision. To reveal narrower
+rules hidden by rejected broad rules, repeat mining with one or more
+`--exclude previous-opportunities.json` arguments until recommendations reach
+zero. Never use Whisper pseudo-labels to report final precision.
+
+For another text dataset, its only adapter contract is JSONL with
+`{"original":"uncensored sentence","censored":"same sentence with [__]"}`;
+pass it as another `--sample source=path`. Keep the top 300 misses and top 50
+wrong placements from each evaluation report as the next review queue.
+
+Resume the paired-caption download with audio disabled:
+
+```sh
+nohup node tools/download-paired-captions.js --pair-target 12 --audio-target 0 --jobs 3 >> logs/paired-caption-download.log 2>&1 &
+echo $! > logs/paired-caption-download.pid
+```
 
 ## Build
 
 ```sh
-./build.sh 1.3.2
+./build.sh 1.3.3
 ```
 
 This creates separate Chromium and Firefox ZIPs in `dist/`. See

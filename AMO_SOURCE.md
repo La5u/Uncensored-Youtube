@@ -3,8 +3,8 @@
 This repository is the extension source. `build.sh` copies checked-in files
 without bundling and creates:
 
-- `dist/uncensored-youtube-firefox-1.3.2.zip`
-- `dist/uncensored-youtube-chromium-1.3.2.zip`
+- `dist/uncensored-youtube-firefox-1.3.3.zip`
+- `dist/uncensored-youtube-chromium-1.3.3.zip`
 
 Build and validate with:
 

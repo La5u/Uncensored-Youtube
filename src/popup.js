@@ -7,9 +7,9 @@
     whisperEnabled: true
   };
   var metrics = {
-    hybrid: { name: "Hybrid", precision: "91.1", coverage: "85.8" },
-    rules: { name: "Context rules only", precision: "87.3", coverage: "37.6" },
-    whisper: { name: "Audio inference only", precision: "90.3", coverage: "85.4" },
+    hybrid: { name: "Hybrid", precision: "93.9", coverage: "90.5" },
+    rules: { name: "Rules only", precision: "92.2", coverage: "40.7" },
+    whisper: { name: "Audio inference only", precision: "93.5", coverage: "88.2" },
     disabled: { name: "Disabled", precision: "", coverage: "0.0" }
   };
 
@@ -37,7 +37,7 @@
     element("coverageLabel").textContent = metric.coverage + "% correct coverage";
     element("benchmarkTooltip").textContent = metric.name + ": " +
       (metric.precision ? metric.precision + "% precision, " : "precision not applicable, ") +
-      metric.coverage + "% coverage. Hybrid is recommended.";
+      metric.coverage + "% coverage.";
   }
 
   function saveSetting(event) {

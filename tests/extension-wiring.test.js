@@ -62,9 +62,25 @@ assert.ok(whisperWorker.includes("runtimeReady = import"));
 assert.ok(chromiumManifest.permissions.includes("offscreen"));
 assert.strictEqual(chromiumManifest.message_serialization, "structured_clone");
 assert.strictEqual(chromiumManifest.minimum_chrome_version, "148");
-const injectedScripts = ["src/page-hook.js", "src/rules.js", "src/timedtext.js"];
+const injectedScripts = [
+  "src/page-hook.js",
+  "src/rules-compiler.js",
+  "src/rules-data.js",
+  "src/rules.js",
+  "src/timedtext.js"
+];
 assert.deepStrictEqual(chromiumManifest.web_accessible_resources[0].resources, injectedScripts);
 assert.deepStrictEqual(firefoxManifest.web_accessible_resources[0].resources, injectedScripts);
+const ruleScripts = [
+  "src/rules-compiler.js",
+  "src/rules-data.js",
+  "src/rules.js"
+];
+assert.deepStrictEqual(chromiumManifest.content_scripts[0].js.slice(0, ruleScripts.length), ruleScripts);
+assert.deepStrictEqual(firefoxManifest.content_scripts[0].js.slice(0, ruleScripts.length), ruleScripts);
+assert.ok(ruleScripts.every((script, index) =>
+  content.indexOf(`"${script}"`) < content.indexOf(`"${ruleScripts[index + 1] || "src/timedtext.js"}"`)
+));
 assert.ok(chromiumManifest.content_scripts[0].js.includes("src/sabr-parser.js"));
 assert.ok(firefoxManifest.content_scripts[0].js.includes("src/sabr-parser.js"));
 assert.ok(pageHook.includes("allowedResolutionWord"));
@@ -73,10 +89,10 @@ assert.ok(pageHook.includes("!Number.isInteger(detail.tokenIndex) || detail.toke
 assert.ok(!popup.includes("Recommended:"));
 assert.ok(popup.includes('id="coverageLabel"'));
 assert.ok(popup.includes('id="benchmarkTooltip"'));
-assert.ok(popupScript.includes('precision: "91.1", coverage: "85.8"'));
-assert.ok(popupScript.includes('precision: "87.3", coverage: "37.6"'));
-assert.ok(popupScript.includes('precision: "90.3", coverage: "85.4"'));
-assert.ok(popupScript.includes("Hybrid is recommended."));
+assert.ok(popupScript.includes('precision: "93.9", coverage: "90.5"'));
+assert.ok(popupScript.includes('precision: "92.2", coverage: "40.7"'));
+assert.ok(popupScript.includes('precision: "93.5", coverage: "88.2"'));
+assert.ok(!popupScript.includes("Hybrid is recommended."));
 assert.ok(!popup.includes("Benchmark:"));
 assert.ok(popup.includes('id="versionLabel"'));
 assert.ok(popupScript.includes("runtime.runtime.getManifest().version"));
@@ -258,6 +274,25 @@ audio.rememberTimedTextData({
   ]
 }, "lang=en&kind=");
 assert.strictEqual(captionSegment.textContent, "repeat [__] now");
+
+captionSegment.textContent = "Stop. [__] hell";
+video.currentTime = 110;
+audio.rememberTimedTextData({
+  tokens: [Object.assign({}, contextToken, {
+    tokenIndex: 2,
+    eventIndex: 2,
+    timeSeconds: 110,
+    context: "Stop. [__] hell",
+    deterministicWord: "Fucking",
+    deterministicCandidates: ["fucking", "Fucking"],
+    deterministicAmbiguous: false
+  })],
+  timeline: [
+    { eventIndex: 2, startTime: 110, endTime: 111, text: "Stop. [__] hell", firstTokenIndex: 2, tokenCount: 1 }
+  ]
+}, "lang=en&kind=formatted");
+assert.strictEqual(captionSegment.textContent, "Stop. Fucking hell");
+assert.strictEqual(audio.debugState().pendingTokens.length, 0);
 
 audio.setOptions({ rulesEnabled: false, whisperEnabled: true, audioNeeded: true });
 captionSegment.textContent = "cached [__] now";

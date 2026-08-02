@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Uncensored YouTube",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Restores words censored in YouTube's automatic captions.",
   "icons": {
     "16": "src/icons/icon-16.png",
@@ -49,6 +49,8 @@
         "https://www.youtube.com/*"
       ],
       "js": [
+        "src/rules-compiler.js",
+        "src/rules-data.js",
         "src/rules.js",
         "src/timedtext.js",
         "src/sabr-parser.js",
@@ -62,6 +64,8 @@
     {
       "resources": [
         "src/page-hook.js",
+        "src/rules-compiler.js",
+        "src/rules-data.js",
         "src/rules.js",
         "src/timedtext.js"
       ],
