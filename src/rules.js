@@ -234,6 +234,21 @@
     return normalizeCensoredTokens(text).toLowerCase().replace(/\u2019/g, "'").match(/\[__\]|[\p{L}\p{N}_']+/gu) || [];
   }
 
+  function ruleWordSpans(text) {
+    var normalized = normalizeCensoredTokens(text).toLowerCase().replace(/\u2019/g, "'");
+    var words = [];
+    var spans = [];
+    var matcher = /\[__\]|[\p{L}\p{N}_']+/gu;
+    var match;
+
+    while ((match = matcher.exec(normalized)) !== null) {
+      words.push(match[0]);
+      spans.push({ start: match.index, end: match.index + match[0].length });
+    }
+
+    return { words: words, spans: spans };
+  }
+
   function buildRuleTrie(compiledRules) {
     var rootNode = trieNode();
 
@@ -254,13 +269,28 @@
   }
 
   var RULE_TRIE = buildRuleTrie(RULE_ENTRIES);
+  var MAX_RULE_WORDS = DETERMINISTIC_RULES.reduce(function longestRule(length, rule) {
+    return Math.max(length, ruleWords(rule.template).length);
+  }, 0);
 
-  function candidateRulesForText(text) {
-    var words = ruleWords(text);
+  function candidateRuleData(text) {
+    var wordData = ruleWordSpans(text);
+    var words = wordData.words;
+    var spans = wordData.spans;
     var selected = new Map();
+    var ranges = new Map();
+    var starts = new Set();
     var startIndex;
 
-    for (startIndex = 0; startIndex < words.length; startIndex += 1) {
+    words.forEach(function collectBlankStarts(word, wordIndex) {
+      if (word !== CENSORED_TOKEN) return;
+      for (startIndex = Math.max(0, wordIndex - MAX_RULE_WORDS + 1);
+        startIndex <= wordIndex; startIndex += 1) {
+        starts.add(startIndex);
+      }
+    });
+
+    starts.forEach(function scanCandidateStart(startIndex) {
       var node = RULE_TRIE;
       var wordIndex = startIndex;
 
@@ -268,18 +298,25 @@
         node = node.children.get(words[wordIndex]);
         node.rules.forEach(function rememberRule(compiled) {
           selected.set(compiled.index, compiled);
+          if (!ranges.has(compiled.index)) ranges.set(compiled.index, []);
+          ranges.get(compiled.index).push({
+            start: spans[startIndex].start,
+            end: spans[wordIndex].end
+          });
         });
         wordIndex += 1;
       }
-    }
+    });
 
-    return Array.from(selected.values()).sort(function sortByRuleOrder(left, right) {
-      return left.index - right.index;
-    }).map(ensureCompiled);
+    return {
+      rules: Array.from(selected.values()).sort(function sortByRuleOrder(left, right) {
+        return left.index - right.index;
+      }).map(ensureCompiled),
+      ranges: ranges
+    };
   }
 
-  function orderedRulesForText(text) {
-    var candidates = candidateRulesForText(text);
+  function orderCandidateRules(candidates) {
     var lowConfidenceOffset = candidates.findIndex(function isLowConfidence(compiled) {
       return compiled.index >= SPECIFIC_RULE_COUNT;
     });
@@ -381,37 +418,40 @@
     return text.replace(/\[(?!\s*__\s*\])[^\]\n]*\]/g, " ");
   }
 
-  function hasCensoredToken(text) {
-    if (typeof text !== "string") {
-      return false;
-    }
-
-    CENSORED_TOKEN_REGEX.lastIndex = 0;
-    return CENSORED_TOKEN_REGEX.test(text.replace(/\u00a0/g, " "));
-  }
-
   function phraseContinuesAfterToken(beforeToken) {
     return CONTINUING_PREFIX_REGEX.test(beforeToken);
   }
 
-  function exactRuleContinuesAfterToken(text, tokenStart, tokenEnd) {
-    return candidateRulesForText(text).some(function matchesExactContinuation(compiled) {
-      var match;
+  function exactRuleContinuesAfterToken(text, tokenStart, tokenEnd, candidateData) {
+    var candidates = candidateData.rules || candidateData;
+
+    return candidates.some(function matchesExactContinuation(compiled) {
+      var ranges;
 
       if (compiled.index >= EXACT_RULE_COUNT) return false;
-      compiled = ensureCompiled(compiled);
-      compiled.regex.lastIndex = 0;
+      ranges = candidateData.ranges && candidateData.ranges.get(compiled.index) || [];
+      return ranges.some(function checkRange(range) {
+        var source;
+        var windowStart;
+        var match;
 
-      while ((match = compiled.regex.exec(text)) !== null) {
-        var matchStart = match.index + match[1].length;
-        var matchEnd = matchStart + match[2].length;
-        if (matchStart <= tokenStart && matchEnd > tokenEnd) return true;
-      }
-      return false;
+        if (range.start > tokenStart || range.end <= tokenEnd) return false;
+        windowStart = Math.max(0, range.start - 32);
+        source = text.slice(windowStart, Math.min(text.length, range.end + 32));
+        compiled.regex.lastIndex = 0;
+        while ((match = compiled.regex.exec(source)) !== null) {
+          var matchStart = windowStart + match.index + match[1].length;
+          var matchEnd = matchStart + match[2].length;
+          if (matchStart <= tokenStart && matchEnd > tokenEnd) return true;
+        }
+        return false;
+      });
     });
   }
 
   function insertVirtualSentencePunctuation(text) {
+    var exactCandidateData;
+
     return text.replace(CENSORED_TOKEN_REGEX, function punctuateToken(token, offset) {
       var beforeToken = text.slice(0, offset);
       var afterToken = text.slice(offset + token.length);
@@ -433,7 +473,8 @@
         return token;
       }
 
-      if (exactRuleContinuesAfterToken(text, offset, offset + token.length)) {
+      exactCandidateData = exactCandidateData || candidateRuleData(text);
+      if (exactRuleContinuesAfterToken(text, offset, offset + token.length, exactCandidateData)) {
         return token;
       }
 
@@ -464,90 +505,119 @@
     var decisions = [];
     var occupiedRanges = [];
 
-    orderedRulesForText(normalizedText).forEach(function applyRule(compiled) {
+    var candidateData = candidateRuleData(normalizedText);
+
+    orderCandidateRules(candidateData.rules).forEach(function applyRule(compiled) {
       if (options && options.disabledRuleTemplate === compiled.rule.template) return;
       if (options && options.disabledRuleTemplates &&
           options.disabledRuleTemplates.indexOf(compiled.rule.template) !== -1) return;
-      var match;
+      var ranges = candidateData.ranges.get(compiled.index);
+      var startsSentence = /^\^/.test(compiled.rule.template);
+      var endsSentence = /\$$/.test(compiled.rule.template);
+      var fullScan = !ranges;
+      var seenMatches = new Set();
+      var matchCount = 0;
 
-      compiled.regex.lastIndex = 0;
+      function scanMatches(source, windowStart, range, scanAll) {
+        var match;
 
-      while ((match = compiled.regex.exec(normalizedText)) !== null) {
-        var fullMatch = match[0];
-        var prefix = match[1];
-        var matchedText = match[2];
-        var matchStart = match.index + prefix.length;
-        var matchEnd = match.index + fullMatch.length;
-        var tokenRange = findTokenRange(matchedText);
+        compiled.regex.lastIndex = 0;
+        while ((match = compiled.regex.exec(source)) !== null) {
+          var fullMatch = match[0];
+          var prefix = match[1];
+          var matchedText = match[2];
+          var globalMatchIndex = windowStart + match.index;
+          var matchKey = globalMatchIndex + ":" + fullMatch.length;
+          var matchStart = globalMatchIndex + prefix.length;
+          var matchEnd = globalMatchIndex + fullMatch.length;
 
-        if (!tokenRange) {
-          continue;
-        }
+          var tokenRange = findTokenRange(matchedText);
 
-        var tokenStart = matchStart + tokenRange.start;
-        var tokenEnd = matchStart + tokenRange.end;
+          if (!tokenRange) continue;
 
-        if (SENTENCE_END_REGEX.test(normalizedText.charAt(tokenEnd))) {
-          tokenEnd += 1;
-        }
+          var tokenStart = matchStart + tokenRange.start;
+          var tokenEnd = matchStart + tokenRange.end;
 
-        if (occupiedRanges.some(function overlaps(range) {
-          return tokenStart < range.end && tokenEnd > range.start;
-        })) {
-          continue;
-        }
+          if (SENTENCE_END_REGEX.test(normalizedText.charAt(tokenEnd))) {
+            tokenEnd += 1;
+          }
 
-        if (tokenRange.count === 1 && isAdjacentToCensoredToken(normalizedText, tokenStart, tokenEnd)) {
-          continue;
-        }
+          if (!scanAll && (tokenStart < range.start || tokenStart >= range.end)) continue;
 
-        var beforeToken = normalizedText.slice(0, tokenStart);
-        var afterToken = normalizedText.slice(tokenEnd);
-        var formattingText = normalizedText.slice(matchStart, Math.max(matchEnd, tokenEnd));
-        var decision = candidateDecision(compiled.rule, policy);
+          if (endsSentence && !/^[^\p{L}\p{N}_'’]*$/u.test(normalizedText.slice(matchEnd))) continue;
 
-        if (!decision) {
-          decisions.push({
+          if (seenMatches.has(matchKey)) continue;
+          seenMatches.add(matchKey);
+          matchCount += 1;
+
+          if (occupiedRanges.some(function overlaps(occupied) {
+            return tokenStart < occupied.end && tokenEnd > occupied.start;
+          })) continue;
+
+          if (tokenRange.count === 1 && isAdjacentToCensoredToken(normalizedText, tokenStart, tokenEnd)) continue;
+
+          var beforeToken = normalizedText.slice(0, tokenStart);
+          var afterToken = normalizedText.slice(tokenEnd);
+          var formattingText = normalizedText.slice(matchStart, Math.max(matchEnd, tokenEnd));
+          var decision = candidateDecision(compiled.rule, policy);
+
+          if (!decision) {
+            decisions.push({
+              rule: compiled.rule,
+              tier: tierForRule(compiled),
+              score: 0,
+              margin: 0,
+              support: 0,
+              source: "abstain",
+              word: "",
+              displayWord: "",
+              tokenIndex: tokenIndexBefore(normalizedText, tokenStart),
+              tokenSpan: tokenRange.count,
+              textStart: tokenStart,
+              textEnd: tokenEnd
+            });
+            occupiedRanges.push({ start: tokenStart, end: tokenEnd });
+            continue;
+          }
+
+          var formatted = formatReplacement(decision.word, beforeToken, afterToken, formattingText);
+
+          var replacement = {
             rule: compiled.rule,
             tier: tierForRule(compiled),
-            score: 0,
-            margin: 0,
-            support: 0,
-            source: "abstain",
-            word: "",
-            displayWord: "",
+            score: decision.score,
+            margin: decision.margin,
+            support: decision.support,
+            source: decision.source,
+            word: formatted.word,
+            displayWord: formatted.displayWord,
             tokenIndex: tokenIndexBefore(normalizedText, tokenStart),
             tokenSpan: tokenRange.count,
             textStart: tokenStart,
             textEnd: tokenEnd
+          };
+          replacements.push(replacement);
+          decisions.push(replacement);
+
+          occupiedRanges.push({
+            start: tokenStart,
+            end: tokenEnd
           });
-          occupiedRanges.push({ start: tokenStart, end: tokenEnd });
-          continue;
         }
+        return matchCount;
+      }
 
-        var formatted = formatReplacement(decision.word, beforeToken, afterToken, formattingText);
+      (fullScan ? [{ start: 0, end: normalizedText.length }] : ranges).forEach(function scanRange(range) {
+        var windowStart = fullScan || startsSentence ? 0 : Math.max(0, range.start - 32);
+        var windowEnd = fullScan ? normalizedText.length : Math.min(normalizedText.length, range.end + 32);
+        scanMatches(fullScan ? normalizedText : normalizedText.slice(windowStart, windowEnd),
+          windowStart, range, fullScan);
+      });
 
-        var replacement = {
-          rule: compiled.rule,
-          tier: tierForRule(compiled),
-          score: decision.score,
-          margin: decision.margin,
-          support: decision.support,
-          source: decision.source,
-          word: formatted.word,
-          displayWord: formatted.displayWord,
-          tokenIndex: tokenIndexBefore(normalizedText, tokenStart),
-          tokenSpan: tokenRange.count,
-          textStart: tokenStart,
-          textEnd: tokenEnd
-        };
-        replacements.push(replacement);
-        decisions.push(replacement);
-
-        occupiedRanges.push({
-          start: tokenStart,
-          end: tokenEnd
-        });
+      // Word windows are normally exact. Fall back for punctuation-heavy or
+      // cross-cue rows where the lexical range was only an approximation.
+      if (!fullScan && matchCount < ranges.length) {
+        scanMatches(normalizedText, 0, { start: 0, end: normalizedText.length }, true);
       }
       });
 
@@ -584,15 +654,31 @@
     };
   }
 
+  function templatesMatch(templates, text) {
+    var candidateData = candidateRuleData(text);
+
+    return templates.some(function matchesTemplate(template) {
+      var entry = RULE_ENTRIES.find(function findRule(compiled) {
+        return compiled.rule.template === template;
+      });
+      return Boolean(entry && candidateData.ranges.has(entry.index));
+    });
+  }
+
+  function templateMatches(template, text) {
+    return templatesMatch([template], text);
+  }
+
   var exports = Object.freeze({
     CENSORED_TOKEN: CENSORED_TOKEN,
     CENSORED_TOKEN_REGEX: CENSORED_TOKEN_REGEX,
     ALLOWED_WORDS: ALLOWED_WORDS,
     DETERMINISTIC_RULES: DETERMINISTIC_RULES,
     normalizeCensoredTokens: normalizeCensoredTokens,
-    hasCensoredToken: hasCensoredToken,
     formatWordCase: formatWordCase,
-    applyDeterministicRules: applyDeterministicRules
+    applyDeterministicRules: applyDeterministicRules,
+    templatesMatch: templatesMatch,
+    templateMatches: templateMatches
   });
 
   root.UncensoredRules = exports;

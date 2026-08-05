@@ -406,8 +406,7 @@
   var exports = Object.freeze({
     createParser: createParser,
     createStreamDecoder: createStreamDecoder,
-    chunksToArrayBuffer: chunksToArrayBuffer,
-    parseMediaHeader: parseMediaHeader
+    chunksToArrayBuffer: chunksToArrayBuffer
   });
 
   root.UncensoredSabrParser = exports;

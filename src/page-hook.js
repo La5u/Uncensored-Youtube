@@ -50,14 +50,18 @@
   }
 
   function extractPathVideoId(pathname) {
-    var match = pathname.match(/\/(live|shorts)\/([^/]+)/);
-    return match ? match[2] : "";
+    var match = pathname.match(/^\/(?:live|shorts)\/([^/]+)/);
+    return match ? match[1] : "";
   }
 
   function currentVideoId() {
     try {
       var url = new URL(location.href);
-      return url.searchParams.get("v") || extractPathVideoId(url.pathname) || "";
+      if (url.pathname === "/watch") {
+        var videoId = url.searchParams.get("v");
+        if (videoId) return videoId;
+      }
+      return extractPathVideoId(url.pathname);
     } catch (error) {
       return "";
     }

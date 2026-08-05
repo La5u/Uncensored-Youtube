@@ -78,8 +78,12 @@
   function currentVideoId() {
     try {
       var url = new URL(window.location.href);
-      var pathMatch = url.pathname.match(/\/(live|shorts)\/([^/]+)/);
-      return url.searchParams.get("v") || pathMatch && pathMatch[2] || "";
+      var pathMatch = url.pathname.match(/^\/(?:live|shorts)\/([^/]+)/);
+      if (url.pathname === "/watch") {
+        var videoId = url.searchParams.get("v");
+        if (videoId) return videoId;
+      }
+      return pathMatch ? pathMatch[1] : "";
     } catch (error) {
       return "";
     }
@@ -217,11 +221,12 @@
     }
 
     data = timedText.collectTimedTextData(body, settings.rulesEnabled);
-    debugLog("timedtext parsed", {
-      trackId: trackId,
-      parsed: data.parsed,
-      tokens: data.tokens.length
-    });
+    if (data.tokens.length) {
+      debugLog("censored slots", {
+        trackId: trackId,
+        count: data.tokens.length
+      });
+    }
     if (data.tokens.length) {
       captionDecisionKnown = true;
       videoHasCensoredSlots = true;

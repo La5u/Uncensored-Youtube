@@ -8,7 +8,7 @@
   };
   var metrics = {
     hybrid: { name: "Hybrid", precision: "93.9", coverage: "90.5" },
-    rules: { name: "Rules only", precision: "92.2", coverage: "40.7" },
+    rules: { name: "Rules only", precision: "90.6", coverage: "41.2" },
     whisper: { name: "Audio inference only", precision: "93.5", coverage: "88.2" },
     disabled: { name: "Disabled", precision: "", coverage: "0.0" }
   };

@@ -315,7 +315,8 @@
     {
       "name": "Jacksepticeye",
       "sources": [
-        "https://www.youtube.com/@Jacksepticeye/videos"
+        "https://www.youtube.com/@Jacksepticeye/videos",
+        "https://www.youtube.com/playlist?list=PLER_tGgYixxkZodIjYP5cL0HImtkzHt5W"
       ]
     },
     {
@@ -491,6 +492,630 @@
       "sources": [
         "https://www.youtube.com/@TrashTaste/videos"
       ]
+    },
+    {
+      "name": "Smosh",
+      "sources": [
+        "https://www.youtube.com/@Smosh/videos"
+      ]
+    },
+    {
+      "name": "Oney Plays",
+      "sources": [
+        "https://www.youtube.com/@OneyPlays/videos"
+      ]
+    },
+    {
+      "name": "The Yogscast",
+      "sources": [
+        "https://www.youtube.com/@Yogscast/videos"
+      ]
+    },
+    {
+      "name": "Radi Al",
+      "sources": [
+        "https://www.youtube.com/@RadiAl/videos"
+      ]
+    },
+    {
+      "name": "Jacksfilms",
+      "sources": [
+        "https://www.youtube.com/@jacksfilms/videos"
+      ]
+    },
+    {
+      "name": "Gus Johnson",
+      "sources": [
+        "https://www.youtube.com/@GusJohnson/videos"
+      ]
+    },
+    {
+      "name": "Eddie Burback",
+      "sources": [
+        "https://www.youtube.com/@EddieBurback/videos"
+      ]
+    },
+    {
+      "name": "Moist Podcast",
+      "sources": [
+        "https://www.youtube.com/@MoistPodcast/videos"
+      ]
+    },
+    {
+      "name": "Sugar Pine 7",
+      "sources": [
+        "https://www.youtube.com/@SugarPine7/videos"
+      ]
+    },
+    {
+      "name": "Cow Chop",
+      "sources": [
+        "https://www.youtube.com/@CowChop/videos"
+      ]
+    },
+    {
+      "name": "The Rooster Teeth",
+      "sources": [
+        "https://www.youtube.com/@roosterteeth/videos"
+      ]
+    },
+    {
+      "name": "Achievement Hunter Let's Play",
+      "sources": [
+        "https://www.youtube.com/@AchievementHunterLP/videos"
+      ]
+    },
+    {
+      "name": "F**kface Podcast",
+      "sources": [
+        "https://www.youtube.com/@Fkface/videos"
+      ]
+    },
+    {
+      "name": "Tiny Meat Gang",
+      "sources": [
+        "https://www.youtube.com/@TinyMeatGang/videos"
+      ]
+    },
+    {
+      "name": "BriTANick",
+      "sources": [
+        "https://www.youtube.com/@BriTANick/videos"
+      ]
+    },
+    {
+      "name": "The Official Podcast",
+      "sources": [
+        "https://www.youtube.com/@officialpodcast/videos"
+      ]
+    },
+    {
+      "name": "xQc",
+      "sources": [
+        "https://www.youtube.com/@xQcOW/videos"
+      ]
+    },
+    {
+      "name": "HasanAbi",
+      "sources": [
+        "https://www.youtube.com/@hasanabi/videos"
+      ]
+    },
+    {
+      "name": "Asmongold",
+      "sources": [
+        "https://www.youtube.com/@Asmongold/videos"
+      ]
+    },
+    {
+      "name": "The Sidemen",
+      "sources": [
+        "https://www.youtube.com/@Sidemen/videos"
+      ]
+    },
+    {
+      "name": "KSI",
+      "sources": [
+        "https://www.youtube.com/@KSI/videos"
+      ]
+    },
+    {
+      "name": "Miniminter",
+      "sources": [
+        "https://www.youtube.com/@Miniminter/videos"
+      ]
+    },
+    {
+      "name": "W2S",
+      "sources": [
+        "https://www.youtube.com/@W2S/videos"
+      ]
+    },
+    {
+      "name": "Behzinga",
+      "sources": [
+        "https://www.youtube.com/@Behzinga/videos"
+      ]
+    },
+    {
+      "name": "Zerkaa",
+      "sources": [
+        "https://www.youtube.com/@Zerkaa/videos"
+      ]
+    },
+    {
+      "name": "TBJZL",
+      "sources": [
+        "https://www.youtube.com/@TBJZL/videos"
+      ]
+    },
+    {
+      "name": "Vikkstar123",
+      "sources": [
+        "https://www.youtube.com/@Vikkstar123/videos"
+      ]
+    },
+    {
+      "name": "Deji",
+      "sources": [
+        "https://www.youtube.com/@Deji/videos"
+      ]
+    },
+    {
+      "name": "Calfreezy",
+      "sources": [
+        "https://www.youtube.com/@Calfreezy/videos"
+      ]
+    },
+    {
+      "name": "Callux",
+      "sources": [
+        "https://www.youtube.com/@Callux/videos"
+      ]
+    },
+    {
+      "name": "Harry Lewis",
+      "sources": [
+        "https://www.youtube.com/@HarryLewis/videos"
+      ]
+    },
+    {
+      "name": "Big Narstie",
+      "sources": [
+        "https://www.youtube.com/@BigNarstie/videos"
+      ]
+    },
+    {
+      "name": "JME",
+      "sources": [
+        "https://www.youtube.com/@JME/videos"
+      ]
+    },
+    {
+      "name": "WillNE",
+      "sources": [
+        "https://www.youtube.com/@WillNE/videos"
+      ]
+    },
+    {
+      "name": "Memelord",
+      "sources": [
+        "https://www.youtube.com/@Memelord/videos"
+      ]
+    },
+    {
+      "name": "The Click",
+      "sources": [
+        "https://www.youtube.com/@TheClick/videos"
+      ]
+    },
+    {
+      "name": "OneTopicAtATime",
+      "sources": [
+        "https://www.youtube.com/@OneTopicAtATime/videos"
+      ]
+    },
+    {
+      "name": "James Marriott",
+      "sources": [
+        "https://www.youtube.com/@JamesMarriott/videos"
+      ]
+    },
+    {
+      "name": "Danny Aarons",
+      "sources": [
+        "https://www.youtube.com/@DannyAarons/videos"
+      ]
+    },
+    {
+      "name": "George Clarkey",
+      "sources": [
+        "https://www.youtube.com/@GeorgeClarkey/videos"
+      ]
+    },
+    {
+      "name": "The 2 Johnnies",
+      "sources": [
+        "https://www.youtube.com/@The2Johnnies/videos"
+      ]
+    },
+    {
+      "name": "Blindboy Boatclub",
+      "sources": [
+        "https://www.youtube.com/@blindboyboatclub/videos"
+      ]
+    },
+    {
+      "name": "Tadhg Fleming",
+      "sources": [
+        "https://www.youtube.com/@TadhgFleming/videos"
+      ]
+    },
+    {
+      "name": "Jimmy Giggle",
+      "sources": [
+        "https://www.youtube.com/@JimmyGiggle/videos"
+      ]
+    },
+    {
+      "name": "Sleep Deprived",
+      "sources": [
+        "https://www.youtube.com/@SleepDeprived/videos"
+      ]
+    },
+    {
+      "name": "Tom Scott",
+      "sources": [
+        "https://www.youtube.com/@TomScottGo/videos"
+      ]
+    },
+    {
+      "name": "Jay Foreman",
+      "sources": [
+        "https://www.youtube.com/@JayForeman/videos"
+      ]
+    },
+    {
+      "name": "Wilbur Soot",
+      "sources": [
+        "https://www.youtube.com/@WilburSoot/videos"
+      ]
+    },
+    {
+      "name": "TommyInnit",
+      "sources": [
+        "https://www.youtube.com/@TommyInnit/videos"
+      ]
+    },
+    {
+      "name": "Nihachu",
+      "sources": [
+        "https://www.youtube.com/@Nihachu/videos"
+      ]
+    },
+    {
+      "name": "Sneegsnag",
+      "sources": [
+        "https://www.youtube.com/@Sneegsnag/videos"
+      ]
+    },
+    {
+      "name": "Grian",
+      "sources": [
+        "https://www.youtube.com/@GrianMC/videos"
+      ]
+    },
+    {
+      "name": "Mumbo Jumbo",
+      "sources": [
+        "https://www.youtube.com/@ThatMumboJumbo/videos"
+      ]
+    },
+    {
+      "name": "LDShadowLady",
+      "sources": [
+        "https://www.youtube.com/@LDShadowLady/videos"
+      ]
+    },
+    {
+      "name": "SolidarityGaming",
+      "sources": [
+        "https://www.youtube.com/@SolidarityGaming/videos"
+      ]
+    },
+    {
+      "name": "Inthelittlewood",
+      "sources": [
+        "https://www.youtube.com/@inthelittlewood/videos"
+      ]
+    },
+    {
+      "name": "Foolish Gamers",
+      "sources": [
+        "https://www.youtube.com/@FoolishGamers/videos"
+      ]
+    },
+    {
+      "name": "ConnorEatsPants",
+      "sources": [
+        "https://www.youtube.com/@ConnorEatsPants/videos"
+      ]
+    },
+    {
+      "name": "Ozzy Man Reviews",
+      "sources": [
+        "https://www.youtube.com/@OzzyManReviews/videos"
+      ]
+    },
+    {
+      "name": "HowToBasic",
+      "sources": [
+        "https://www.youtube.com/@HowToBasic/videos"
+      ]
+    },
+    {
+      "name": "OneyNG",
+      "sources": [
+        "https://www.youtube.com/@OneyNG/videos"
+      ]
+    },
+    {
+      "name": "PsychicPebbles",
+      "sources": [
+        "https://www.youtube.com/@PsychicPebbles/videos"
+      ]
+    },
+    {
+      "name": "Etalyx",
+      "sources": [
+        "https://www.youtube.com/@Etalyx/videos"
+      ]
+    },
+    {
+      "name": "DougDoug",
+      "sources": [
+        "https://www.youtube.com/@DougDoug/videos"
+      ]
+    },
+    {
+      "name": "Alpharad",
+      "sources": [
+        "https://www.youtube.com/@Alpharad/videos"
+      ]
+    },
+    {
+      "name": "Ludwig",
+      "sources": [
+        "https://www.youtube.com/@ludwig/videos"
+      ]
+    },
+    {
+      "name": "Atrioc",
+      "sources": [
+        "https://www.youtube.com/@Atrioc/videos"
+      ]
+    },
+    {
+      "name": "Mizkif",
+      "sources": [
+        "https://www.youtube.com/@Mizkif/videos"
+      ]
+    },
+    {
+      "name": "The Spiffing Brit",
+      "sources": [
+        "https://www.youtube.com/@TheSpiffingBrit/videos"
+      ]
+    },
+    {
+      "name": "Mini Ladd",
+      "sources": [
+        "https://www.youtube.com/@MiniLaddd/videos"
+      ]
+    },
+    {
+      "name": "Boffy",
+      "sources": [
+        "https://www.youtube.com/@Boffy/videos"
+      ]
+    },
+    {
+      "name": "Whatever Podcast",
+      "sources": [
+        "https://www.youtube.com/@Whatever/videos"
+      ]
+    },
+    {
+      "name": "Steiny",
+      "sources": [
+        "https://www.youtube.com/@SteinyOfficial/videos"
+      ]
+    },
+    {
+      "name": "H2O Delirious",
+      "sources": [
+        "https://www.youtube.com/@H2ODelirious/videos"
+      ]
+    },
+    {
+      "name": "Cartoonz",
+      "sources": [
+        "https://www.youtube.com/@Cartoonz/videos"
+      ]
+    },
+    {
+      "name": "Ohmwrecker",
+      "sources": [
+        "https://www.youtube.com/@OhmwreckerPlays/videos"
+      ]
+    },
+    {
+      "name": "EazySpeezy",
+      "sources": [
+        "https://www.youtube.com/@EazySpeezy/videos"
+      ]
+    },
+    {
+      "name": "Internet Historian",
+      "sources": [
+        "https://www.youtube.com/@InternetHistorian/videos"
+      ]
+    },
+    {
+      "name": "Fredrik Knudsen",
+      "sources": [
+        "https://www.youtube.com/@FredrikKnudsen/videos"
+      ]
+    },
+    {
+      "name": "Nexpo",
+      "sources": [
+        "https://www.youtube.com/@Nexpo/videos"
+      ]
+    },
+    {
+      "name": "Atrocity Guide",
+      "sources": [
+        "https://www.youtube.com/@AtrocityGuide/videos"
+      ]
+    },
+    {
+      "name": "LEMMiNO",
+      "sources": [
+        "https://www.youtube.com/@LEMMiNO/videos"
+      ]
+    },
+    {
+      "name": "Civvie11",
+      "sources": [
+        "https://www.youtube.com/@Civvie11/videos"
+      ]
+    },
+    {
+      "name": "Jacob Geller",
+      "sources": [
+        "https://www.youtube.com/@JacobGeller/videos"
+      ]
+    },
+    {
+      "name": "minutephysics",
+      "sources": [
+        "https://www.youtube.com/@minutephysics/videos"
+      ]
+    },
+    {
+      "name": "Folding Ideas",
+      "sources": [
+        "https://www.youtube.com/@FoldingIdeas/videos"
+      ]
+    },
+    {
+      "name": "DesignDoc",
+      "sources": [
+        "https://www.youtube.com/@DesignDoc/videos"
+      ]
+    },
+    {
+      "name": "Razbuten",
+      "sources": [
+        "https://www.youtube.com/@Razbuten/videos"
+      ]
+    },
+    {
+      "name": "Sinvicta",
+      "sources": [
+        "https://www.youtube.com/@Sinvicta/videos"
+      ]
+    },
+    {
+      "name": "LGR",
+      "sources": [
+        "https://www.youtube.com/@LGR/videos"
+      ]
+    },
+    {
+      "name": "The 8-Bit Guy",
+      "sources": [
+        "https://www.youtube.com/@The8BitGuy/videos"
+      ]
+    },
+    {
+      "name": "VWestLife",
+      "sources": [
+        "https://www.youtube.com/@VWestLife/videos"
+      ]
+    },
+    {
+      "name": "Like Stories of Old",
+      "sources": [
+        "https://www.youtube.com/@LikeStoriesofOld/videos"
+      ]
+    },
+    {
+      "name": "Solar Sands",
+      "sources": [
+        "https://www.youtube.com/@SolarSands/videos"
+      ]
+    },
+    {
+      "name": "Every Frame a Painting",
+      "sources": [
+        "https://www.youtube.com/@EveryFrameAPainting/videos"
+      ]
+    },
+    {
+      "name": "Accented Cinema",
+      "sources": [
+        "https://www.youtube.com/@AccentedCinema/videos"
+      ]
+    },
+    {
+      "name": "Kaptain Kristian",
+      "sources": [
+        "https://www.youtube.com/@KaptainKristian/videos"
+      ]
+    },
+    {
+      "name": "Three Arrows",
+      "sources": [
+        "https://www.youtube.com/@ThreeArrows/videos"
+      ]
+    },
+    {
+      "name": "Matthewmatosis",
+      "sources": [
+        "https://www.youtube.com/@MatthewMatosis/videos"
+      ]
+    },
+    {
+      "name": "Errant Signal",
+      "sources": [
+        "https://www.youtube.com/@ErrantSignal/videos"
+      ]
+    },
+    {
+      "name": "Scott the Woz",
+      "sources": [
+        "https://www.youtube.com/@ScottTheWoz/videos"
+      ]
+    },
+    {
+      "name": "PopCultureDetective",
+      "sources": [
+        "https://www.youtube.com/@PopCultureDetective/videos"
+      ]
+    },
+    {
+      "name": "Philip DeFranco",
+      "sources": [
+        "https://www.youtube.com/@PhilipDeFranco/videos"
+      ]
+    },
+    {
+      "name": "JerryRigEverything",
+      "sources": [
+        "https://www.youtube.com/@JerryRigEverything/videos"
+      ]
     }
   ],
   "searchChannels": [
@@ -646,6 +1271,27 @@
     "Anything4Views",
     "Misfits Podcast",
     "CheapShow",
-    "Abroad in Japan Podcast"
+    "Abroad in Japan Podcast",
+    "Doctor Mike",
+    "LegalEagle",
+    "Chubbyemu",
+    "Adam Ragusea",
+    "SORTEDFood",
+    "Made With Lau",
+    "Ask A Mortician",
+    "Barry Lewis",
+    "Tom Buck",
+    "Fundie Fridays",
+    "JOLLY",
+    "Captain Disillusion",
+    "Dr. Z PhD",
+    "Bailey Sarian",
+    "Tasting History with Max Miller",
+    "Emmymade",
+    "Huw Richards",
+    "NileRed Shorts",
+    "Exactly Right Media",
+    "Good Mythical Morning",
+    "lilsimsie"
   ]
 }

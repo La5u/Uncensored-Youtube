@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const rules = require("../src/rules");
+const ruleData = require("../src/rules-data");
 const timedText = require("../src/timedtext");
 const decision = require("../src/whisper-local");
 const { align, manualSwearEvents } = require("./evaluation-alignment");
@@ -23,13 +24,16 @@ function parseArgs(argv) {
     after: "1.5",
     limit: "0",
     names: "",
+    contextEvents: "4",
     allowUnscored: "false",
     skipMissing: "false",
     discoverPaired: "false",
     discoverUnpaired: "false",
     rulesScoring: "strict",
     unpairedMinBlanks: "0",
-    checkpointEvery: "25"
+    contextWindow: "1,0",
+    checkpointEvery: "25",
+    reuse: ""
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -47,10 +51,12 @@ function parseArgs(argv) {
   args.before = Number(args.before);
   args.after = Number(args.after);
   args.limit = Number(args.limit);
+  args.contextEvents = Number(args.contextEvents);
   args.unpairedMinBlanks = Number(args.unpairedMinBlanks);
   args.checkpointEvery = Number(args.checkpointEvery);
-  if (![args.before, args.after].every((value) => Number.isFinite(value) && value >= 0)) {
-    throw new Error("--before and --after must be non-negative numbers.");
+  if (![args.before, args.after].every((value) => Number.isFinite(value) && value >= 0) ||
+      !Number.isInteger(args.contextEvents) || args.contextEvents < 1) {
+    throw new Error("--before and --after must be non-negative numbers; --contextEvents must be a positive integer.");
   }
   if (![args.limit, args.unpairedMinBlanks, args.checkpointEvery]
     .every((value) => Number.isInteger(value) && value >= 0)) {
@@ -72,6 +78,13 @@ function parseArgs(argv) {
   if (args.rulesScoring !== "strict" && args.mode !== "rules-only") {
     throw new Error("--rulesScoring any-candidate requires --mode rules-only.");
   }
+  const contextWindow = String(args.contextWindow).split(",").map((value) => Number(value));
+  if (contextWindow.length !== 2 ||
+      !contextWindow.every((value) => Number.isInteger(value) && value >= 0)) {
+    throw new Error("--contextWindow must be two non-negative integers like 2,1 (before,after).");
+  }
+  args.contextBefore = contextWindow[0];
+  args.contextAfter = contextWindow[1];
   return args;
 }
 
@@ -285,7 +298,7 @@ function classifyResult(result) {
   return "missed";
 }
 
-async function evaluateFixture(args, fixture, getTranscriber, cachedResults) {
+async function evaluateFixture(args, fixture, getTranscriber, cachedResults, reusableResults) {
   const fixturesPath = resolvePath(args.fixtures);
   const censoredPath = path.join(fixturesPath, fixture.censored);
   const uncensoredPath = fixture.uncensored && path.join(fixturesPath, fixture.uncensored);
@@ -301,7 +314,11 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults) {
   }
 
   const body = fs.readFileSync(censoredPath, "utf8");
-  const tokens = timedText.collectTimedTextTokens(body, args.mode !== "whisper-only");
+  const timedData = timedText.collectTimedTextData(body, args.mode !== "whisper-only", {
+    contextBefore: args.contextBefore,
+    contextAfter: args.contextAfter
+  });
+  const tokens = timedData.tokens;
   const manualBody = uncensoredPath && fs.existsSync(uncensoredPath)
     ? fs.readFileSync(uncensoredPath, "utf8")
     : "";
@@ -337,9 +354,25 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults) {
     : new Map();
   const selectedTokens = args.limit > 0 ? tokens.slice(0, args.limit) : tokens;
   const transcriptByTime = new Map();
+  const timelineIndex = new Map(timedData.timeline.map((event, index) => [event.eventIndex, index]));
   const results = [];
+  let reusedSlotCount = 0;
 
   for (const token of selectedTokens) {
+    const reviewContext = reviewContextForToken(timedData.timeline, token, args.contextEvents, timelineIndex);
+    const candidateWords = args.mode === "rules-only" ? token.deterministicCandidates : [];
+    const anyCandidate = args.rulesScoring === "any-candidate";
+    const reusable = reusableResults && reusableResults.get(token.tokenIndex);
+    if (args.mode === "rules-only" && reusable && reusable.context === token.context &&
+        reusable.reviewContext === reviewContext && reusable.word === token.deterministicWord &&
+        reusable.ruleTemplate === (token.deterministicRuleTemplate || "") &&
+        reusable.ruleTier === (token.deterministicTier || "") &&
+        reusable.candidateScoring === anyCandidate &&
+        JSON.stringify(reusable.candidates || []) === JSON.stringify(candidateWords)) {
+      results.push(reusable);
+      reusedSlotCount += 1;
+      continue;
+    }
     const deterministic = args.mode === "rules-only"
       ? Boolean(token.deterministicWord)
       : args.mode === "rules+whisper" && token.deterministicWord && !token.deterministicAmbiguous;
@@ -370,8 +403,6 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults) {
       );
     }
     const expected = expectedByToken.has(token.tokenIndex) ? [expectedByToken.get(token.tokenIndex)] : [];
-    const candidateWords = args.mode === "rules-only" ? token.deterministicCandidates : [];
-    const anyCandidate = args.rulesScoring === "any-candidate";
     const attempted = anyCandidate ? candidateWords.length > 0 : Boolean(chosen.word);
     const correct = anyCandidate
       ? candidateWords.some((word) => isCorrect(word, expected, token.context))
@@ -380,6 +411,7 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults) {
       tokenIndex: token.tokenIndex,
       timeSeconds: token.timeSeconds,
       context: token.context,
+      reviewContext,
       transcript,
       word: chosen.word,
       candidates: candidateWords,
@@ -417,7 +449,110 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults) {
     acceptedCount: results.filter((result) => result.word).length,
     attemptedCount: results.filter((result) => result.attempted).length,
     correctCount: scored.filter((result) => result.correct).length,
+    reusedSlotCount,
+    contentFingerprint: contentFingerprint(`${body}\n${manualBody}`),
+    rulesFingerprint: rulesFingerprint(),
     results
+  };
+}
+
+function reviewContextForToken(timeline, token, radius = 2, timelineIndex) {
+  const position = timelineIndex ? timelineIndex.get(token.eventIndex)
+    : timeline.findIndex((event) => event.eventIndex === token.eventIndex);
+  if (position === undefined || position < 0) return token.context;
+  const first = Math.max(0, position - radius);
+  const last = Math.min(timeline.length, position + radius + 1);
+  return timeline.slice(first, last).map((event) => {
+    let relativeIndex = 0;
+    return event.text.replace(rules.CENSORED_TOKEN_REGEX, () => {
+      const index = event.firstTokenIndex + relativeIndex;
+      relativeIndex += 1;
+      return index === token.tokenIndex ? rules.CENSORED_TOKEN : "…";
+    });
+  }).join(" ").replace(/\s+/g, " ").trim();
+}
+
+function contentFingerprint(text) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function joinedCaptionText(body) {
+  try {
+    const payload = JSON.parse(body);
+    return (payload.events || []).map((event) =>
+      (event.segs || []).map((seg) => seg.utf8 || "").join("")
+    ).join(" ");
+  } catch {
+    return "";
+  }
+}
+
+function rulesFingerprint() {
+  const seed = `${rules.DETERMINISTIC_RULES.length}:${rules.ALLOWED_WORDS.length}`;
+  let hash = 0x811c9dc5;
+  for (const rule of rules.DETERMINISTIC_RULES) {
+    const value = `${rule.template}|${rule.candidates.join(",")}|`;
+    for (let i = 0; i < value.length; i += 1) {
+      hash ^= value.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+  }
+  return `${seed}:${(hash >>> 0).toString(36)}`;
+}
+
+function auxiliaryRulesFingerprint() {
+  return contentFingerprint(JSON.stringify({
+    frames: ruleData.RULE_GROUPS.frames,
+    priors: ruleData.CANDIDATE_PRIORS,
+    continuing: ruleData.CONTINUING_PREFIX_SETS,
+    allowed: ruleData.ALLOWED_WORDS
+  }));
+}
+
+function rulesEngineFingerprint() {
+  return contentFingerprint(["rules.js", "rules-compiler.js"].map((name) =>
+    fs.readFileSync(path.join(root, "src", name), "utf8")).join("\n"));
+}
+
+function ruleSignature() {
+  return rules.DETERMINISTIC_RULES.map((rule) => ({
+    template: rule.template,
+    candidates: rule.candidates
+  }));
+}
+
+function changedRuleTemplates(previous, current) {
+  const previousMap = new Map(previous.map((rule) => [rule.template, rule.candidates]));
+  const currentMap = new Map(current.map((rule) => [rule.template, rule.candidates]));
+  const changed = new Set();
+  const sameCandidates = (left, right) => left && right && left.length === right.length &&
+    left.every((candidate, index) => candidate === right[index]);
+
+  current.forEach((rule) => {
+    const before = previousMap.get(rule.template);
+    if (!before || !sameCandidates(before, rule.candidates)) changed.add(rule.template);
+  });
+
+  const previousCommon = previous.filter((rule) => currentMap.has(rule.template)).map((rule) => rule.template);
+  const currentCommon = current.filter((rule) => previousMap.has(rule.template)).map((rule) => rule.template);
+  currentCommon.forEach((template, index) => {
+    if (template !== previousCommon[index]) {
+      changed.add(template);
+      if (previousCommon[index]) changed.add(previousCommon[index]);
+    }
+  });
+
+  current.forEach((rule) => {
+    previousMap.delete(rule.template);
+  });
+  return {
+    changed: [...changed],
+    removed: [...previousMap.keys()]
   };
 }
 
@@ -455,6 +590,8 @@ function summarize(fixtures) {
     reviewUnscoredCount: fixtures.filter((fixture) => fixture.reviewRecommended)
       .reduce((count, fixture) => count + fixture.unscoredCount, 0),
     acceptedCount: results.filter((result) => result.word).length,
+    scoredAcceptedCount: scored.filter((result) => result.word).length,
+    unscoredAcceptedCount: results.filter((result) => !result.expected.length && result.word).length,
     fillRate: results.length
       ? results.filter((result) => result.word).length / results.length
       : 0,
@@ -516,6 +653,9 @@ async function main() {
     fixture.name,
     new Map((fixture.results || []).map((result) => [result.tokenIndex, result]))
   ]));
+  const reuseReport = args.reuse
+    ? JSON.parse(fs.readFileSync(resolvePath(args.reuse), "utf8"))
+    : null;
   let transcriberPromise = null;
   const getTranscriber = () => {
     if (args.mode === "rules-only") return Promise.resolve(null);
@@ -524,10 +664,86 @@ async function main() {
   };
   const fixtures = [];
   const outputPath = resolvePath(args.output);
+  const fingerprint = rulesFingerprint();
+  const auxiliaryFingerprint = auxiliaryRulesFingerprint();
+  const engineFingerprint = rulesEngineFingerprint();
+  const signature = ruleSignature();
+  const reuseCompatible = reuseReport && reuseReport.mode === args.mode &&
+    reuseReport.rulesScoring === args.rulesScoring && reuseReport.before === args.before &&
+    reuseReport.after === args.after && reuseReport.contextEvents === args.contextEvents &&
+    reuseReport.contextBefore === args.contextBefore &&
+    reuseReport.contextAfter === args.contextAfter &&
+    reuseReport.limit === args.limit && reuseReport.allowUnscored === args.allowUnscored &&
+    reuseReport.discoverPaired === args.discoverPaired &&
+    reuseReport.discoverUnpaired === args.discoverUnpaired &&
+    reuseReport.unpairedMinBlanks === args.unpairedMinBlanks;
+  const reusedByName = new Map((reuseCompatible && reuseReport.fixtures || [])
+    .map((fixture) => [fixture.name, fixture]));
+  const previousSignature = reuseCompatible && reuseReport.ruleSignature || null;
+  const auxiliaryUnchanged = reuseCompatible &&
+    reuseReport.rulesAuxFingerprint === auxiliaryFingerprint &&
+    reuseReport.rulesEngineFingerprint === engineFingerprint;
+  const rulesUnchanged = auxiliaryUnchanged && reuseReport.rulesFingerprint === fingerprint;
+  const ruleDiff = !rulesUnchanged && previousSignature ? changedRuleTemplates(previousSignature, signature) : { changed: [], removed: [] };
+  const canReuseByText = args.mode === "rules-only" && Boolean(previousSignature) &&
+    auxiliaryUnchanged && !rulesUnchanged;
+  let reusedCount = 0;
+  let reusedSlotCount = 0;
+
+  function fixtureBody(fixture) {
+    try {
+      return fs.readFileSync(path.join(fixturesPath, fixture.censored), "utf8");
+    } catch {
+      return "";
+    }
+  }
+
+  function fixtureFingerprint(fixture, censoredBody) {
+    try {
+      const censored = censoredBody === undefined ? fixtureBody(fixture) : censoredBody;
+      const uncensored = fixture.uncensored
+        ? fs.readFileSync(path.join(fixturesPath, fixture.uncensored), "utf8")
+        : "";
+      return contentFingerprint(`${censored}\n${uncensored}`);
+    } catch {
+      return "";
+    }
+  }
 
   for (const [fixtureIndex, fixture] of manifest.entries()) {
-    console.error(`Evaluating ${fixture.name}...`);
-    fixtures.push(await evaluateFixture(args, fixture, getTranscriber, cachedByFixture.get(fixture.name)));
+    const cached = reusedByName.get(fixture.name);
+    let reusable = false;
+    let cachedResults = null;
+    if (cached && cached.results) {
+      const body = fixtureBody(fixture);
+      const sameContent = cached.contentFingerprint && cached.contentFingerprint === fixtureFingerprint(fixture, body);
+      if (sameContent) cachedResults = new Map(cached.results.map((result) => [result.tokenIndex, result]));
+      if (sameContent && rulesUnchanged &&
+          cached.results.every((result) => result.reviewContext)) {
+        reusable = true;
+      } else if (sameContent && canReuseByText) {
+        const text = joinedCaptionText(body);
+        const firedRemoved = cached.results.some((result) => ruleDiff.removed.includes(result.ruleTemplate));
+        const matchesChanged = rules.templatesMatch(ruleDiff.changed, text);
+        reusable = !firedRemoved && !matchesChanged &&
+          cached.results.every((result) => result.reviewContext);
+      }
+    }
+    if (reusable) {
+      reusedCount += 1;
+      reusedSlotCount += cached.results.length;
+      fixtures.push({ ...cached, rulesFingerprint: fingerprint,
+        reusedSlotCount: cached.results.length });
+    } else {
+      if (fixtureIndex % 50 === 0) {
+        console.error(`Evaluating ${fixtureIndex + 1}/${manifest.length}...`);
+      }
+      const evaluated = await evaluateFixture(
+        args, fixture, getTranscriber, cachedByFixture.get(fixture.name), cachedResults
+      );
+      reusedSlotCount += evaluated.reusedSlotCount || 0;
+      fixtures.push(evaluated);
+    }
     if (args.checkpointEvery > 0 && (fixtureIndex + 1) % args.checkpointEvery === 0) {
       fs.mkdirSync(path.dirname(outputPath), { recursive: true });
       fs.writeFileSync(outputPath, `${JSON.stringify({
@@ -535,6 +751,20 @@ async function main() {
         rulesScoring: args.rulesScoring,
         before: args.before,
         after: args.after,
+        contextEvents: args.contextEvents,
+        contextBefore: args.contextBefore,
+        contextAfter: args.contextAfter,
+        limit: args.limit,
+        allowUnscored: args.allowUnscored,
+        discoverPaired: args.discoverPaired,
+        discoverUnpaired: args.discoverUnpaired,
+        unpairedMinBlanks: args.unpairedMinBlanks,
+        rulesFingerprint: fingerprint,
+        rulesAuxFingerprint: auxiliaryFingerprint,
+        rulesEngineFingerprint: engineFingerprint,
+        ruleSignature: signature,
+        reusedCount,
+        reusedSlotCount,
         summary: summarize(fixtures),
         fixtures
       }, null, 2)}\n`);
@@ -550,6 +780,21 @@ async function main() {
     rulesScoring: args.rulesScoring,
     before: args.before,
     after: args.after,
+    contextEvents: args.contextEvents,
+    contextBefore: args.contextBefore,
+    contextAfter: args.contextAfter,
+    limit: args.limit,
+    allowUnscored: args.allowUnscored,
+    discoverPaired: args.discoverPaired,
+    discoverUnpaired: args.discoverUnpaired,
+    unpairedMinBlanks: args.unpairedMinBlanks,
+    complete: true,
+    rulesFingerprint: fingerprint,
+    rulesAuxFingerprint: auxiliaryFingerprint,
+    rulesEngineFingerprint: engineFingerprint,
+    ruleSignature: signature,
+    reusedCount,
+    reusedSlotCount,
     summary: summarize(fixtures),
     fixtures
   };
@@ -558,18 +803,9 @@ async function main() {
   fs.writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify({
     output: args.output,
-    fixtures: fixtures.map((fixture) => ({
-      name: fixture.name,
-      skipped: fixture.skipped,
-      tokenCount: fixture.tokenCount || 0,
-      evaluatedCount: fixture.evaluatedCount || 0,
-      scoredCount: fixture.scoredCount || 0,
-      reviewRecommended: Boolean(fixture.reviewRecommended),
-      manualCensoredCount: fixture.manualCensoredCount || 0,
-      acceptedCount: fixture.acceptedCount || 0,
-      correctCount: fixture.correctCount || 0,
-      reason: fixture.reason || ""
-    }))
+    reusedFixtures: reusedCount,
+    reusedSlots: reusedSlotCount,
+    summary: report.summary
   }, null, 2));
 }
 
@@ -589,5 +825,11 @@ module.exports = {
   findAudio,
   isCorrect,
   classifyResult,
-  summarize
+  summarize,
+  changedRuleTemplates,
+  contentFingerprint,
+  auxiliaryRulesFingerprint,
+  reviewContextForToken,
+  rulesEngineFingerprint,
+  rulesFingerprint
 };

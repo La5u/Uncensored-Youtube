@@ -14,10 +14,11 @@ deaf and hard-of-hearing viewers. Audio, captions, and inference stay local.
 
 In the fixed audio benchmark (23 videos, 525 scored slots), the default hybrid
 mode scored 93.9% precision and 90.5% coverage; Whisper-only scored 93.5%/88.2%.
-On the complete paired-caption development corpus, rules-only scored 92.2%
-precision and 40.7% coverage across 10,723 aligned slots from 391 discovered
-caption-pair fixtures. The separate any-candidate diagnostic scored 93.3%
-precision and 47.7% coverage.
+On the latest local paired-caption development snapshot, rules-only scored
+91.2% precision and 45.0% coverage across 18,180 aligned slots from 968
+contributing caption pairs (8,180 of 8,973 slots filled correctly). The separate
+any-candidate diagnostic remains a candidate-oracle measurement, not a runtime
+score.
 
 ### Evaluation caveats
 
@@ -53,6 +54,11 @@ Decoded segments are discarded when no pending token needs them.
 
 The local quantized `whisper-tiny.en` model runs through vendored
 Transformers.js and ONNX Runtime Web. No remote code is loaded.
+
+## Future plans
+
+- Continue validating creator-diverse paired-caption rules on held-out videos.
+- Expand conservative Whisper spelling repairs from paired audio evidence.
 
 ## Limitations
 
@@ -97,7 +103,6 @@ caption tracks:
 ```sh
 node tools/download-whisper-fixtures.js
 node tools/evaluate-whisper-only.js
-node tools/audit-paired-rules.js
 node tools/evaluate-whisper-only.js --mode rules+whisper \
   --transcripts corpus/generated/whisper-only-report.json
 ```
@@ -126,6 +131,21 @@ node tools/evaluate-whisper-only.js --mode rules-only --rulesScoring any-candida
   --output corpus/generated/paired-rules-any-candidate-report.json
 ```
 
+Reports carry caption, rules-data, and rules-engine fingerprints. Re-running
+with `--reuse` skips unchanged fixtures and reuses unaffected slots in fixtures
+touched by added, removed, or altered rules:
+
+```sh
+node tools/evaluate-whisper-only.js --mode rules-only --discoverPaired true \
+  --skipMissing true --reuse corpus/generated/paired-rules-only-report.json \
+  --output corpus/generated/paired-rules-only-report.json
+```
+
+Review rows include four caption events on either side of the target by default;
+use `--contextEvents N` to change that without changing the scored slot. Rule
+only reruns use a blank-centered trie to identify affected fixtures, then reuse
+cached slot results whose rule template and context did not change.
+
 ### Unpaired rules vs whisper
 
 Auto-only captions (no manual track) have no ground truth, so precision is
@@ -147,19 +167,22 @@ node tools/compare-unpaired-modes.js \
   corpus/generated/unpaired-whisper-only-report.json
 ```
 
-The whisper run is heavy and checkpoint-resumable: re-run it with
-`--transcripts corpus/generated/unpaired-whisper-only-report.json` to reuse
-finished slots. The comparison writes `unpaired-mode-compare.json`/`.md`.
+The Whisper run is heavy and checkpoint-resumable. A run with `--limit 25` is
+only a sample; complete it with `--limit 0 --transcripts
+corpus/generated/unpaired-whisper-only-report.json`. The comparison reports
+partial fixtures, rules-only fills where Whisper skipped, Whisper-only fills,
+true disagreements, and full review context. Do not interpret disagreement
+shares until both reports cover the same slots.
 
 ### Rule mining
 
 Generate complete normalized text samples, then mine every source together:
 
 ```sh
-node corpus/evaluate-swear-corpus.js --input corpus/reddit_comments.zip \
+node corpus/evaluate-corpus.js --input corpus/reddit_comments.zip \
   --output corpus/generated/mining/reddit --field body \
   --limit 1000000 --sampleLimit 0
-node corpus/evaluate-opensubtitles-parquet.js \
+node corpus/evaluate-corpus.js \
   --input corpus/opensubtitlesen-es.parquet \
   --output corpus/generated/mining/opensubtitles \
   --limit 1000000 --sampleLimit 0
@@ -181,11 +204,13 @@ node tools/evaluate-whisper-only.js --mode whisper-only \
   --output corpus/generated/mining/unpaired-whisper.json
 ```
 
-The miner considers only `ALLOWED_WORDS`, deduplicates exact rows, reports
-precision separately by source, and uses only high-confidence
-`transcript-anchor` Whisper results. Add candidates in
-batches, rerun every ground-truth evaluator, and remove rules with fewer than
-three realized matches or at most 80% realized precision. To reveal narrower
+The miner considers only `ALLOWED_WORDS`, deduplicates exact rows, includes
+four-event review context and examples, reports precision separately by source,
+and uses only high-confidence `transcript-anchor` Whisper results. It also
+writes `topMissedWords` and `topWrongPlacements` review queues. Use
+`--frameWords N` when a wider local rule window is useful. Add candidates in
+batches, rerun every ground-truth evaluator, and retain rules only with at least
+three realized matches and at least 90% realized precision. To reveal narrower
 rules hidden by rejected broad rules, repeat mining with one or more
 `--exclude previous-opportunities.json` arguments until recommendations reach
 zero. Never use Whisper pseudo-labels to report final precision.

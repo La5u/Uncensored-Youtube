@@ -75,6 +75,12 @@
     root.console.debug("[uncensored] " + message);
   }
 
+  function clearDebugConsole() {
+    if (debugEnabled() && root.console && root.console.clear) {
+      root.console.clear();
+    }
+  }
+
   function mediaTimestamp(seconds) {
     seconds = Math.max(0, Math.floor(Number(seconds) || 0));
     return Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0");
@@ -85,14 +91,18 @@
   }
 
   function extractPathVideoId(pathname) {
-    var match = pathname.match(/\/(live|shorts)\/([^/]+)/);
-    return match ? match[2] : "";
+    var match = pathname.match(/^\/(?:live|shorts)\/([^/]+)/);
+    return match ? match[1] : "";
   }
 
   function currentVideoId() {
     try {
       var url = new URL(root.location.href);
-      return url.searchParams.get("v") || extractPathVideoId(url.pathname) || "";
+      if (url.pathname === "/watch") {
+        var videoId = url.searchParams.get("v");
+        if (videoId) return videoId;
+      }
+      return extractPathVideoId(url.pathname);
     } catch (error) {
       return "";
     }
@@ -126,7 +136,10 @@
     resetForNavigation();
     activeVideoId = videoId;
     mediaAudio.videoId = videoId;
-    debugLog("new video", videoId || "unknown");
+    if (videoId) {
+      clearDebugConsole();
+      debugLog("new video", videoId);
+    }
     return true;
   }
 
@@ -978,11 +991,6 @@
         }
       });
       compactPendingTokens();
-      var next = nextResolvableMediaToken();
-      debugLog("whisper queue state", {
-        pending: pendingTokens.size,
-        next: next ? next.token.tokenIndex : null
-      });
       scheduleWhisperQueue();
     });
   }

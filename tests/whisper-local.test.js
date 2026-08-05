@@ -227,6 +227,12 @@ assert.strictEqual(
   ["bish", ["bitch"], "bitch"],
   ["poozies", ["pussies"], "pussies"],
   ["mother fuckers", ["fuckers", "motherfuckers"], "motherfuckers"],
+  ["a shedhole", ["shithole", "fuck"], "shithole"],
+  ["a forked? forking mess", ["fucking", "shit"], "fucking"],
+  ["oh shh", ["shit", "fuck"], "shit"],
+  ["an ass hole", ["asshole", "fuck"], "asshole"],
+  ["you're more on", ["moron", "fuck"], "moron"],
+  ["god you morrow", ["moron", "fuck"], "moron"],
   ["flux like", ["fuck", "fuck's"], "fuck's"],
   ["fucks sake", ["fuck", "fucks", "fuck's"], "fuck's"]
 ].forEach(([transcript, candidates, expected]) => {

@@ -221,11 +221,9 @@
     frame: frame,
     group: group,
     expand: expand,
-    rule: rule,
     compileGroups: compileGroups,
     compileFramePattern: compileFramePattern,
     escapeRegExp: escapeRegExp,
-    regexLiteral: regexLiteral,
     regexAlternatives: regexAlternatives
   });
 

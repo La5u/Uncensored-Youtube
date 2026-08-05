@@ -16,16 +16,20 @@ const sampleInputs = [];
 const whisperInputs = [];
 const exclusionInputs = [];
 let recommendationLimit = 250;
-const MIN_OCCURRENCES = 2;
+let frameWords = 5;
+const MIN_OCCURRENCES = 3;
+const MIN_PRECISION = 0.9;
 for (let index = 0; index < extraArgs.length; index += 1) {
   if (extraArgs[index] === "--sample") sampleInputs.push(extraArgs[++index]);
   else if (extraArgs[index] === "--whisper") whisperInputs.push(extraArgs[++index]);
   else if (extraArgs[index] === "--exclude") exclusionInputs.push(extraArgs[++index]);
   else if (extraArgs[index] === "--limit") recommendationLimit = Number(extraArgs[++index]);
+  else if (extraArgs[index] === "--frameWords") frameWords = Number(extraArgs[++index]);
   else exclusionInputs.push(extraArgs[index]);
 }
-if (!Number.isInteger(recommendationLimit) || recommendationLimit < 1) {
-  throw new Error("--limit must be a positive integer");
+if (!Number.isInteger(recommendationLimit) || recommendationLimit < 1 ||
+    !Number.isInteger(frameWords) || frameWords < 1 || frameWords > 10) {
+  throw new Error("--limit must be a positive integer and --frameWords must be 1..10");
 }
 if (!sampleInputs.length) {
   sampleInputs.push(
@@ -60,8 +64,8 @@ function localFrames(context) {
   const blank = tokens.indexOf(TOKEN);
   if (blank < 0) return [];
   const frames = [];
-  for (let left = 0; left <= 5; left += 1) {
-    for (let right = 0; right <= 5; right += 1) {
+  for (let left = 0; left <= frameWords; left += 1) {
+    for (let right = 0; right <= frameWords; right += 1) {
       if (left + right < 1 || left > blank || right >= tokens.length - blank) continue;
       frames.push([
         ...tokens.slice(blank - left, blank), "[__]",
@@ -88,6 +92,18 @@ function addFrame(map, template, row, source) {
   stat.expectedCounts[row.expected] = (stat.expectedCounts[row.expected] || 0) + 1;
 }
 
+const decisionCache = new Map();
+function deterministicDecision(context) {
+  if (decisionCache.has(context)) return decisionCache.get(context);
+  const decision = rules.applyDeterministicRules(context).decisions[0] || null;
+  if (decisionCache.size < 20000) decisionCache.set(context, decision);
+  return decision;
+}
+
+function normalizedWord(value) {
+  return String(value || "").toLowerCase().replace(/[.!?,;:]+$/u, "").trim();
+}
+
 function addRows(map, rows, source) {
   rows.forEach((row) => {
     const key = `${source}\n${row.context.toLowerCase()}\n${row.expected}`;
@@ -111,9 +127,9 @@ function readSamples(file, source) {
         seen += 1;
         return seen === tokenIndex ? token : " ";
       });
-      const decision = rules.applyDeterministicRules(context).decisions[0];
+      const decision = deterministicDecision(context);
       return { video: `${source}-${index}`, context, expected: word,
-        predicted: decision && decision.word ? decision.word.toLowerCase() : "" };
+        predicted: normalizedWord(decision && decision.word) };
     });
   });
 }
@@ -124,9 +140,10 @@ function readWhisper(file) {
   return (report.fixtures || []).flatMap((fixture) => (fixture.results || []).flatMap((row) => {
     if ((row.expected || []).length || row.source !== "transcript-anchor" ||
         !ALLOWED_WORDS.has(String(row.word || "").toLowerCase())) return [];
-    const decision = rules.applyDeterministicRules(row.context).decisions[0];
-    return [{ video: fixture.name, context: row.context, expected: row.word.toLowerCase(),
-      predicted: decision && decision.word ? decision.word.toLowerCase() : "" }];
+    const context = row.reviewContext || row.context;
+    const decision = deterministicDecision(context);
+    return [{ video: fixture.name, context, expected: normalizedWord(row.word),
+      predicted: normalizedWord(decision && decision.word) }];
   }));
 }
 
@@ -158,22 +175,23 @@ function generatedPhrases() {
 }
 
 function existingCandidates(template) {
-  const context = template.replace(/\[([^\]]+)\]/, "[__]");
-  const decision = rules.applyDeterministicRules(context, { ambiguous: "abstain" }).decisions[0];
-  return decision ? decision.rule.candidates : [];
+  return exactCandidatesByTemplate.get(template.toLowerCase()) || [];
 }
 
+const exactCandidatesByTemplate = new Map(rules.DETERMINISTIC_RULES.map((rule) =>
+  [rule.template.toLowerCase(), rule.candidates]
+));
+
 function exactRuleExists(template, word) {
-  return rules.DETERMINISTIC_RULES.some((rule) =>
-    rule.template.toLowerCase() === template.toLowerCase() && rule.candidates.includes(word));
+  return (exactCandidatesByTemplate.get(template.toLowerCase()) || []).includes(word);
 }
 
 const ALLOWED_WORDS = new Set(rules.ALLOWED_WORDS.map((word) => word.toLowerCase()));
 const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
 const pairedRows = report.fixtures.flatMap((fixture) => (fixture.results || [])
   .filter((row) => row.expected.length)
-  .map((row) => ({ video: fixture.name, context: row.context,
-    expected: row.expected[0].toLowerCase(), predicted: String(row.word || "").toLowerCase() })));
+  .map((row) => ({ video: fixture.name, context: row.reviewContext || row.context,
+    expected: normalizedWord(row.expected[0]), predicted: normalizedWord(row.word) })));
 const allRows = [];
 const seenRows = new Set();
 const frames = new Map();
@@ -194,12 +212,16 @@ const opportunities = [...frames.values()].map((stat) => {
   const ambiguousPrecision = (first[1] + second[1]) / stat.occurrences;
   const existing = existingCandidates(stat.template);
   const { rowIds, ...publicStat } = stat;
-  return { ...publicStat, videos: stat.videos.size, sources: [...stat.sources],
+  const examples = stat.rowIds.map((id) => allRows[id])
+    .filter((row, index, rows) => rows.findIndex((item) => item.context === row.context) === index)
+    .slice(0, 8).map(({ video, context, expected, predicted, source }) =>
+      ({ video, context, expected, predicted, source }));
+  return { ...publicStat, videos: stat.videos.size, sources: [...stat.sources], examples,
     candidates: counts.slice(0, 2).map(([word]) => word), singlePrecision,
     ambiguousPrecision, alreadyInRules: counts.slice(0, 2).every(([word]) => existing.includes(word)) };
 }).filter((stat) => stat.occurrences >= MIN_OCCURRENCES && stat.videos >= 2 &&
   stat.misses > 0 &&
-  (stat.singlePrecision > 0.8 || stat.ambiguousPrecision > 0.9))
+  (stat.singlePrecision >= MIN_PRECISION || stat.ambiguousPrecision >= MIN_PRECISION))
   .sort((a, b) => b.misses - a.misses || b.occurrences - a.occurrences ||
     b.singlePrecision - a.singlePrecision);
 
@@ -227,45 +249,68 @@ const selectable = [...frames.values()].filter((stat) =>
     source.precision = source.correct / source.occurrences;
     source.videos = source.videos.size;
   });
+  const correctDelta = stat.rowIds.reduce((total, id) => {
+    const row = allRows[id];
+    return total + Number(row.expected === word) - Number(row.predicted === row.expected);
+  }, 0);
+  const wrong = stat.rowIds.reduce((total, id) => total + Number(allRows[id].expected !== word), 0);
   return { stat, word, precision: sorted[0][1] / stat.rowIds.length,
-    videos: videos.size, sourceStats,
+    videos: videos.size, sourceStats, correctDelta, wrong,
     authoredPattern: stat.template.replace("[__]", `[${sorted[0][0]}]`) };
-}).filter((candidate) => candidate.videos >= 2 && candidate.precision > 0.8 &&
+}).filter((candidate) => candidate.videos >= 2 && candidate.precision >= MIN_PRECISION &&
   Object.values(candidate.sourceStats).some((source) =>
-    source.occurrences >= MIN_OCCURRENCES && source.videos >= 2 && source.precision > 0.8) &&
+    source.occurrences >= MIN_OCCURRENCES && source.videos >= 2 && source.precision >= MIN_PRECISION) &&
   !excludedPatterns.has(candidate.authoredPattern.toLowerCase()) &&
   !exactRuleExists(candidate.stat.template, candidate.word));
 const claimed = new Set();
 const recommendations = [];
-while (recommendations.length < recommendationLimit) {
-  let best = null;
-  selectable.forEach((candidate) => {
-    if (candidate.selected) return;
-    let correctDelta = 0;
-    let wrong = 0;
-    candidate.stat.rowIds.forEach((id) => {
-      if (claimed.has(id)) return;
-      const row = allRows[id];
-      const correct = row.expected === candidate.word;
-      correctDelta += Number(correct) - Number(row.predicted === row.expected);
-      wrong += Number(!correct);
-    });
-    const score = correctDelta * 10 - wrong;
-    if (!best || score > best.score) best = { candidate, correctDelta, score };
+selectable.sort((left, right) => right.correctDelta * 10 - right.wrong -
+  (left.correctDelta * 10 - left.wrong));
+for (const candidate of selectable) {
+  if (recommendations.length >= recommendationLimit) break;
+  let correctDelta = 0;
+  candidate.stat.rowIds.forEach((id) => {
+    if (claimed.has(id)) return;
+    const row = allRows[id];
+    correctDelta += Number(row.expected === candidate.word) - Number(row.predicted === row.expected);
   });
-  if (!best || best.correctDelta <= 0) break;
-  best.candidate.selected = true;
-  best.candidate.stat.rowIds.forEach((id) => claimed.add(id));
+  if (correctDelta <= 0) continue;
+  candidate.stat.rowIds.forEach((id) => claimed.add(id));
   recommendations.push({
-    authoredPattern: best.candidate.authoredPattern,
-    template: best.candidate.stat.template,
-    candidate: best.candidate.word,
-    precision: best.candidate.precision,
-    occurrences: best.candidate.stat.rowIds.length,
-    videos: best.candidate.videos,
-    sourceStats: best.candidate.sourceStats
+    authoredPattern: candidate.authoredPattern,
+    template: candidate.stat.template,
+    candidate: candidate.word,
+    precision: candidate.precision,
+    occurrences: candidate.stat.rowIds.length,
+    videos: candidate.videos,
+    sourceStats: candidate.sourceStats
   });
 }
+
+function errorGroups(rows, key, limit) {
+  const groups = new Map();
+  rows.forEach((row) => {
+    const group = groups.get(key(row)) || { key: key(row), count: 0, videos: new Set(), examples: [] };
+    group.count += 1;
+    group.videos.add(row.video);
+    if (group.examples.length < 5 && !group.examples.some((example) => example.context === row.context)) {
+      group.examples.push({ video: row.video, context: row.context, expected: row.expected, predicted: row.predicted,
+        source: row.source });
+    }
+    groups.set(group.key, group);
+  });
+  return [...groups.values()].sort((left, right) => right.count - left.count ||
+    right.videos.size - left.videos.size || left.key.localeCompare(right.key))
+    .slice(0, limit)
+    .map((group, index) => ({ rank: index + 1, key: group.key, count: group.count,
+      videos: group.videos.size, examples: group.examples }));
+}
+
+const missedRows = allRows.filter((row) => !row.predicted);
+const wrongRows = allRows.filter((row) => row.predicted && row.predicted !== row.expected);
+const topMissedWords = errorGroups(missedRows, (row) => row.expected, 300);
+const topWrongPlacements = errorGroups(wrongRows,
+  (row) => `${row.expected} <- ${row.predicted}`, 50);
 
 const generated = generatedPhrases().map((phrase) => {
   const match = phrase.match(/\[([^\]]+)\]/);
@@ -278,14 +323,16 @@ const generated = generatedPhrases().map((phrase) => {
 
 const output = {
   generatedAt: new Date().toISOString(), source: path.relative(root, reportPath),
-  thresholds: { singleCandidate: 0.8, ambiguousCandidates: 0.9,
-    minimumOccurrences: MIN_OCCURRENCES, minimumVideos: 2 },
+  thresholds: { singleCandidate: MIN_PRECISION, ambiguousCandidates: MIN_PRECISION,
+    minimumOccurrences: MIN_OCCURRENCES, minimumVideos: 2, frameWords },
   counts: { rows: allRows.length, pairedRows: pairedRows.length, minedFrames: frames.size,
     generatedPhrases: generated.length, generatedNotInRules: generated.filter((x) => !x.alreadyInRules).length,
     opportunities: opportunities.length, recommendations: recommendations.length },
   generatedPhrases: generated,
   opportunities,
   recommendations,
+  topMissedWords,
+  topWrongPlacements,
   topPairedMisses: opportunities.filter((x) => x.sources.includes("paired")).slice(0, 300),
   topErrors: opportunities.filter((x) => x.mistakes).slice(0, 50)
 };

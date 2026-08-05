@@ -90,7 +90,7 @@ assert.ok(!popup.includes("Recommended:"));
 assert.ok(popup.includes('id="coverageLabel"'));
 assert.ok(popup.includes('id="benchmarkTooltip"'));
 assert.ok(popupScript.includes('precision: "93.9", coverage: "90.5"'));
-assert.ok(popupScript.includes('precision: "92.2", coverage: "40.7"'));
+assert.ok(popupScript.includes('precision: "90.6", coverage: "41.2"'));
 assert.ok(popupScript.includes('precision: "93.5", coverage: "88.2"'));
 assert.ok(!popupScript.includes("Hybrid is recommended."));
 assert.ok(!popup.includes("Benchmark:"));
@@ -152,8 +152,8 @@ assert.ok(audioCapture.includes("videoHasCensoredSlots"));
 assert.ok(audioCapture.includes("token.visibleOnly"));
 assert.ok(audioCapture.includes("whisper model starting"));
 assert.ok(audioCapture.includes("whisper model started"));
-assert.ok(audioCapture.includes('debugLog("new video", videoId || "unknown")'));
-assert.ok(!audioCapture.includes("root.console.clear()"));
+assert.ok(audioCapture.includes('debugLog("new video", videoId)'));
+assert.ok(audioCapture.includes("root.console.clear()"));
 assert.ok(audioCapture.includes("uncensoredWhisperResolution"));
 assert.ok(pageHook.includes("uncensoredWhisperResolution"));
 assert.ok(audioCapture.includes("syncVideo(nextOptions.videoId)"));
@@ -365,5 +365,39 @@ audio.rememberTimedTextData({
   timeline: []
 }, "lang=en&kind=asr", [], "collision");
 assert.strictEqual(audio.debugState().pendingTokens.length, 2);
+
+const realConsole = console;
+const debugCalls = [];
+global.localStorage = { getItem: () => "1" };
+global.console = {
+  debug: (...args) => debugCalls.push(args.join(" ")),
+  clear: () => debugCalls.push("clear"),
+  log: (...args) => realConsole.log(...args)
+};
+
+for (const href of [
+  "https://www.youtube.com/",
+  "https://www.youtube.com/results?search_query=privacy",
+  "https://www.youtube.com/playlist?list=PL123&v=privacy",
+  "https://www.youtube.com/@channel",
+  "https://www.youtube.com/@channel/videos",
+  "https://www.youtube.com/watch"
+]) {
+  debugCalls.length = 0;
+  global.location.href = href;
+  navigationListeners["yt-navigate-finish"]();
+  assert.strictEqual(debugCalls.length, 0, `non-video URL must not log: ${href}`);
+}
+
+for (const [href, videoId] of [
+  ["https://www.youtube.com/watch?v=privacy", "privacy"],
+  ["https://www.youtube.com/live/privacy-live", "privacy-live"],
+  ["https://www.youtube.com/shorts/privacy-short", "privacy-short"]
+]) {
+  debugCalls.length = 0;
+  global.location.href = href;
+  navigationListeners["yt-navigate-finish"]();
+  assert.deepStrictEqual(debugCalls, ["clear", `[uncensored] new video ${videoId}`]);
+}
 
 console.log("extension-wiring.test.js passed");

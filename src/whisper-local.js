@@ -236,6 +236,30 @@
     });
   }
 
+  function repairTranscriptForCandidates(transcript, candidates) {
+    var candidateSet = new Set(candidates || []);
+    var normalized = normalizeTranscriptText(transcript);
+    var aliases = [
+      [/\bmore\s+on\b/giu, "moron"],
+      [/\bmorrow\b/giu, "moron"],
+      [/\bshed\s*hole\b/giu, "shithole"],
+      [/\bass\s+hole\b/giu, "asshole"],
+      [/\b(?:forkin|forking|fakin|fakins|fackin|fackins)\b/giu, "fucking"],
+      [/\b(?:shh|shis|shiz)\b/giu, "shit"],
+      [/\bbetch\b/giu, "bitch"]
+    ];
+
+    if (transcriptEntries(normalized, candidates, []).some(function hasCandidate(entry) {
+      return Boolean(entry.candidate);
+    })) {
+      return transcript;
+    }
+
+    return aliases.reduce(function repair(value, alias) {
+      return candidateSet.has(alias[1]) ? value.replace(alias[0], " " + alias[1] + " ") : value;
+    }, String(transcript || ""));
+  }
+
   function contextFWord(word, context) {
     var words;
     var slot;
@@ -291,6 +315,7 @@
         /\[\s*__\s*\]\s+sake\b/iu.test(context || "")) {
       transcript = String(transcript || "").replace(/\b(?:fox|flux|flax)(?=\s+(?:like|sake)\b)/giu, "fuck");
     }
+    transcript = repairTranscriptForCandidates(transcript, candidates);
     var entries = transcriptEntries(transcript, candidates,
       options && options.fCandidatesBySlot || [fCandidates]);
     var words = entries.map(function candidateWord(entry) {

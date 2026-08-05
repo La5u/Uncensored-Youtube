@@ -11,6 +11,7 @@ assert.strictEqual(args.allowUnscored, false);
 assert.strictEqual(args.skipMissing, false);
 assert.strictEqual(args.discoverPaired, false);
 assert.strictEqual(args.discoverUnpaired, false);
+assert.strictEqual(args.contextEvents, 4);
 assert.strictEqual(args.rulesScoring, "strict");
 assert.strictEqual(args.unpairedMinBlanks, 0);
 assert.strictEqual(evaluator.parseArgs(["--discoverPaired", "true"]).discoverPaired, true);
@@ -28,6 +29,37 @@ assert.throws(() => evaluator.parseArgs(["--mode", "invalid"]), /--mode/);
 assert.throws(() => evaluator.parseArgs(["--limit"]), /Missing value/);
 assert.throws(() => evaluator.parseArgs(["--limit", "nope"]), /--limit/);
 assert.throws(() => evaluator.parseArgs(["--unknown", "value"]), /Unknown option/);
+
+const rules = require("../src/rules");
+assert.strictEqual(rules.templateMatches("what the [__]", "oh my god what the [__] was that"), true);
+assert.strictEqual(rules.templateMatches("all your [__]", "take all your [__] teeth next"), true);
+assert.strictEqual(rules.templateMatches("what the [__]", "this text has no censored slot"), false);
+assert.strictEqual(rules.templateMatches("ghost [__] rule", "all your [__] teeth"), false);
+
+const { changedRuleTemplates, contentFingerprint } = evaluator;
+assert.deepStrictEqual(
+  changedRuleTemplates(
+    [{ template: "a [__] ", candidates: ["fuck"] }, { template: "gone [__]", candidates: ["shit"] }],
+    [{ template: "a [__] ", candidates: ["fuck", "shit"] }, { template: "new [__] rule", candidates: ["bitch"] }]
+  ),
+  { changed: ["a [__] ", "new [__] rule"], removed: ["gone [__]"] }
+);
+assert.deepStrictEqual(
+  changedRuleTemplates(
+    [{ template: "a [__]", candidates: ["fuck"] }, { template: "b [__]", candidates: ["shit"] }],
+    [{ template: "a [__]", candidates: ["fuck"] }, { template: "new [__]", candidates: ["bitch"] },
+      { template: "b [__]", candidates: ["shit"] }]
+  ),
+  { changed: ["new [__]"], removed: [] }
+);
+assert.strictEqual(contentFingerprint("hello world"), contentFingerprint("hello world"));
+assert.notStrictEqual(contentFingerprint("hello world"), contentFingerprint("hello worle"));
+assert.strictEqual(evaluator.reviewContextForToken([
+  { eventIndex: 0, firstTokenIndex: 0, text: "one" },
+  { eventIndex: 3, firstTokenIndex: 0, text: "two [__]" },
+  { eventIndex: 7, firstTokenIndex: 1, text: "three [__]" },
+  { eventIndex: 9, firstTokenIndex: 2, text: "four" }
+], { eventIndex: 7, tokenIndex: 1 }), "one two … three [__] four");
 
 assert.deepStrictEqual(
   evaluator.wordsInText("That was fucking shit."),
