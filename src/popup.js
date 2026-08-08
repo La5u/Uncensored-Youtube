@@ -7,10 +7,10 @@
     whisperEnabled: true
   };
   var metrics = {
-    hybrid: { name: "Hybrid", precision: "93.9", coverage: "90.5" },
-    rules: { name: "Rules only", precision: "90.6", coverage: "41.2" },
-    whisper: { name: "Audio inference only", precision: "93.5", coverage: "88.2" },
-    disabled: { name: "Disabled", precision: "", coverage: "0.0" }
+    hybrid: { precision: "92.6", coverage: "77.0" },
+    rules: { precision: "91.7", coverage: "43.3" },
+    whisper: { precision: "93.4", coverage: "63.6" },
+    disabled: { precision: "", coverage: "0.0" }
   };
 
   function storage() {
@@ -34,10 +34,8 @@
       : rulesEnabled ? "rules" : whisperEnabled ? "whisper" : "disabled";
     var metric = metrics[mode];
 
-    element("coverageLabel").textContent = metric.coverage + "% correct coverage";
-    element("benchmarkTooltip").textContent = metric.name + ": " +
-      (metric.precision ? metric.precision + "% precision, " : "precision not applicable, ") +
-      metric.coverage + "% coverage.";
+    element("metricsLabel").textContent = metric.coverage + "% coverage · " +
+      (metric.precision ? metric.precision + "%" : "—") + " precision";
   }
 
   function saveSetting(event) {

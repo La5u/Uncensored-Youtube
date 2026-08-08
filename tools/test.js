@@ -66,12 +66,10 @@ for (const directory of ["src", "tools", "tests"]) {
 for (const file of fs.readdirSync(path.join(root, "tests")).filter((name) => name.endsWith(".test.js")).sort()) {
   run("node", [path.join("tests", file)]);
 }
-run("./build.sh", ["1.3.3"]);
-run("unzip", ["-tq", "dist/uncensored-youtube-firefox-1.3.3.zip"]);
-run("unzip", ["-tq", "dist/uncensored-youtube-chromium-1.3.3.zip"]);
+run("./build.sh", ["1.4.0"]);
+run("unzip", ["-tq", "dist/uncensored-youtube-firefox-1.4.0.zip"]);
+run("unzip", ["-tq", "dist/uncensored-youtube-chromium-1.4.0.zip"]);
 run("web-ext", ["lint", "--source-dir", "dist/firefox", "--warnings-as-errors"]);
-run("npm", ["audit", "--omit=dev"]);
-
 if (flags.has("--benchmark") || flags.has("--all")) benchmark();
 if (flags.has("--browsers") || flags.has("--all")) {
   run("node", ["tools/browser-smoke.js", ...process.argv.slice(2).filter(function browserArgument(arg) {

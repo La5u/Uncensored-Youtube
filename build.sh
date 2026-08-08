@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-version="${1:-1.3.3}"
+version="${1:-1.4.0}"
 root="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 dist="$root/dist"
 
@@ -31,6 +31,8 @@ cp "$root/README.md" "$dist/chromium/README.md"
 cp "$root/README.md" "$dist/firefox/README.md"
 
 zip_options="-qr -1"
+rm -f "$dist/uncensored-youtube-chromium-$version.zip" \
+  "$dist/uncensored-youtube-firefox-$version.zip"
 
 (cd "$dist/chromium" && zip $zip_options "../uncensored-youtube-chromium-$version.zip" .) &
 chromium_zip_pid=$!
