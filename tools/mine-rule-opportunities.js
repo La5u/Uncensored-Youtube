@@ -6,6 +6,7 @@ const path = require("path");
 const rules = require("../src/rules");
 const { SWEAR_REGEX } = require("../corpus/swear-matcher");
 
+if (require.main !== module) return;
 const root = path.join(__dirname, "..");
 const reportPath = path.resolve(root, process.argv[2] ||
   "corpus/generated/paired-rules-only-report.json");
@@ -17,6 +18,7 @@ const whisperInputs = [];
 const exclusionInputs = [];
 let recommendationLimit = 250;
 let frameWords = 5;
+let wildcards = true;
 const MIN_OCCURRENCES = 3;
 const MIN_PRECISION = 0.9;
 for (let index = 0; index < extraArgs.length; index += 1) {
@@ -25,6 +27,7 @@ for (let index = 0; index < extraArgs.length; index += 1) {
   else if (extraArgs[index] === "--exclude") exclusionInputs.push(extraArgs[++index]);
   else if (extraArgs[index] === "--limit") recommendationLimit = Number(extraArgs[++index]);
   else if (extraArgs[index] === "--frameWords") frameWords = Number(extraArgs[++index]);
+  else if (extraArgs[index] === "--wildcards") wildcards = extraArgs[++index] !== "false";
   else exclusionInputs.push(extraArgs[index]);
 }
 if (!Number.isInteger(recommendationLimit) || recommendationLimit < 1 ||
@@ -43,6 +46,7 @@ const excludedPatterns = new Set(exclusionInputs.flatMap((file) => {
     .map((item) => String(item.authoredPattern || item).toLowerCase());
 }));
 const TOKEN = "__blank__";
+const WILDCARD = "*";
 
 function words(text) {
   return String(text || "").toLowerCase().replace(/\u2019/g, "'")
@@ -59,24 +63,52 @@ function expectedWords(text) {
   return found;
 }
 
-function localFrames(context) {
-  const tokens = words(context);
-  const blank = tokens.indexOf(TOKEN);
-  if (blank < 0) return [];
-  const frames = [];
-  for (let left = 0; left <= frameWords; left += 1) {
-    for (let right = 0; right <= frameWords; right += 1) {
-      if (left + right < 1 || left > blank || right >= tokens.length - blank) continue;
-      frames.push([
-        ...tokens.slice(blank - left, blank), "[__]",
-        ...tokens.slice(blank + 1, blank + right + 1)
-      ].join(" "));
-    }
-  }
-  return frames;
+function sideLabel(length, wildcardIndex) {
+  if (wildcardIndex < 0) return String(length);
+  const before = wildcardIndex;
+  const after = length - wildcardIndex - 1;
+  return `${before || ""}skip${after || ""}`;
 }
 
-function addFrame(map, template, row, source) {
+function frameShapes() {
+  const shapes = [];
+  for (let left = 0; left <= frameWords; left += 1) {
+    for (let right = 0; right <= frameWords; right += 1) {
+      if (left + right) shapes.push({ left, right, wildcardSide: "", wildcardIndex: -1,
+        name: `${left},${right}` });
+    }
+  }
+  if (!wildcards) return shapes;
+  for (let width = 2; width <= frameWords; width += 1) {
+    for (let left = 0; left <= width; left += 1) {
+      const right = width - left;
+      for (let index = 0; index < width; index += 1) {
+        const wildcardSide = index < left ? "left" : "right";
+        const wildcardIndex = wildcardSide === "left" ? index : index - left;
+        shapes.push({ left, right, wildcardSide, wildcardIndex,
+          name: `${sideLabel(left, wildcardSide === "left" ? wildcardIndex : -1)},` +
+            sideLabel(right, wildcardSide === "right" ? wildcardIndex : -1) });
+      }
+    }
+  }
+  return shapes;
+}
+
+function localFrame(row, shape) {
+  const tokens = row.tokens;
+  const blank = row.blank;
+  if (blank < 0) return null;
+  if (shape.left > blank || shape.right > tokens.length - blank - 1) return null;
+  const parts = tokens.slice(blank - shape.left, blank);
+  if (shape.wildcardSide === "left") parts[shape.wildcardIndex] = WILDCARD;
+  parts.push("[__]");
+  const right = tokens.slice(blank + 1, blank + 1 + shape.right);
+  if (shape.wildcardSide === "right") right[shape.wildcardIndex] = WILDCARD;
+  parts.push(...right);
+  return parts.join(" ");
+}
+
+function addFrame(map, template, row) {
   let stat = map.get(template);
   if (!stat) {
     stat = { template, occurrences: 0, misses: 0, mistakes: 0, videos: new Set(),
@@ -87,7 +119,7 @@ function addFrame(map, template, row, source) {
   stat.misses += row.predicted ? 0 : 1;
   stat.mistakes += row.predicted && row.predicted !== row.expected ? 1 : 0;
   stat.videos.add(row.video);
-  stat.sources.add(source);
+  stat.sources.add(row.source);
   if (row.id !== undefined) stat.rowIds.push(row.id);
   stat.expectedCounts[row.expected] = (stat.expectedCounts[row.expected] || 0) + 1;
 }
@@ -104,15 +136,16 @@ function normalizedWord(value) {
   return String(value || "").toLowerCase().replace(/[.!?,;:]+$/u, "").trim();
 }
 
-function addRows(map, rows, source) {
+function addRows(rows, source) {
   rows.forEach((row) => {
     const key = `${source}\n${row.context.toLowerCase()}\n${row.expected}`;
     if (seenRows.has(key)) return;
     seenRows.add(key);
     row.id = allRows.length;
     row.source = source;
+    row.tokens = words(row.context);
+    row.blank = row.tokens.indexOf(TOKEN);
     allRows.push(row);
-    localFrames(row.context).forEach((frame) => addFrame(map, frame, row, source));
   });
 }
 
@@ -190,21 +223,39 @@ const ALLOWED_WORDS = new Set(rules.ALLOWED_WORDS.map((word) => word.toLowerCase
 const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
 const pairedRows = report.fixtures.flatMap((fixture) => (fixture.results || [])
   .filter((row) => row.expected.length)
-  .map((row) => ({ video: fixture.name, context: row.reviewContext || row.context,
-    expected: normalizedWord(row.expected[0]), predicted: normalizedWord(row.word) })));
+  .map((row) => {
+    const context = row.reviewContext || row.context;
+    const decision = deterministicDecision(context);
+    return { video: fixture.name, context, expected: normalizedWord(row.expected[0]),
+      predicted: normalizedWord(decision && decision.word) };
+  }));
 const allRows = [];
 const seenRows = new Set();
-const frames = new Map();
-addRows(frames, pairedRows, "paired");
+addRows(pairedRows, "paired");
 sampleInputs.forEach((input) => {
   const separator = input.indexOf("=");
   if (separator < 1) throw new Error(`Expected --sample source=path, got ${input}`);
   const source = input.slice(0, separator);
-  addRows(frames, readSamples(path.resolve(root, input.slice(separator + 1)), source), source);
+  addRows(readSamples(path.resolve(root, input.slice(separator + 1)), source), source);
 });
-whisperInputs.forEach((input) => addRows(frames, readWhisper(path.resolve(root, input)), "whisper"));
+whisperInputs.forEach((input) => addRows(readWhisper(path.resolve(root, input)), "whisper"));
 
-const opportunities = [...frames.values()].map((stat) => {
+function examplesFor(rowIds, candidate = "") {
+  const seen = new Set();
+  const examples = [];
+  const ordered = [...rowIds].sort((left, right) =>
+    Number(allRows[left].expected === candidate) - Number(allRows[right].expected === candidate));
+  for (const id of ordered) {
+    const { video, context, expected, predicted, source } = allRows[id];
+    if (seen.has(context)) continue;
+    seen.add(context);
+    examples.push({ video, context, expected, predicted, source });
+    if (examples.length === 8) break;
+  }
+  return examples;
+}
+
+function opportunity(stat) {
   const counts = Object.entries(stat.expectedCounts).sort((a, b) => b[1] - a[1]);
   const first = counts[0] || ["", 0];
   const second = counts[1] || ["", 0];
@@ -212,79 +263,114 @@ const opportunities = [...frames.values()].map((stat) => {
   const ambiguousPrecision = (first[1] + second[1]) / stat.occurrences;
   const existing = existingCandidates(stat.template);
   const { rowIds, ...publicStat } = stat;
-  const examples = stat.rowIds.map((id) => allRows[id])
-    .filter((row, index, rows) => rows.findIndex((item) => item.context === row.context) === index)
-    .slice(0, 8).map(({ video, context, expected, predicted, source }) =>
-      ({ video, context, expected, predicted, source }));
+  const examples = examplesFor(rowIds, first[0]);
   return { ...publicStat, videos: stat.videos.size, sources: [...stat.sources], examples,
     candidates: counts.slice(0, 2).map(([word]) => word), singlePrecision,
     ambiguousPrecision, alreadyInRules: counts.slice(0, 2).every(([word]) => existing.includes(word)) };
-}).filter((stat) => stat.occurrences >= MIN_OCCURRENCES && stat.videos >= 2 &&
-  stat.misses > 0 &&
-  (stat.singlePrecision >= MIN_PRECISION || stat.ambiguousPrecision >= MIN_PRECISION))
-  .sort((a, b) => b.misses - a.misses || b.occurrences - a.occurrences ||
-    b.singlePrecision - a.singlePrecision);
+}
 
-const selectable = [...frames.values()].filter((stat) =>
-  stat.rowIds.length >= MIN_OCCURRENCES).map((stat) => {
-  const counts = {};
-  const videos = new Set();
-  const sourceStats = {};
-  stat.rowIds.forEach((id) => {
-    const row = allRows[id];
-    videos.add(row.video);
-    counts[row.expected] = (counts[row.expected] || 0) + 1;
-    const source = sourceStats[row.source] ||
-      (sourceStats[row.source] = { occurrences: 0, correct: 0, videos: new Set() });
-    source.occurrences += 1;
-    source.videos.add(row.video);
-  });
-  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  const word = sorted[0][0];
-  stat.rowIds.forEach((id) => {
-    const row = allRows[id];
-    sourceStats[row.source].correct += Number(row.expected === word);
-  });
-  Object.values(sourceStats).forEach((source) => {
-    source.precision = source.correct / source.occurrences;
-    source.videos = source.videos.size;
-  });
-  const correctDelta = stat.rowIds.reduce((total, id) => {
-    const row = allRows[id];
-    return total + Number(row.expected === word) - Number(row.predicted === row.expected);
-  }, 0);
-  const wrong = stat.rowIds.reduce((total, id) => total + Number(allRows[id].expected !== word), 0);
-  return { stat, word, precision: sorted[0][1] / stat.rowIds.length,
-    videos: videos.size, sourceStats, correctDelta, wrong,
-    authoredPattern: stat.template.replace("[__]", `[${sorted[0][0]}]`) };
-}).filter((candidate) => candidate.videos >= 2 && candidate.precision >= MIN_PRECISION &&
-  Object.values(candidate.sourceStats).some((source) =>
-    source.occurrences >= MIN_OCCURRENCES && source.videos >= 2 && source.precision >= MIN_PRECISION) &&
-  !excludedPatterns.has(candidate.authoredPattern.toLowerCase()) &&
-  !exactRuleExists(candidate.stat.template, candidate.word));
-const claimed = new Set();
-const recommendations = [];
-selectable.sort((left, right) => right.correctDelta * 10 - right.wrong -
-  (left.correctDelta * 10 - left.wrong));
-for (const candidate of selectable) {
-  if (recommendations.length >= recommendationLimit) break;
-  let correctDelta = 0;
-  candidate.stat.rowIds.forEach((id) => {
-    if (claimed.has(id)) return;
-    const row = allRows[id];
-    correctDelta += Number(row.expected === candidate.word) - Number(row.predicted === row.expected);
-  });
-  if (correctDelta <= 0) continue;
-  candidate.stat.rowIds.forEach((id) => claimed.add(id));
-  recommendations.push({
-    authoredPattern: candidate.authoredPattern,
-    template: candidate.stat.template,
-    candidate: candidate.word,
-    precision: candidate.precision,
-    occurrences: candidate.stat.rowIds.length,
-    videos: candidate.videos,
-    sourceStats: candidate.sourceStats
-  });
+function isOpportunity(stat) {
+  if (stat.occurrences < MIN_OCCURRENCES || stat.videos.size < 2 || !stat.misses) return false;
+  const counts = Object.values(stat.expectedCounts).sort((a, b) => b - a);
+  return (counts[0] || 0) / stat.occurrences > MIN_PRECISION ||
+    ((counts[0] || 0) + (counts[1] || 0)) / stat.occurrences > MIN_PRECISION;
+}
+
+function selectRecommendations(statList, limit) {
+  const selectable = statList.filter((stat) =>
+    stat.rowIds.length >= MIN_OCCURRENCES).map((stat) => {
+    const counts = {};
+    const videos = new Set();
+    const videoCounts = {};
+    const sourceStats = {};
+    stat.rowIds.forEach((id) => {
+      const row = allRows[id];
+      videos.add(row.video);
+      videoCounts[row.video] = (videoCounts[row.video] || 0) + 1;
+      counts[row.expected] = (counts[row.expected] || 0) + 1;
+      const source = sourceStats[row.source] ||
+        (sourceStats[row.source] = { occurrences: 0, correct: 0, currentCorrect: 0, videos: new Set() });
+      source.occurrences += 1;
+      source.videos.add(row.video);
+      source.currentCorrect += Number(row.predicted === row.expected);
+    });
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    const word = sorted[0][0];
+    stat.rowIds.forEach((id) => {
+      const row = allRows[id];
+      const source = sourceStats[row.source];
+      source.correct += Number(row.expected === word);
+      if (row.predicted !== word) {
+        source.marginalOccurrences = (source.marginalOccurrences || 0) + 1;
+        source.marginalCorrect = (source.marginalCorrect || 0) + Number(row.expected === word);
+      }
+    });
+    Object.values(sourceStats).forEach((source) => {
+      source.precision = source.correct / source.occurrences;
+      source.gain = source.correct - source.currentCorrect;
+      source.marginalPrecision = source.marginalCorrect / source.marginalOccurrences;
+      delete source.currentCorrect;
+      source.videos = source.videos.size;
+    });
+    const marginalRows = stat.rowIds.filter((id) => allRows[id].predicted !== word);
+    const marginalCorrect = marginalRows.reduce((total, id) =>
+      total + Number(allRows[id].expected === word), 0);
+    const correctDelta = stat.rowIds.reduce((total, id) => {
+      const row = allRows[id];
+      return total + Number(row.expected === word) - Number(row.predicted === row.expected);
+    }, 0);
+    const wrong = stat.rowIds.reduce((total, id) => total + Number(allRows[id].expected !== word), 0);
+    return { stat, word, precision: sorted[0][1] / stat.rowIds.length,
+      videos: videos.size, dominantVideoShare: Object.values(videoCounts)
+        .reduce((largest, count) => Math.max(largest, count), 0) / stat.rowIds.length,
+      sourceStats, correctDelta, marginalOccurrences: marginalRows.length, marginalCorrect,
+      marginalPrecision: marginalCorrect / marginalRows.length,
+      pairedGain: sourceStats.paired ? sourceStats.paired.gain : 0, wrong,
+      authoredPattern: stat.template.replace("[__]", `[${sorted[0][0]}]`) };
+  }).filter((candidate) => candidate.videos >= 2 && candidate.precision > MIN_PRECISION &&
+    candidate.marginalOccurrences >= MIN_OCCURRENCES && candidate.marginalPrecision > MIN_PRECISION &&
+    candidate.dominantVideoShare <= 0.5 &&
+    Object.values(candidate.sourceStats).some((source) =>
+      source.occurrences >= MIN_OCCURRENCES && source.videos >= 2 && source.precision > MIN_PRECISION) &&
+    Object.values(candidate.sourceStats).every((source) =>
+      source.occurrences < MIN_OCCURRENCES || source.videos < 2 || source.precision > MIN_PRECISION) &&
+    !excludedPatterns.has(candidate.authoredPattern.toLowerCase()) &&
+    !exactRuleExists(candidate.stat.template, candidate.word));
+  const claimed = new Set();
+  const recommendations = [];
+  selectable.sort((left, right) => right.pairedGain - left.pairedGain ||
+    right.correctDelta * 10 - right.wrong - (left.correctDelta * 10 - left.wrong));
+  for (const candidate of selectable) {
+    if (recommendations.length >= limit) break;
+    let correctDelta = 0;
+    let pairedGain = 0;
+    candidate.stat.rowIds.forEach((id) => {
+      if (claimed.has(id)) return;
+      const row = allRows[id];
+      const gain = Number(row.expected === candidate.word) - Number(row.predicted === row.expected);
+      correctDelta += gain;
+      if (row.source === "paired") pairedGain += gain;
+    });
+    if (correctDelta <= 0) continue;
+    candidate.stat.rowIds.forEach((id) => claimed.add(id));
+    recommendations.push({
+      authoredPattern: candidate.authoredPattern,
+      template: candidate.stat.template,
+      candidate: candidate.word,
+      precision: candidate.precision,
+      occurrences: candidate.stat.rowIds.length,
+      videos: candidate.videos,
+      gain: correctDelta,
+      pairedGain,
+      marginalOccurrences: candidate.marginalOccurrences,
+      marginalCorrect: candidate.marginalCorrect,
+      marginalPrecision: candidate.marginalPrecision,
+      dominantVideoShare: candidate.dominantVideoShare,
+      sourceStats: candidate.sourceStats,
+      examples: examplesFor(candidate.stat.rowIds, candidate.word)
+    });
+  }
+  return recommendations;
 }
 
 function errorGroups(rows, key, limit) {
@@ -312,10 +398,56 @@ const topMissedWords = errorGroups(missedRows, (row) => row.expected, 300);
 const topWrongPlacements = errorGroups(wrongRows,
   (row) => `${row.expected} <- ${row.predicted}`, 50);
 
-const generated = generatedPhrases().map((phrase) => {
+// Mine one window shape at a time. Keeping every sparse frame and every row ID
+// alive together exceeds Node's heap on the complete corpora; only frames that
+// can pass the configured thresholds need to survive into global selection.
+const generatedPhraseValues = generatedPhrases();
+const generatedTemplates = new Set(generatedPhraseValues.map((phrase) =>
+  phrase.replace(/\[[^\]]+\]/, "[__]").toLowerCase()));
+const generatedStats = new Map();
+const retainedStats = [];
+const opportunities = [];
+const windows = [];
+let minedFrames = 0;
+for (const shape of frameShapes()) {
+  const frames = new Map();
+  const rows = [];
+  allRows.forEach((row) => {
+    const template = localFrame(row, shape);
+    if (!template) return;
+    rows.push(row);
+    addFrame(frames, template, row);
+  });
+  minedFrames += frames.size;
+  const stats = [...frames.values()];
+  const selected = stats.filter(isOpportunity);
+  retainedStats.push(...selected);
+  opportunities.push(...selected.map(opportunity));
+  frames.forEach((stat, template) => {
+    if (generatedTemplates.has(template)) generatedStats.set(template, stat);
+  });
+  const missed = rows.filter((row) => !row.predicted);
+  const wrong = rows.filter((row) => row.predicted && row.predicted !== row.expected);
+  windows.push({
+    window: shape.name,
+    templates: frames.size,
+    rows: rows.length,
+    misses: missed.length,
+    errors: wrong.length,
+    topMissedWords: errorGroups(missed, (row) => row.expected, 100),
+    topErrors: errorGroups(wrong, (row) => `${row.expected} <- ${row.predicted}`, 20),
+    rules: selectRecommendations(stats, 10)
+  });
+}
+opportunities.sort((a, b) => b.misses - a.misses || b.occurrences - a.occurrences ||
+  b.singlePrecision - a.singlePrecision);
+windows.sort((left, right) => right.misses - left.misses || right.rows - left.rows);
+const recommendations = selectRecommendations(retainedStats, recommendationLimit);
+
+const generated = generatedPhraseValues.map((phrase) => {
   const match = phrase.match(/\[([^\]]+)\]/);
   const template = phrase.replace(/\[[^\]]+\]/, "[__]");
-  const stat = frames.get(template);
+  const stat = generatedStats.get(template.toLowerCase());
   return { phrase, template, candidate: match[1], alreadyInRules:
     existingCandidates(template).includes(match[1]), occurrences: stat ? stat.occurrences : 0,
     expectedCounts: stat ? stat.expectedCounts : {} };
@@ -325,12 +457,13 @@ const output = {
   generatedAt: new Date().toISOString(), source: path.relative(root, reportPath),
   thresholds: { singleCandidate: MIN_PRECISION, ambiguousCandidates: MIN_PRECISION,
     minimumOccurrences: MIN_OCCURRENCES, minimumVideos: 2, frameWords },
-  counts: { rows: allRows.length, pairedRows: pairedRows.length, minedFrames: frames.size,
+  counts: { rows: allRows.length, pairedRows: pairedRows.length, minedFrames,
     generatedPhrases: generated.length, generatedNotInRules: generated.filter((x) => !x.alreadyInRules).length,
-    opportunities: opportunities.length, recommendations: recommendations.length },
+    opportunities: opportunities.length, recommendations: recommendations.length, windows: windows.length },
   generatedPhrases: generated,
   opportunities,
   recommendations,
+  windows,
   topMissedWords,
   topWrongPlacements,
   topPairedMisses: opportunities.filter((x) => x.sources.includes("paired")).slice(0, 300),

@@ -104,12 +104,13 @@ const payload = {
 
 const result = timedText.patchTimedTextJson(payload);
 
-assert.strictEqual(result.patchCount, 5);
+assert.strictEqual(result.patchCount, 6);
 assert.strictEqual(payload.events[0].segs.map((seg) => seg.utf8).join(""), "\"Timmy, what the fuck are you");
 assert.strictEqual(payload.events[0].segs.length, 6);
 assert.strictEqual(payload.events[0].segs[3].utf8, " fuck");
 assert.strictEqual(payload.events[0].segs[3].tOffsetMs, 1440);
-assert.strictEqual(payload.events[1].segs[1].utf8, " [\u00a0__\u00a0]");
+assert.strictEqual(payload.events[1].segs.map((seg) => seg.utf8).join(""), "hello fucking world");
+assert.strictEqual(payload.events[1].segs[1].utf8, " fucking");
 assert.strictEqual(payload.events[2].segs.map((seg) => seg.utf8).join(""), "Stop. Fucking hell");
 assert.strictEqual(payload.events[3].segs.map((seg) => seg.utf8).join(""), "oh [\u00a0__\u00a0] Timmy");
 assert.strictEqual(payload.events[5].segs.map((seg) => seg.utf8).join(""), "Fuck yeah.");

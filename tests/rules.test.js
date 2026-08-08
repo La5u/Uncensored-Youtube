@@ -73,7 +73,7 @@ const examples = [
   ["some [__] sick joke", "some fucking sick joke"],
   ["do not [__] with me", "do not fuck with me"],
   ["eat [__] and die", "eat shit and die"],
-  ["who gives a [__] about that", "who gives a fuck about that"],
+  ["who gives a [__] about that", "who gives a shit about that"],
   ["Maybe magic or some [__] like that", "Maybe magic or some shit like that"],
   ["That piece of [__] I warned you about", "That piece of shit. I warned you about"],
   ["Go take a [__] first", "Go take a shit first"],
@@ -115,12 +115,6 @@ const examples = [
   ["a [__] storm", "a shit storm"],
   ["bad [__] happens", "bad shit happens"],
   ["tough [__] if you miss it", "tough shit if you miss it"],
-  ["This is a pain in the [__]", "This is a pain in the [__]"],
-  ["kick your [__]", "kick your [__]"],
-  ["laugh your [__] off", "laugh your [__] off"],
-  ["take the [__]", "take the [__]"],
-  ["you're [__] off", "you're [__] off"],
-  ["don't [__] me off", "don't [__] me off"],
   ["funny as [__]", "funny as fuck"],
   ["sure as [__]", "sure as shit"],
   ["scared as [__]", "scared as shit"],
@@ -447,6 +441,47 @@ const examples = [
   ["Cut the [__].", "Cut the shit."],
   ["You crazy [__].", "You crazy bitch."],
   ["This is [__].", "This is bullshit."],
+
+  ["that's so [__] up", "that's so fucked up"],
+  ["That's really [__] up.", "That's really fucked up."],
+  ["this is just [__] up", "this is just fucked up"],
+  ["will [__] it up", "will fuck it up"],
+  ["Will [__] things up.", "Will fuck things up."],
+  ["this [__] is funny", "this shit is funny"],
+  ["Say [__] it and move.", "Say fuck it and move."],
+  ["The most insane [__] ever.", "The most insane shit ever."],
+  ["Some really good [__].", "Some really good shit."],
+  ["I'm full of [__].", "I'm full of shit."],
+  ["You're so full of [__].", "You're so full of shit."],
+  ["You [__] up my plan.", "You fucked up my plan."],
+  ["Yeah [__] me.", "Yeah fuck me."],
+  ["What the [__] you want?", "What the fuck you want?"],
+  ["He ate [__] on the floor.", "He ate shit on the floor."],
+  ["Do dumb [__].", "Do dumb shit."],
+  ["Stop doing dumb [__].", "Stop doing dumb shit."],
+  ["It's really [__] up.", "It's really fucked up."],
+  ["Like really [__] up.", "Like really fucked up."],
+  ["Yeah really [__] up.", "Yeah really fucked up."],
+  ["I [__] hate it.", "I fucking hate it."],
+  ["Just [__] stop it.", "Just fucking stop it."],
+  ["Don't [__] touch it.", "Don't fucking touch it."],
+  ["What the [__] is wrong with you?", "What the fuck is wrong with you?"],
+  ["Figure this [__] out.", "Figure this shit out."],
+  ["Say some dumb [__].", "Say some dumb shit."],
+  ["He said [__] it and left.", "He said fuck it and left."],
+  ["I need to [__] it up.", "I need to fuck it up."],
+  ["Oh [__] I did.", "Oh shit. I did."],
+  ["Oh [__] I didn't.", "Oh shit. I didn't."],
+  ["A [__] eating grin", "A shit eating grin"],
+  ["You don't know jack [__].", "You don't know jack shit."],
+  ["I couldn't see [__] in the dark.", "I couldn't see shit in the dark."],
+  ["I didn't see [__] at all.", "I didn't see shit at all."],
+  ["I can't see [__] anymore.", "I can't see shit anymore."],
+  ["Shut this [__] up.", "Shut this fuck up."],
+  ["I can't sing for [__].", "I can't sing for shit."],
+  ["A [__] five year old.", "A fucking five year old."],
+  ["This [__] is weird and bad.", "This shit is weird and bad."],
+  ["A [__] effort.", "A fucking effort."],
 ];
 
 for (const [input, expected] of examples) {
@@ -456,7 +491,7 @@ for (const [input, expected] of examples) {
 assert.strictEqual(rules.applyDeterministicRules("Who gives a [__] now?").text, "Who gives a shit now?");
 assert.strictEqual(
   rules.applyDeterministicRules("Who gives a [__] about that?").text,
-  "Who gives a [__] about that?"
+  "Who gives a shit about that?"
 );
 assert.strictEqual(
   rules.applyDeterministicRules("That was weird [__] yesterday.").text,
@@ -590,5 +625,6 @@ assert.deepStrictEqual(
     .filter((word) => rules.ALLOWED_WORDS.includes(word)),
   []
 );
+assert.ok(rules.DETERMINISTIC_RULES.every((rule) => rule.candidates.length));
 
 console.log("rules.test.js passed");

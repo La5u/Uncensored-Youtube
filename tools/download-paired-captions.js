@@ -14,7 +14,12 @@ const audioDir = path.join(fixturesDir, "audio");
 const channelsPath = path.join(__dirname, "paired-caption-channels.json");
 const reportPath = path.join(root, "corpus/generated/paired-caption-download-report.json");
 const CENSORED_RE = /\[\s*__\s*\]/gu;
-const SWEAR_RE = /\b(?:fuck(?:ing|ed|er|ers)?|shit(?:ty|s)?|bitch(?:es)?|asshole|bullshit|motherfuck(?:er|ing)?|cunt|dick|piss|cock|bastard|damn|dammit|goddamn)\b/i;
+const SWEAR_RE = /\b(?:fuck(?:ing|ed|er|ers)?|shit(?:ty|s)?|bitch(?:es)?|asshole|pussy|slut|whore|cunt|cock|piss|dick|bullshit|motherfuck(?:er|ing)?)\b/is;
+const { ALLOWED_WORDS } = require("../src/rules-data");
+const ALLOWED_WORDS_RE = new RegExp(
+  `(^|[^A-Za-z0-9])(?:${ALLOWED_WORDS.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/'/g, "['\\u2019]")).join("|")})(?=$|[^A-Za-z0-9])`,
+  "giu"
+);
 
 function parseArgs(argv) {
   const args = {
@@ -24,12 +29,14 @@ function parseArgs(argv) {
     "pair-target": "12",
     "audio-target": "3",
     "audio-slot-threshold": "10",
+    "skip-after-clean": "12",
     "list-limit": "80",
     jobs: "2",
     retries: "2",
     "retry-delay": "15",
     config: channelsPath,
-    report: reportPath
+    report: reportPath,
+    "cookies-from-browser": ""
   };
   for (let i = 0; i < argv.length; i += 1) {
     if (!argv[i].startsWith("--")) continue;
@@ -46,12 +53,14 @@ function parseArgs(argv) {
   args.pairTarget = Number(args["pair-target"]);
   args.audioTarget = Number(args["audio-target"]);
   args.audioSlotThreshold = Number(args["audio-slot-threshold"]);
+  args.skipAfterClean = Number(args["skip-after-clean"]);
   args.listLimit = Number(args["list-limit"]);
   args.jobs = Number(args.jobs);
   args.retries = Number(args.retries);
   args.retryDelay = Number(args["retry-delay"]);
+  args.cookiesFromBrowser = String(args["cookies-from-browser"]).trim();
   const positive = [args.maxCheck, args.listLimit, args.jobs, args.retryDelay];
-  const nonnegative = [args.pairTarget, args.audioTarget, args.audioSlotThreshold, args.retries];
+  const nonnegative = [args.pairTarget, args.audioTarget, args.audioSlotThreshold, args.skipAfterClean, args.retries];
   if (!positive.every((n) => Number.isInteger(n) && n > 0) ||
       !nonnegative.every((n) => Number.isInteger(n) && n >= 0)) {
     throw new Error("Limits/jobs must be positive; targets and thresholds may be zero.");
@@ -63,6 +72,7 @@ function parseArgs(argv) {
 let retryCount = 2;
 let retryDelayMs = 15000;
 let blockedUntil = 0;
+let cookiesArgs = [];
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -78,7 +88,7 @@ async function waitForBackoff() {
 
 function runYtDlp(ytArgs) {
   return new Promise((resolve) => {
-    const child = spawn("yt-dlp", ["--sleep-requests", "1", ...ytArgs], {
+    const child = spawn("yt-dlp", ["--sleep-requests", "1", ...cookiesArgs, ...ytArgs], {
       stdio: ["ignore", "pipe", "pipe"]
     });
     let stdout = "";
@@ -206,6 +216,25 @@ function cleanupVariants(videoId, keep = []) {
   }
 }
 
+async function synthesizeCensoredFrom(uncensoredPath, destination) {
+  if (!uncensoredPath || !fs.existsSync(uncensoredPath)) return "";
+  const json = JSON.parse(fs.readFileSync(uncensoredPath, "utf8"));
+  let slots = 0;
+  for (const event of json.events || []) {
+    if (!Array.isArray(event.segs)) continue;
+    for (const seg of event.segs) {
+      if (typeof seg.utf8 !== "string") continue;
+      seg.utf8 = seg.utf8.replace(ALLOWED_WORDS_RE, (match, before) => {
+        slots += 1;
+        return `${before}[__]`;
+      });
+    }
+  }
+  if (!slots) return "";
+  fs.writeFileSync(destination, JSON.stringify(json));
+  return destination;
+}
+
 async function downloadCaption(url, videoId, kind, lang) {
   const suffix = kind === "auto" ? "_auto" : "_manual";
   const template = path.join(fixturesDir, `${videoId}${suffix}.%(ext)s`);
@@ -308,6 +337,48 @@ async function tryAlternateGroundTruth(entry, autoLang, slots, destination) {
   return "";
 }
 
+async function processSynthetic(entry, captions, args, known, stats, item, reason) {
+  const manualPath = path.join(fixturesDir, `${entry.id}_manual.en.json3`);
+  const autoPath = path.join(fixturesDir, `${entry.id}_auto.en.json3`);
+  let uncensored = "";
+  if (captions.manualLang) uncensored = await downloadCaption(entry.url, entry.id, "manual", captions.manualLang);
+  if (!uncensored && captions.alternateAuto) {
+    uncensored = await downloadCaption(entry.url, entry.id, "auto", captions.alternateAuto);
+    if (uncensored) {
+      fs.renameSync(uncensored, manualPath);
+      uncensored = manualPath;
+    }
+  }
+  if (!uncensored || !hasSwears(uncensored)) {
+    removeFile(uncensored);
+    removeFile(manualPath);
+    cleanupVariants(entry.id);
+    item.status = reason;
+    stats.noAutomatic += 1;
+    return item;
+  }
+  if (!await synthesizeCensoredFrom(uncensored, autoPath)) {
+    removeFile(uncensored);
+    removeFile(manualPath);
+    removeFile(autoPath);
+    cleanupVariants(entry.id);
+    item.status = reason;
+    stats.noAutomatic += 1;
+    return item;
+  }
+  if (manualPath !== uncensored) fs.renameSync(uncensored, manualPath);
+  known.paired.add(entry.id);
+  known.autos.add(entry.id);
+  known.manuals.add(entry.id);
+  item.status = "paired-saved";
+  item.pairKind = "synthetic";
+  item.slots = countCensored(autoPath);
+  stats.pairedSaved += 1;
+  stats.autoGtPaired += 1;
+  cleanupVariants(entry.id, [autoPath, manualPath]);
+  return item;
+}
+
 async function processVideo(entry, args, known, stats) {
   const item = {
     id: entry.id,
@@ -341,22 +412,16 @@ async function processVideo(entry, args, known, stats) {
   }
 
   const captions = await probe(entry.url);
-  if (!captions.autoLang) {
-    item.status = "no-automatic";
-    stats.noAutomatic += 1;
-    return item;
-  }
-  if (needPair && !needAudio && !captions.manualLang && !captions.alternateAuto) {
-    item.status = "no-usable-gt";
-    stats.noManual += 1;
-    return item;
-  }
-
-  const autoPath = await downloadCaption(entry.url, entry.id, "auto", captions.autoLang);
+  const autoPath = captions.autoLang
+    ? await downloadCaption(entry.url, entry.id, "auto", captions.autoLang)
+    : "";
   if (!autoPath) {
-    item.status = "no-automatic";
-    stats.noAutomatic += 1;
-    return item;
+    if (!needPair || !captions.manualLang && !captions.alternateAuto) {
+      item.status = "no-automatic";
+      stats.noAutomatic += 1;
+      return item;
+    }
+    return processSynthetic(entry, captions, args, known, stats, item, "no-automatic");
   }
   const slots = countCensored(autoPath);
   item.slots = slots;
@@ -454,6 +519,9 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   retryCount = args.retries;
   retryDelayMs = args.retryDelay * 1000;
+  cookiesArgs = args.cookiesFromBrowser
+    ? ["--cookies-from-browser", args.cookiesFromBrowser]
+    : [];
   fs.mkdirSync(audioDir, { recursive: true });
   fs.mkdirSync(path.dirname(args.report), { recursive: true });
 
@@ -564,9 +632,17 @@ async function main() {
       return false;
     });
 
+    let consecutiveClean = 0;
+
     for (const entry of pending) {
       if (stats.pairedSaved >= args.pairTarget && stats.audioSaved >= args.audioTarget) break;
       if (stats.checked >= args.maxCheck) break;
+      if (consecutiveClean >= args.skipAfterClean) {
+        console.log(
+          `[${channel.name}] skipping: ${consecutiveClean} videos in a row had no [__] slots`
+        );
+        break;
+      }
       if (inFlight.has(entry.id)) {
         stats.skippedExisting += 1;
         continue;
@@ -594,6 +670,9 @@ async function main() {
       }
       stats.items.push(item);
       saveReport();
+      if (item.status === "paired-saved") consecutiveClean = 0;
+      else if (item.status !== "transient-failure" &&
+        (!item.slots || item.status === "no-usable-gt")) consecutiveClean += 1;
       const extra = [item.slots ? `slots=${item.slots}` : "", item.pairKind]
         .filter(Boolean).join(" ");
       console.log(`[${channel.name}] [${stats.checked}] ${item.status}${extra ? ` ${extra}` : ""}`);

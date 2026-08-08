@@ -13,6 +13,9 @@
 
   var CENSORED_TOKEN = "[__]";
   var CENSORED_TOKEN_REGEX = /\[\s*__\s*\]/gu;
+  var WILDCARD_TOKEN = "*";
+  var WILDCARD_REGEX = "\\S+";
+  var RULE_WORD_REGEX = /[*]|\[__\]|[\p{L}\p{N}_']+/gu;
   var SENTENCE_END_REGEX = /[.!?]/;
   var QUESTION_PHRASE_REGEX = /(?:whatever|what|how|why|where|who|when)\s+the\s*$/i;
   var PRONOUN_START_REGEX = /^\s*(?:I|you|he|she|they|we|it)\b/;
@@ -45,7 +48,10 @@
   }
 
   function compileAllowedGroups(groups) {
-    return Object.freeze(compiler.compileGroups(groups).map(allowedRule));
+    return Object.freeze(compiler.compileGroups(groups).map(allowedRule)
+      .filter(function nonemptyRule(rule) {
+        return rule.candidates.length;
+      }));
   }
 
   var EXACT_RULE_COUNT = compileAllowedGroups(data.RULE_GROUPS.exact).length;
@@ -147,16 +153,16 @@
     // reliably begins the next clause and needs display punctuation.
 
     if (!/[.!?]$/.test(primary)) {
+      var newCaptionAfter = /^\s*>>/.test(afterToken) ||
+        nextTextStartsSentence(afterToken) || /^\s*I\b/.test(afterToken) ||
+        nextTextIsTitleCased(afterToken);
       primary += punctuationAfterToken(matchedText) ||
-        ((nextTextStartsSentence(afterToken) || /^\s*I\b/.test(afterToken)) &&
+        (newCaptionAfter && !/^\s*["'(\[]*(?:hell|christ|god)\b/i.test(afterToken) &&
           !phraseContinuesAfterToken(beforeToken) &&
           !(questionPhraseBeforeToken && pronounAfterToken) ? "." : "");
     }
 
-    return {
-      word: primary,
-      displayWord: primary
-    };
+    return primary;
   }
 
   function compileRule(rule, index) {
@@ -171,7 +177,8 @@
     var escaped = compiler.escapeRegExp(template)
       .replace(/\\\[__\\\]/g, "\\[__\\]")
       .replace(/'/g, "['\u2019]")
-      .replace(/ /g, "\\s+");
+      .replace(/ /g, "\\s+")
+      .replace(/\\\*/g, WILDCARD_REGEX);
     var suffix = endsSentence
       ? "(?=[^\\p{L}\\p{N}_'’]*$)"
       : endsWithSpace ? "(?=\\s|$)" : "(?=$|[^\\p{L}\\p{N}_'’])";
@@ -231,14 +238,14 @@
   }
 
   function ruleWords(text) {
-    return normalizeCensoredTokens(text).toLowerCase().replace(/\u2019/g, "'").match(/\[__\]|[\p{L}\p{N}_']+/gu) || [];
+    return normalizeCensoredTokens(text).toLowerCase().replace(/\u2019/g, "'").match(RULE_WORD_REGEX) || [];
   }
 
   function ruleWordSpans(text) {
     var normalized = normalizeCensoredTokens(text).toLowerCase().replace(/\u2019/g, "'");
     var words = [];
     var spans = [];
-    var matcher = /\[__\]|[\p{L}\p{N}_']+/gu;
+    var matcher = RULE_WORD_REGEX;
     var match;
 
     while ((match = matcher.exec(normalized)) !== null) {
@@ -291,21 +298,30 @@
     });
 
     starts.forEach(function scanCandidateStart(startIndex) {
-      var node = RULE_TRIE;
-      var wordIndex = startIndex;
+      (function walkRulePath(node, wordIndex) {
+        var exact;
+        var wildcard;
 
-      while (wordIndex < words.length && node.children.has(words[wordIndex])) {
-        node = node.children.get(words[wordIndex]);
-        node.rules.forEach(function rememberRule(compiled) {
-          selected.set(compiled.index, compiled);
-          if (!ranges.has(compiled.index)) ranges.set(compiled.index, []);
-          ranges.get(compiled.index).push({
-            start: spans[startIndex].start,
-            end: spans[wordIndex].end
+        if (wordIndex > startIndex) {
+          node.rules.forEach(function rememberRule(compiled) {
+            selected.set(compiled.index, compiled);
+            if (!ranges.has(compiled.index)) ranges.set(compiled.index, []);
+            ranges.get(compiled.index).push({
+              start: spans[startIndex].start,
+              end: spans[wordIndex - 1].end
+            });
           });
-        });
-        wordIndex += 1;
-      }
+        }
+
+        if (wordIndex >= words.length) {
+          return;
+        }
+
+        exact = node.children.get(words[wordIndex]);
+        wildcard = node.children.get(WILDCARD_TOKEN);
+        if (exact) walkRulePath(exact, wordIndex + 1);
+        if (wildcard && wildcard !== exact) walkRulePath(wildcard, wordIndex + 1);
+      })(RULE_TRIE, startIndex);
     });
 
     return {
@@ -559,6 +575,7 @@
           var beforeToken = normalizedText.slice(0, tokenStart);
           var afterToken = normalizedText.slice(tokenEnd);
           var formattingText = normalizedText.slice(matchStart, Math.max(matchEnd, tokenEnd));
+
           var decision = candidateDecision(compiled.rule, policy);
 
           if (!decision) {
@@ -570,7 +587,6 @@
               support: 0,
               source: "abstain",
               word: "",
-              displayWord: "",
               tokenIndex: tokenIndexBefore(normalizedText, tokenStart),
               tokenSpan: tokenRange.count,
               textStart: tokenStart,
@@ -580,7 +596,7 @@
             continue;
           }
 
-          var formatted = formatReplacement(decision.word, beforeToken, afterToken, formattingText);
+          var formattedWord = formatReplacement(decision.word, beforeToken, afterToken, formattingText);
 
           var replacement = {
             rule: compiled.rule,
@@ -589,8 +605,7 @@
             margin: decision.margin,
             support: decision.support,
             source: decision.source,
-            word: formatted.word,
-            displayWord: formatted.displayWord,
+            word: formattedWord,
             tokenIndex: tokenIndexBefore(normalizedText, tokenStart),
             tokenSpan: tokenRange.count,
             textStart: tokenStart,
@@ -641,7 +656,7 @@
 
     replacements.forEach(function applyReplacement(replacement) {
       patchedParts.push(normalizedText.slice(cursor, replacement.textStart));
-      patchedParts.push(replacement.displayWord);
+      patchedParts.push(replacement.word);
       cursor = replacement.textEnd;
     });
 
