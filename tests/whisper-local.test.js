@@ -70,6 +70,24 @@ const anchoredRefinement = whisper.decisionFromTranscript(
 assert.strictEqual(anchoredRefinement.word, "fuck");
 assert.strictEqual(anchoredRefinement.evidence, "transcript-anchor");
 
+const homophoneFallback = whisper.decisionFromTranscript(
+  "go to shit",
+  ["fuck", "shit"],
+  "go too [__]",
+  { previousWord: "too" }
+);
+assert.strictEqual(homophoneFallback.word, "shit");
+assert.strictEqual(homophoneFallback.evidence, "transcript-anchor");
+
+const exactAnchorPriority = whisper.decisionFromTranscript(
+  "go to fuck but too shit",
+  ["fuck", "shit"],
+  "go too [__]",
+  { previousWord: "too" }
+);
+assert.strictEqual(exactAnchorPriority.word, "shit");
+assert.strictEqual(exactAnchorPriority.evidence, "transcript-anchor");
+
 assert.deepStrictEqual(
   whisper.decisionFromTranscript(
     "say fuck then shit",
@@ -167,6 +185,15 @@ assert.deepStrictEqual(
   ).words,
   ["shit"]
 );
+
+const videoGroup = whisper.decisionFromTranscript(
+  "Oh, Greg is a cock shit. I want to hit you in the comments.",
+  ["asshole", "cock", "shit"],
+  "Craig is an [__] oh Craig is a [__]",
+  { slotCount: 2, previousWords: ["an", "a"] }
+);
+assert.deepStrictEqual(videoGroup.slotWords, ["", "cock"]);
+assert.deepStrictEqual(videoGroup.slotEvidence, ["none", "transcript-anchor"]);
 
 assert.strictEqual(
   whisper.decisionFromTranscript(

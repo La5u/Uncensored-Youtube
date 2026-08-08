@@ -466,6 +466,8 @@ const examples = [
   ["Just [__] stop it.", "Just fucking stop it."],
   ["Don't [__] touch it.", "Don't fucking touch it."],
   ["What the [__] is wrong with you?", "What the fuck is wrong with you?"],
+  ["[__] you that's where it is.", "fuck you that's where it is."],
+  ["Craig is an [__].", "Craig is an asshole."],
   ["Figure this [__] out.", "Figure this shit out."],
   ["Say some dumb [__].", "Say some dumb shit."],
   ["He said [__] it and left.", "He said fuck it and left."],

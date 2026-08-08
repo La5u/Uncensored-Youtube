@@ -1607,6 +1607,7 @@
       pattern`are you [fucking] ${["gay", "jerking", "liking"]}`,
       pattern`big [fuck|motherfucker] you`,
       pattern`${FUCK_YOU_PREFIXES} [fuck] you`,
+      pattern`[fuck] you that's ${["what", "where", "who", "why", "when", "how"]}`,
       pattern`${FUCK_VERB_PREFIXES} [fuck] …`,
       pattern`give a flying [fuck]`,
       pattern`no [fuck] that`,

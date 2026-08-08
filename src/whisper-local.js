@@ -196,23 +196,24 @@
 
   function entryAfterAnchor(entries, previousWord, offset, afterIndex) {
     var anchor = normalizeText(previousWord).split(" ").pop();
-    var match = -1;
-    var matchCount = 0;
+    var homophones = { to: ["too", "two"], too: ["to", "two"], two: ["to", "too"] };
 
     if (!anchor) return -1;
-    if (anchor === "too" || anchor === "two") anchor = "to";
-    entries.forEach(function matchingAnchor(entry, index) {
-      var word = entry.word === "too" || entry.word === "two" ? "to" : entry.word;
-      var candidate = entries[index + 1 + (offset || 0)];
-      if (index > afterIndex && word === anchor && candidate && candidate.candidate &&
-          entries.slice(index + 1, index + 1 + (offset || 0)).every(function adjacentCandidate(next) {
-            return next.candidate;
-          })) {
-        match = index + 1 + (offset || 0);
-        matchCount += 1;
-      }
-    });
-    return matchCount === 1 ? match : -1;
+    function find(words) {
+      return entries.reduce(function matchingAnchors(found, entry, index) {
+        var candidate = entries[index + 1 + (offset || 0)];
+        if (index > afterIndex && words.indexOf(entry.word) !== -1 && candidate && candidate.candidate &&
+            entries.slice(index + 1, index + 1 + (offset || 0)).every(function adjacentCandidate(next) {
+              return next.candidate;
+            })) found.push(index + 1 + (offset || 0));
+        return found;
+      }, []);
+    }
+
+    var exact = find([anchor]);
+    if (exact.length) return exact.length === 1 ? exact[0] : -1;
+    var fallback = find(homophones[anchor] || []);
+    return fallback.length === 1 ? fallback[0] : -1;
   }
 
   function wordAfterAnchor(entries, previousWord, offset) {
@@ -229,8 +230,15 @@
       var anchored = index >= 0;
 
       if (index < 0) {
+        var reserved = (options.previousWords || []).slice(slotIndex + 1)
+          .reduce(function reserveLaterAnchor(earliest, laterWord, laterIndex) {
+            var laterSlot = slotIndex + 1 + laterIndex;
+            var match = entryAfterAnchor(entries, laterWord,
+              options.previousWordOffsets && options.previousWordOffsets[laterSlot], cursor);
+            return match >= 0 && (earliest < 0 || match < earliest) ? match : earliest;
+          }, -1);
         index = entries.findIndex(function nextUnusedProfanity(entry, entryIndex) {
-          return entryIndex > cursor && entry.candidate;
+          return entryIndex > cursor && (reserved < 0 || entryIndex < reserved) && entry.candidate;
         });
       }
       if (index < 0) return { word: "", evidence: "none" };
