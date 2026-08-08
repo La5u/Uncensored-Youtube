@@ -429,9 +429,10 @@ async function firefox() {
   });
   await client.ready;
   await client.send("session.new", { capabilities: { alwaysMatch: {} } });
-  let tree = await client.send("browsingContext.getTree");
-  const page = tree.contexts.find((item) => item.url.includes("youtube.com/watch"));
-  if (!page) throw new Error("Firefox YouTube page was not created.");
+  const page = await retry(async () => {
+    const tree = await client.send("browsingContext.getTree");
+    return tree.contexts.find((item) => item.url.includes("youtube.com/watch"));
+  });
   const context = page.context;
   await client.send("session.subscribe", {
     events: ["log.entryAdded", "network.beforeRequestSent"], contexts: [context]

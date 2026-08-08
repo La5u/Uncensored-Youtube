@@ -215,7 +215,7 @@
     }
   });
 
-  function applyResolution(tokenIndex, word, source, videoId, trackId, timeSeconds, normalizedContext) {
+  function applyResolution(tokenIndex, word, source, evidence, videoId, trackId, timeSeconds, normalizedContext) {
     var id = videoId || currentVideoId();
 
     if (typeof tokenIndex !== "number" || !word || trackId !== currentCaptionTrackId) {
@@ -235,6 +235,7 @@
       tokenIndex: tokenIndex,
       word: word,
       source: source || "unknown",
+      evidence: evidence || "none",
       timeSeconds: timeSeconds,
       normalizedContext: normalizedContext || ""
     });
@@ -256,7 +257,7 @@
     if (videoId !== currentVideoId()) {
       return;
     }
-    applyResolution(detail.tokenIndex, detail.word, detail.source, videoId, detail.trackId || "",
+    applyResolution(detail.tokenIndex, detail.word, detail.source, detail.evidence, videoId, detail.trackId || "",
       detail.timeSeconds, detail.normalizedContext);
   }
 

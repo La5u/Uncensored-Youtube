@@ -3,6 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 
+if (require.main !== module) return;
 const root = path.join(__dirname, "..");
 const rulesReportPath = path.resolve(root, process.argv[2] ||
   "corpus/generated/unpaired-rules-only-report.json");

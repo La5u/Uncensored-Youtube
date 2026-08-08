@@ -48,7 +48,7 @@ new Promise(function waitForDecode(resolve) {
 }).then(function decodeNextSegment() {
   return audio.setSabrAudioData({ buffer: new ArrayBuffer(1), startMs: 10000 });
 }).then(function ignoreDuplicateSegment() {
-  assert.strictEqual(audio.debugState().mediaAudio.segments.length, 1);
+  assert.strictEqual(audio.mediaAudio.segments.length, 1);
   audio.setOptions({ rulesEnabled: false, whisperEnabled: false, videoId: "test" });
   audio.rememberTimedTextData({
     tokens: [{ tokenIndex: 0, timeSeconds: 10, context: "say [__] now" }],

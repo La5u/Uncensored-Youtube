@@ -37,7 +37,7 @@
         return null;
       }
 
-      return (replacement.displayWord || replacement.word).split(/\s+/)[index - replacement.tokenIndex] || "";
+      return replacement.word.split(/\s+/)[index - replacement.tokenIndex] || "";
     }
 
     segs.forEach(function patchSegment(seg) {
@@ -57,9 +57,42 @@
     });
   }
 
-  function tokenTimeSeconds(event, seg) {
+  function spokenUnitCount(text) {
+    var units = String(text || "").match(/[a-z0-9]+(?:['’][a-z0-9]+)*|\[\s*__\s*\]/giu);
+
+    return units ? units.length : 0;
+  }
+
+  function tokenTimeSeconds(payload, event, eventIndex, seg, segIndex, tokenOffset) {
     var startMs = typeof event.tStartMs === "number" ? event.tStartMs : 0;
-    var offsetMs = seg && typeof seg.tOffsetMs === "number" ? seg.tOffsetMs : 0;
+    var offsetMs;
+    var durationMs;
+    var eventText;
+    var units;
+
+    if (seg && typeof seg.tOffsetMs === "number") {
+      return (startMs + seg.tOffsetMs) / 1000;
+    }
+
+    durationMs = typeof event.dDurationMs === "number" ? event.dDurationMs : 0;
+    if (durationMs <= 0) {
+      var nextEvent = payload.events.slice(eventIndex + 1).find(function findNextTimedEvent(candidate) {
+        return candidate && typeof candidate.tStartMs === "number" && candidate.tStartMs > startMs;
+      });
+      durationMs = nextEvent ? nextEvent.tStartMs - startMs : 0;
+    }
+
+    eventText = getEventText(event);
+    units = spokenUnitCount(eventText);
+    if (durationMs > 0 && units > 1) {
+      offsetMs = durationMs * spokenUnitCount(
+        event.segs.slice(0, segIndex).map(function precedingText(candidate) {
+          return candidate && candidate.utf8 || "";
+        }).join("") + seg.utf8.slice(0, tokenOffset)
+      ) / units;
+    } else {
+      offsetMs = 0;
+    }
 
     return (startMs + offsetMs) / 1000;
   }
@@ -85,9 +118,9 @@
 
       return pieces.length === span ? pieces[pieceIndex] : candidate;
     });
-    var displayPieces = String(replacement.displayWord || replacement.word).split(/\s+/);
+    var pieces = String(replacement.word).split(/\s+/);
 
-    return unique(candidates.concat(displayPieces[pieceIndex] || replacement.displayWord || replacement.word));
+    return unique(candidates.concat(pieces[pieceIndex] || replacement.word));
   }
 
   function deterministicTokenMap(replacements) {
@@ -95,12 +128,12 @@
 
     replacements.forEach(function indexReplacement(replacement) {
       var span = replacement.tokenSpan || 1;
-      var displayPieces = String(replacement.displayWord || replacement.word).split(/\s+/);
+      var pieces = String(replacement.word).split(/\s+/);
       var index;
 
       for (index = 0; index < span; index += 1) {
         byTokenIndex.set(replacement.tokenIndex + index, {
-          word: displayPieces[index] || replacement.displayWord || replacement.word,
+          word: pieces[index] || replacement.word,
           candidates: deterministicCandidatePieces(replacement, index),
           ambiguous: replacement.rule.candidates.length > 1,
           replacement: replacement
@@ -230,7 +263,7 @@
             eventText: eventText,
             previousEventText: position > 0 ? visibleEvents[position - 1] : "",
             segIndex: segIndex,
-            timeSeconds: tokenTimeSeconds(event, seg),
+            timeSeconds: tokenTimeSeconds(payload, event, eventIndex, seg, segIndex, offset),
             previousWord: previousWord,
             previousWordOffset: previousWordOffset,
             context: contextForToken(visibleEvents, position, tokenIndex, firstEventTokenIndex, deterministicByTokenIndex, contextBefore, contextAfter),
@@ -362,8 +395,7 @@
       replacementByTokenIndex.set(override.tokenIndex, {
         tokenIndex: override.tokenIndex,
         tokenSpan: override.tokenSpan || 1,
-        word: override.word,
-        displayWord: override.displayWord || override.word
+        word: override.word
       });
     });
 

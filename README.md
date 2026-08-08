@@ -7,18 +7,22 @@ deaf and hard-of-hearing viewers. Audio, captions, and inference stay local.
 
 | Context rules | Audio inference | Behavior |
 | --- | --- | --- |
-| On | On | Rules resolve clear cases; Whisper handles the rest. |
+| On | On | Rules fill immediately; anchored Whisper can correct them. |
 | On | Off | Use deterministic rules; uncertain matches abstain. |
 | Off | On | Use only local Whisper results. |
 | Off | Off | Leave captions unchanged. |
 
 In the fixed audio benchmark (23 videos, 525 scored slots), the default hybrid
-mode scored 93.9% precision and 90.5% coverage; Whisper-only scored 93.5%/88.2%.
+mode scored 92.6% precision and 91.2% coverage; Whisper-only scored 93.4%/89.1%.
 On the latest local paired-caption development snapshot, rules-only scored
-91.2% precision and 45.0% coverage across 18,180 aligned slots from 968
-contributing caption pairs (8,180 of 8,973 slots filled correctly). The separate
+91.7% precision and 47.8% coverage across 18,251 aligned slots from 977
+contributing caption pairs (8,720 of 9,509 slots filled correctly). The separate
 any-candidate diagnostic remains a candidate-oracle measurement, not a runtime
 score.
+
+On a broader unlabeled 82-video audio stress set, first-pass Whisper emitted
+3,047 of 4,788 fills (63.6%), rules-only emitted 2,071 (43.3%), and either
+first pass emitted 3,689 (77.0%). These are fill rates, not accuracy measurements.
 
 ### Evaluation caveats
 
@@ -80,7 +84,7 @@ localStorage.setItem("uncensoredDebug", "1")
 Whisper-only work should not change deterministic patterns unless rule behavior
 is explicitly in scope.
 
-Run tests, both builds, ZIP validation, Firefox lint, and dependency audit:
+Run tests, both builds, ZIP validation, and Firefox lint:
 
 ```sh
 npm test
@@ -204,16 +208,19 @@ node tools/evaluate-whisper-only.js --mode whisper-only \
   --output corpus/generated/mining/unpaired-whisper.json
 ```
 
-The miner considers only `ALLOWED_WORDS`, deduplicates exact rows, includes
-four-event review context and examples, reports precision separately by source,
-and uses only high-confidence `transcript-anchor` Whisper results. It also
-writes `topMissedWords` and `topWrongPlacements` review queues. Use
-`--frameWords N` when a wider local rule window is useful. Add candidates in
-batches, rerun every ground-truth evaluator, and retain rules only with at least
-three realized matches and at least 90% realized precision. To reveal narrower
-rules hidden by rejected broad rules, repeat mining with one or more
+The miner considers only `ALLOWED_WORDS`, deduplicates exact rows, scans wildcard
+positions throughout each local window, and reports precision and marginal gain
+by source. Recommendations require greater than 90% overall and marginal
+precision, greater than 90% in every supported source, and no single-video
+dominance. It also writes examples,
+four-event review context, `topMissedWords`, and `topWrongPlacements`. Use
+`--frameWords N` to widen the local window. Add candidates in batches, rerun
+every ground-truth evaluator, and keep only rules with at least three realized
+matches and greater than 90% realized precision. To reveal narrower rules hidden
+by rejected broad rules, repeat mining with one or more
 `--exclude previous-opportunities.json` arguments until recommendations reach
-zero. Never use Whisper pseudo-labels to report final precision.
+zero. Whisper labels are discovery-only and never count toward reported
+precision.
 
 For another text dataset, its only adapter contract is JSONL with
 `{"original":"uncensored sentence","censored":"same sentence with [__]"}`;
@@ -230,7 +237,7 @@ echo $! > logs/paired-caption-download.pid
 ## Build
 
 ```sh
-./build.sh 1.3.3
+./build.sh 1.4.0
 ```
 
 This creates separate Chromium and Firefox ZIPs in `dist/`. See

@@ -20,8 +20,10 @@ function parseArgs(argv) {
     output: "corpus/generated/whisper-only-report.json",
     mode: "whisper-only",
     transcripts: "",
+    shift: "0",
     before: "1.5",
     after: "1.5",
+    retryAfter: "2.5",
     limit: "0",
     names: "",
     contextEvents: "4",
@@ -48,15 +50,18 @@ function parseArgs(argv) {
     }
   }
 
+  args.shift = Number(args.shift);
   args.before = Number(args.before);
   args.after = Number(args.after);
+  args.retryAfter = Number(args.retryAfter);
   args.limit = Number(args.limit);
   args.contextEvents = Number(args.contextEvents);
   args.unpairedMinBlanks = Number(args.unpairedMinBlanks);
   args.checkpointEvery = Number(args.checkpointEvery);
-  if (![args.before, args.after].every((value) => Number.isFinite(value) && value >= 0) ||
-      !Number.isInteger(args.contextEvents) || args.contextEvents < 1) {
-    throw new Error("--before and --after must be non-negative numbers; --contextEvents must be a positive integer.");
+  if (![args.before, args.after, args.retryAfter].every((value) => Number.isFinite(value) && value >= 0) ||
+      !Number.isInteger(args.contextEvents) || args.contextEvents < 1 ||
+      !Number.isFinite(args.shift)) {
+    throw new Error("--before, --after, --retryAfter, and --shift must be numbers; --contextEvents must be a positive integer.");
   }
   if (![args.limit, args.unpairedMinBlanks, args.checkpointEvery]
     .every((value) => Number.isInteger(value) && value >= 0)) {
@@ -128,6 +133,12 @@ function wordsInText(text) {
   return [...new Set(words)];
 }
 
+function transcriptContainsWord(transcript, word) {
+  const words = decision.normalizeText(transcript).split(" ");
+  const normalized = decision.normalizeText(word).split(" ").pop();
+  return Boolean(normalized && words.includes(normalized));
+}
+
 function expectedWords(events, timeSeconds, windowSeconds) {
   return [...new Set(events
     .filter((event) => event.start <= timeSeconds + windowSeconds && event.end >= timeSeconds - windowSeconds)
@@ -189,18 +200,8 @@ function pcmSlice(audioPath, startSeconds, durationSeconds) {
 }
 
 async function importTransformers() {
-  const candidates = [
-    path.join(root, "node_modules/@huggingface/transformers/dist/transformers.node.mjs"),
-    "/tmp/uncensored-transformers/node_modules/@huggingface/transformers/dist/transformers.node.mjs"
-  ];
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      return import(candidate);
-    }
-  }
-
-  throw new Error("Missing @huggingface/transformers. Install it in node_modules or /tmp/uncensored-transformers.");
+  return import(path.join(root,
+    "node_modules/@huggingface/transformers/dist/transformers.node.mjs"));
 }
 
 async function createTranscriber() {
@@ -373,9 +374,7 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults, reu
       reusedSlotCount += 1;
       continue;
     }
-    const deterministic = args.mode === "rules-only"
-      ? Boolean(token.deterministicWord)
-      : args.mode === "rules+whisper" && token.deterministicWord && !token.deterministicAmbiguous;
+    const deterministic = args.mode === "rules-only" ? Boolean(token.deterministicWord) : false;
     let transcript = "";
     let chosen = { word: token.deterministicWord, evidence: "deterministic" };
     if (!deterministic && args.mode !== "rules-only") {
@@ -386,7 +385,7 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults, reu
         transcript = transcriptByTime.get(token.timeSeconds);
       } else {
         const transcriber = await getTranscriber();
-        const pcm = pcmSlice(audio, token.timeSeconds - args.before, args.before + args.after);
+        const pcm = pcmSlice(audio, token.timeSeconds + args.shift - args.before, args.before + args.after);
         const transcription = await transcriber(pcm, { max_new_tokens: 32 });
         transcript = typeof transcription === "string" ? transcription : transcription.text;
         transcriptByTime.set(token.timeSeconds, transcript);
@@ -401,6 +400,29 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults, reu
           previousWordOffset: token.previousWordOffset
         }
       );
+      if (!chosen.word && args.retryAfter > args.after &&
+          transcriptContainsWord(transcript, token.previousWord)) {
+        const transcriber = await getTranscriber();
+        const retryPcm = pcmSlice(audio, token.timeSeconds + args.shift - args.before,
+          args.before + args.retryAfter);
+        const retryResult = await transcriber(retryPcm, { max_new_tokens: 32 });
+        const retryTranscript = typeof retryResult === "string" ? retryResult : retryResult.text;
+        const retryDecision = decision.decisionFromTranscript(
+          retryTranscript, token.candidates, token.context, {
+            fCandidates: token.fCandidates,
+            previousWord: token.previousWord,
+            previousWordOffset: token.previousWordOffset
+          }
+        );
+        if (retryDecision.evidence === "transcript-anchor") {
+          transcript = retryTranscript;
+          chosen = retryDecision;
+        }
+      }
+      if (args.mode === "rules+whisper" && token.deterministicWord &&
+          chosen.evidence !== "transcript-anchor") {
+        chosen = { word: token.deterministicWord, evidence: "deterministic" };
+      }
     }
     const expected = expectedByToken.has(token.tokenIndex) ? [expectedByToken.get(token.tokenIndex)] : [];
     const attempted = anyCandidate ? candidateWords.length > 0 : Boolean(chosen.word);
@@ -670,7 +692,8 @@ async function main() {
   const signature = ruleSignature();
   const reuseCompatible = reuseReport && reuseReport.mode === args.mode &&
     reuseReport.rulesScoring === args.rulesScoring && reuseReport.before === args.before &&
-    reuseReport.after === args.after && reuseReport.contextEvents === args.contextEvents &&
+    reuseReport.after === args.after && reuseReport.retryAfter === args.retryAfter &&
+    reuseReport.contextEvents === args.contextEvents &&
     reuseReport.contextBefore === args.contextBefore &&
     reuseReport.contextAfter === args.contextAfter &&
     reuseReport.limit === args.limit && reuseReport.allowUnscored === args.allowUnscored &&
@@ -751,6 +774,7 @@ async function main() {
         rulesScoring: args.rulesScoring,
         before: args.before,
         after: args.after,
+        retryAfter: args.retryAfter,
         contextEvents: args.contextEvents,
         contextBefore: args.contextBefore,
         contextAfter: args.contextAfter,
@@ -780,6 +804,7 @@ async function main() {
     rulesScoring: args.rulesScoring,
     before: args.before,
     after: args.after,
+    retryAfter: args.retryAfter,
     contextEvents: args.contextEvents,
     contextBefore: args.contextBefore,
     contextAfter: args.contextAfter,
@@ -820,6 +845,7 @@ module.exports = {
   parseArgs,
   discoverUnpaired,
   wordsInText,
+  transcriptContainsWord,
   expectedWords,
   allowedExpectedWords,
   findAudio,

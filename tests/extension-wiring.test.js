@@ -148,7 +148,6 @@ assert.ok(!audioCapture.includes("Math.abs((token.timeSeconds || 0) - playhead)"
 assert.ok(audioCapture.includes("!tokenMetadataKnown || segmentNeeded(segment)"));
 assert.ok(!audioCapture.includes("segmentInBufferedRange"));
 assert.ok(audioCapture.includes("videoHasCensoredSlots"));
-assert.ok(audioCapture.includes("token.visibleOnly"));
 assert.ok(audioCapture.includes("whisper model starting"));
 assert.ok(audioCapture.includes("whisper model started"));
 assert.ok(audioCapture.includes('debugLog("new video", videoId)'));
@@ -217,6 +216,16 @@ const contextToken = {
 const deterministicToken = Object.assign({}, contextToken, {
   deterministicWord: "fuck"
 });
+
+assert.strictEqual(audio.arbitrateResolution(deterministicToken, {
+  word: "shit", source: "media", evidence: "transcript"
+}).word, "fuck");
+assert.strictEqual(audio.arbitrateResolution(deterministicToken, {
+  word: "shit", source: "media", evidence: "transcript-anchor"
+}).word, "shit");
+assert.strictEqual(audio.arbitrateResolution(contextToken, {
+  word: "shit", source: "media", evidence: "transcript"
+}).word, "shit");
 
 audio.rememberTimedTextData({ tokens: [contextToken], timeline: [] }, "lang=en&kind=asr");
 audio.rememberTimedTextData({ tokens: [deterministicToken], timeline: [] }, "lang=en&kind=asr");
@@ -291,7 +300,7 @@ audio.rememberTimedTextData({
   ]
 }, "lang=en&kind=formatted");
 assert.strictEqual(captionSegment.textContent, "Stop. Fucking hell");
-assert.strictEqual(audio.debugState().pendingTokens.length, 0);
+assert.strictEqual(audio.pendingTokenValues().length, 1);
 
 audio.setOptions({ rulesEnabled: false, whisperEnabled: true, audioNeeded: true });
 captionSegment.textContent = "cached [__] now";
@@ -326,29 +335,29 @@ audio.rememberTimedTextData({ tokens: [freshToken], timeline: [] }, "lang=en&kin
   normalizedContext: "stale [__] now"
 }]);
 assert.strictEqual(captionSegment.textContent, "fresh [__] now");
-assert.strictEqual(audio.debugState().resolvedTokens.length, 0);
+assert.strictEqual(audio.resolvedTokenValues().length, 0);
 
 const previousPlayer = player;
 audio.rememberTimedTextData({ tokens: [cachedToken], timeline: [] }, "lang=en&kind=asr");
-assert.strictEqual(audio.debugState().pendingTokens.length, 1);
+assert.strictEqual(audio.pendingTokenValues().length, 1);
 global.location.href = "https://www.youtube.com/watch?v=next";
 audio.rememberTimedTextData({ tokens: [], timeline: [] }, "lang=en&kind=asr", [], "next");
-assert.strictEqual(audio.debugState().pendingTokens.length, 0);
+assert.strictEqual(audio.pendingTokenValues().length, 0);
 audio.rememberTimedTextData({ tokens: [cachedToken], timeline: [] }, "lang=en&kind=asr", [], "next");
-assert.strictEqual(audio.debugState().pendingTokens.length, 1);
+assert.strictEqual(audio.pendingTokenValues().length, 1);
 player = {};
 navigationListeners["yt-navigate-finish"]();
-assert.strictEqual(audio.debugState().pendingTokens.length, 1);
+assert.strictEqual(audio.pendingTokenValues().length, 1);
 assert.notStrictEqual(player, previousPlayer);
 assert.strictEqual(observedCaptionTargets.at(-1), player);
 
 global.location.href = "https://www.youtube.com/results?search_query=third";
 navigationListeners["yt-navigate-finish"]();
-assert.strictEqual(audio.debugState().pendingTokens.length, 0);
+assert.strictEqual(audio.pendingTokenValues().length, 0);
 global.location.href = "https://www.youtube.com/watch?v=third";
 audio.rememberTimedTextData({ tokens: [cachedToken], timeline: [] }, "lang=en&kind=asr", [], "third");
 navigationListeners["yt-navigate-finish"]();
-assert.strictEqual(audio.debugState().pendingTokens.length, 1);
+assert.strictEqual(audio.pendingTokenValues().length, 1);
 
 global.location.href = "https://www.youtube.com/watch?v=collision";
 const sameSlotContext = Object.assign({}, cachedToken, {
@@ -363,7 +372,7 @@ audio.rememberTimedTextData({
   ],
   timeline: []
 }, "lang=en&kind=asr", [], "collision");
-assert.strictEqual(audio.debugState().pendingTokens.length, 2);
+assert.strictEqual(audio.pendingTokenValues().length, 2);
 
 const realConsole = console;
 const debugCalls = [];

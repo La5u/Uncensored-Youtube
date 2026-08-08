@@ -37,7 +37,7 @@
       return offscreen.createDocument({
         url: "src/offscreen.html",
         reasons: ["WORKERS"],
-        justification: "Run local caption audio parsing and Whisper inference"
+        justification: "Run local Whisper inference"
       });
     }).catch(function resetOffscreen(error) {
       offscreenReady = null;

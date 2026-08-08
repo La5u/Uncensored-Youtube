@@ -680,10 +680,6 @@
     });
   }
 
-  function templateMatches(template, text) {
-    return templatesMatch([template], text);
-  }
-
   var exports = Object.freeze({
     CENSORED_TOKEN: CENSORED_TOKEN,
     CENSORED_TOKEN_REGEX: CENSORED_TOKEN_REGEX,
@@ -692,8 +688,7 @@
     normalizeCensoredTokens: normalizeCensoredTokens,
     formatWordCase: formatWordCase,
     applyDeterministicRules: applyDeterministicRules,
-    templatesMatch: templatesMatch,
-    templateMatches: templateMatches
+    templatesMatch: templatesMatch
   });
 
   root.UncensoredRules = exports;

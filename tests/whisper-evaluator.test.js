@@ -4,6 +4,7 @@ const evaluator = require("../tools/evaluate-whisper-only");
 const args = evaluator.parseArgs(["--names", "one,two", "--limit", "3"]);
 assert.deepStrictEqual([...args.names], ["one", "two"]);
 assert.strictEqual(args.limit, 3);
+assert.strictEqual(args.retryAfter, 2.5);
 assert.strictEqual(args.checkpointEvery, 25);
 assert.strictEqual(args.fixtures, "test-fixtures");
 assert.strictEqual(args.mode, "whisper-only");
@@ -29,12 +30,15 @@ assert.throws(() => evaluator.parseArgs(["--mode", "invalid"]), /--mode/);
 assert.throws(() => evaluator.parseArgs(["--limit"]), /Missing value/);
 assert.throws(() => evaluator.parseArgs(["--limit", "nope"]), /--limit/);
 assert.throws(() => evaluator.parseArgs(["--unknown", "value"]), /Unknown option/);
+assert.strictEqual(evaluator.parseArgs(["--retryAfter", "0"]).retryAfter, 0);
+assert.strictEqual(evaluator.transcriptContainsWord("Boom, and then", "boom"), true);
+assert.strictEqual(evaluator.transcriptContainsWord("Nothing useful", "boom"), false);
 
 const rules = require("../src/rules");
-assert.strictEqual(rules.templateMatches("what the [__]", "oh my god what the [__] was that"), true);
-assert.strictEqual(rules.templateMatches("all your [__]", "take all your [__] teeth next"), true);
-assert.strictEqual(rules.templateMatches("what the [__]", "this text has no censored slot"), false);
-assert.strictEqual(rules.templateMatches("ghost [__] rule", "all your [__] teeth"), false);
+assert.strictEqual(rules.templatesMatch(["what the [__]"], "oh my god what the [__] was that"), true);
+assert.strictEqual(rules.templatesMatch(["all your [__]"], "take all your [__] teeth next"), true);
+assert.strictEqual(rules.templatesMatch(["what the [__]"], "this text has no censored slot"), false);
+assert.strictEqual(rules.templatesMatch(["ghost [__] rule"], "all your [__] teeth"), false);
 
 const { changedRuleTemplates, contentFingerprint } = evaluator;
 assert.deepStrictEqual(

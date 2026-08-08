@@ -72,7 +72,7 @@
       data.type === "transcribe" && data.data && data.data.audio ? [data.data.audio] : [],
       data.type === "preload" ? 30000 : 60000
     ).then(sendResponse, function failed(error) {
-      sendResponse({ error: error && (error.message || String(error)), segments: [] });
+      sendResponse({ error: error && (error.message || String(error)) });
     });
     return true;
   });

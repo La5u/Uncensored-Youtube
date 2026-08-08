@@ -5,6 +5,7 @@
   var runtime = root.browser || root.chrome;
 
   var AUDIO_CONTEXT_SECONDS = 1.5;
+  var AUDIO_RETRY_AFTER_SECONDS = 2.5;
   var AUDIO_DECODE_TIMEOUT_MS = 15000;
   var WHISPER_INPUT_SECONDS = 30;
   var MEDIA_GAP_TOLERANCE_SECONDS = 0.05;
@@ -361,7 +362,7 @@
     startTime = detail.startMs / 1000;
     endTime = startTime + detail.durationMs / 1000;
     pendingTokens.forEach(function findCoveredToken(token) {
-      var window = tokenWindow(token);
+      var window = tokenCaptureWindow(token);
 
       if (!needed && shouldResolveWithWhisper(token) && !token.resolved &&
           endTime > window.startTime && startTime < window.endTime) {
@@ -448,7 +449,14 @@
   function tokenWindow(token) {
     return {
       startTime: Math.max(0, token.timeSeconds - AUDIO_CONTEXT_SECONDS),
-      endTime: token.timeSeconds + AUDIO_CONTEXT_SECONDS
+      endTime: token.timeSeconds + (token.retryPending ? AUDIO_RETRY_AFTER_SECONDS : AUDIO_CONTEXT_SECONDS)
+    };
+  }
+
+  function tokenCaptureWindow(token) {
+    return {
+      startTime: Math.max(0, token.timeSeconds - AUDIO_CONTEXT_SECONDS),
+      endTime: token.timeSeconds + AUDIO_RETRY_AFTER_SECONDS
     };
   }
 
@@ -510,7 +518,15 @@
     return SOURCE_PRIORITY[source] || 0;
   }
 
-  function notifyTimedTextResolution(token, word, source) {
+  function resolutionPriority(resolution) {
+    if (!resolution) return 0;
+    if (resolution.source === "media") {
+      return resolution.evidence === "transcript-anchor" ? 3 : 1;
+    }
+    return resolution.source === "context" || resolution.source === "deterministic" ? 2 : 0;
+  }
+
+  function notifyTimedTextResolution(token, word, source, evidence) {
     var detail;
 
     if (!token || typeof token.tokenIndex !== "number" || token.tokenIndex < 0 || !word || sourcePriority(source) < sourcePriority("context")) {
@@ -522,6 +538,7 @@
         tokenIndex: token.tokenIndex,
         word: word,
         source: source || "unknown",
+        evidence: evidence || "none",
         videoId: mediaAudio.videoId || currentVideoId(),
         trackId: captionTrackId,
         timeSeconds: token.timeSeconds,
@@ -533,7 +550,7 @@
     }
   }
 
-  function rememberResolution(token, word, source) {
+  function rememberResolution(token, word, source, evidence) {
     var key;
     var existing;
 
@@ -546,12 +563,13 @@
     existing = resolvedTokens.get(key);
 
     if (existing) {
-      if (sourcePriority(existing.source) > sourcePriority(source || "unknown")) {
+      if (resolutionPriority(existing) > resolutionPriority({ source: source, evidence: evidence })) {
         return;
       }
 
       existing.word = word;
       existing.source = source || "unknown";
+      existing.evidence = evidence || "none";
       existing.deterministicWord = token.deterministicWord || existing.deterministicWord || "";
       existing.context = token.context || existing.context;
       existing.normalizedContext = normalizeContext(existing.context);
@@ -560,7 +578,7 @@
       existing.eventTokenIndex = token.eventTokenIndex;
       existing.eventText = token.eventText || existing.eventText;
       existing.previousEventText = token.previousEventText || existing.previousEventText;
-      notifyTimedTextResolution(token, word, source || "unknown");
+      notifyTimedTextResolution(token, word, source || "unknown", evidence);
       watchCaptionMutations();
       scheduleVisibleCaptionResolution();
       return existing;
@@ -580,11 +598,12 @@
       normalizedContext: normalizeContext(token.context),
       word: word,
       deterministicWord: token.deterministicWord || "",
-      source: source || "unknown"
+      source: source || "unknown",
+      evidence: evidence || "none"
     };
     resolvedTokens.set(key, existing);
 
-    notifyTimedTextResolution(token, word, source || "unknown");
+    notifyTimedTextResolution(token, word, source || "unknown", evidence);
     watchCaptionMutations();
     scheduleVisibleCaptionResolution();
     return existing;
@@ -622,14 +641,10 @@
       return false;
     }
 
-    if (!options.rulesEnabled || !token.deterministicWord || token.visibleOnly) {
-      return true;
-    }
-
-    return deterministicIsAmbiguous(token);
+    return true;
   }
 
-  function transcribeTokenPcm(token, sourcePcm, sourceRate, source) {
+  function transcribeTokenPcm(token, sourcePcm, sourceRate, source, deferNoWord) {
     var pcm16 = resampleLinear(sourcePcm, sourceRate, TARGET_SAMPLE_RATE);
 
     debugLog("whisper slice", {
@@ -656,6 +671,15 @@
       });
 
       if (rejectionReason) {
+        if (deferNoWord && rejectionReason === "no word") {
+          return {
+            tokenIndex: token.tokenIndex,
+            word: "",
+            source: source,
+            transcript: decision.transcript || "",
+            evidence: decision.evidence || "none"
+          };
+        }
         if (tokenIsCurrent(token)) failedTokens.set(token.tokenIndex, { reason: rejectionReason });
         debugLog("whisper failed", { tokenIndex: token.tokenIndex, reason: rejectionReason });
         return null;
@@ -680,7 +704,41 @@
         throw new Error("Incomplete decoded media audio");
       }
 
-      return transcribeTokenPcm(token, pcm, TARGET_SAMPLE_RATE, "media");
+      return transcribeTokenPcm(token, pcm, TARGET_SAMPLE_RATE, "media", !token.retryPending);
+    }).then(function retryLaterIfAnchored(resolution) {
+      var previousWord;
+      var transcript;
+      var retryWindow;
+      var retryPcm;
+
+      if (token.retryPending) {
+        if (resolution && resolution.evidence === "transcript-anchor") return resolution;
+        if (tokenIsCurrent(token)) failedTokens.set(token.tokenIndex, { reason: "unanchored retry" });
+        return null;
+      }
+      if (resolution && resolution.word) return resolution;
+
+      previousWord = normalizeContext(token.previousWord).split(" ").pop();
+      transcript = " " + normalizeContext(resolution && resolution.transcript) + " ";
+      if (!previousWord || transcript.indexOf(" " + previousWord + " ") === -1) {
+        if (tokenIsCurrent(token)) failedTokens.set(token.tokenIndex, { reason: "no word" });
+        return null;
+      }
+
+      token.retryPending = true;
+      token.forceSingle = true;
+      retryWindow = tokenWindow(token);
+      retryPcm = readMediaWindow(retryWindow.startTime, retryWindow.endTime);
+      debugLog("whisper retry", { tokenIndex: token.tokenIndex, reason: "later anchored window" });
+      if (!retryPcm) return { deferred: true };
+      return transcribeTokenPcm(token, retryPcm, TARGET_SAMPLE_RATE, "media", false)
+        .then(function acceptAnchoredRetry(retryResolution) {
+          if (retryResolution && retryResolution.evidence === "transcript-anchor") {
+            return retryResolution;
+          }
+          if (tokenIsCurrent(token)) failedTokens.set(token.tokenIndex, { reason: "unanchored retry" });
+          return null;
+        });
     }).catch(function logSingleTokenError(error) {
       var errorInfo = {
         tokenIndex: token.tokenIndex,
@@ -699,7 +757,7 @@
   function resolveTokenGroupFromMedia(group) {
     if (group.length < 2) {
       return resolveTokenFromMedia(group[0].token).then(function resolvedSingle(resolution) {
-        applyResolvedWord(group[0].token, resolution);
+        if (!resolution || !resolution.deferred) applyResolvedWord(group[0].token, resolution);
         return resolution;
       });
     }
@@ -777,7 +835,7 @@
             word: targetWords[index],
             source: "media",
             transcript: decision.transcript,
-            evidence: decision.evidence
+            evidence: decision.slotEvidence && decision.slotEvidence[index] || decision.evidence
           });
         });
 
@@ -786,15 +844,31 @@
     });
   }
 
+  function arbitrateResolution(token, resolution) {
+    var ruleWord = token && (token.deterministicWord || token.contextWord);
+
+    if (ruleWord && (!resolution || resolution.evidence !== "transcript-anchor")) {
+      return {
+        word: ruleWord,
+        source: token.contextWord ? "context" : "deterministic",
+        evidence: "rule"
+      };
+    }
+    return resolution;
+  }
+
   function applyResolvedWord(token, resolution) {
-    var word = resolution && resolution.word;
+    var word;
+
+    resolution = arbitrateResolution(token, resolution);
+    word = resolution && resolution.word;
 
     if (!word || !tokenIsCurrent(token)) {
       return;
     }
 
     token.resolved = true;
-    rememberResolution(token, word, resolution.source);
+    rememberResolution(token, word, resolution.source, resolution.evidence);
   }
 
   function contextWordForToken(token) {
@@ -902,7 +976,7 @@
     var needed = false;
 
     pendingTokens.forEach(function findCoveredToken(token) {
-      var window = tokenWindow(token);
+      var window = tokenCaptureWindow(token);
 
       if (!needed && shouldResolveWithWhisper(token) && !token.resolved &&
           segment.endTime > window.startTime && segment.startTime < window.endTime) {
@@ -1022,8 +1096,14 @@
 
       token.navigationGeneration = navigationGeneration;
       token.captionGeneration = captionGeneration;
+      token.contextWord = contextWord;
 
       if (resolved && resolved.word && (options.rulesEnabled || resolved.source === "media")) {
+        if (options.rulesEnabled && (token.deterministicWord || contextWord) &&
+            resolutionPriority(resolved) < 2) {
+          rememberResolution(token, token.deterministicWord || contextWord,
+            contextWord ? "context" : "deterministic", "rule");
+        }
         scheduleVisibleCaptionResolution();
         return;
       }
@@ -1035,7 +1115,6 @@
       if (options.rulesEnabled && contextWord) {
         rememberResolution(token, contextWord, "context");
         scheduleVisibleCaptionResolution();
-        return;
       }
 
       if (!existing[key] && shouldResolveWithWhisper(token)) {
@@ -1067,18 +1146,21 @@
     });
     (savedResolutions || []).slice(0, 1000).forEach(function restoreResolution(saved) {
       var token = saved && byIndex.get(saved.tokenIndex);
+      var ruleWord = token && (token.deterministicWord || contextWordForToken(token));
       if (!token || !saved.word || !Number.isFinite(saved.timeSeconds) ||
           Math.abs(token.timeSeconds - saved.timeSeconds) > 0.25 ||
           normalizeContext(token.context) !== saved.normalizedContext ||
           !rules.ALLOWED_WORDS.some(function allowedSavedWord(word) {
             return normalizeContext(word) === normalizeContext(saved.word);
           }) ||
-          (saved.source !== "media" && !(options.rulesEnabled && saved.source === "context"))) {
+          (saved.source !== "media" && !(options.rulesEnabled && saved.source === "context")) ||
+          (options.rulesEnabled && ruleWord && saved.source === "media" &&
+            saved.evidence !== "transcript-anchor")) {
         return;
       }
       token.navigationGeneration = navigationGeneration;
       token.captionGeneration = captionGeneration;
-      rememberResolution(token, saved.word, saved.source);
+      rememberResolution(token, saved.word, saved.source, saved.evidence);
     });
   }
 
@@ -1411,37 +1493,10 @@
       }
     },
     rememberTimedTextData: rememberTimedTextData,
-    debugState: function debugState() {
-      return {
-        mediaAudio: {
-          videoId: mediaAudio.videoId,
-          ready: Boolean(mediaAudio.segments && mediaAudio.segments.length),
-          segments: (mediaAudio.segments || []).map(function mapSegment(segment) {
-            return {
-              startTime: segment.startTime,
-              endTime: segment.endTime,
-              duration: segment.buffer.duration
-            };
-          }),
-          error: mediaAudio.error
-        },
-        pendingTokens: pendingTokenValues().map(function mapToken(token) {
-          return {
-            tokenIndex: token.tokenIndex,
-            timeSeconds: token.timeSeconds,
-            context: token.context,
-            deterministicWord: token.deterministicWord,
-            candidates: token.candidates,
-            resolved: token.resolved,
-            resolving: token.resolving
-          };
-        }),
-        resolvedTokens: resolvedTokenValues(),
-        captionTrackId: captionTrackId,
-        captionTimeline: captionTimeline,
-        seekGeneration: seekGeneration
-      };
-    }
+    pendingTokenValues: pendingTokenValues,
+    resolvedTokenValues: resolvedTokenValues,
+    arbitrateResolution: arbitrateResolution,
+    mediaAudio: mediaAudio
   });
 
   root.UncensoredAudioInference = exports;

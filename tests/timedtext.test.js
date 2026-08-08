@@ -168,6 +168,25 @@ assert.strictEqual(tokens.length, 1);
 assert.strictEqual(tokens[0].timeSeconds, 10.75);
 assert.strictEqual(tokens[0].previousWord, "hello");
 assert.deepStrictEqual(tokens[0].candidates.includes("fuck"), true);
+
+const interpolatedTokens = timedText.collectTimedTextTokens(JSON.stringify({
+  events: [
+    {
+      tStartMs: 10000,
+      dDurationMs: 10000,
+      segs: [{ utf8: "w6 w7 w8 w9 [__]" }]
+    }
+  ]
+}), false);
+assert.strictEqual(interpolatedTokens[0].timeSeconds, 18);
+
+const nextCueInterpolatedTokens = timedText.collectTimedTextTokens(JSON.stringify({
+  events: [
+    { tStartMs: 10000, segs: [{ utf8: "w6 w7 w8 w9 [__]" }] },
+    { tStartMs: 20000, segs: [{ utf8: "w11 w12" }] }
+  ]
+}), false);
+assert.strictEqual(nextCueInterpolatedTokens[0].timeSeconds, 18);
 assert.deepStrictEqual(audioData.timeline[0], {
   eventIndex: 0,
   startTime: 10,

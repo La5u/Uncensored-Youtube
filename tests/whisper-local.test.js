@@ -61,6 +61,25 @@ assert.deepStrictEqual(
   ["shit", "fuck", "asshole"]
 );
 
+const anchoredRefinement = whisper.decisionFromTranscript(
+  "what the fucking is this",
+  ["fuck", "fucking"],
+  "what the [__] is this",
+  { previousWord: "the" }
+);
+assert.strictEqual(anchoredRefinement.word, "fuck");
+assert.strictEqual(anchoredRefinement.evidence, "transcript-anchor");
+
+assert.deepStrictEqual(
+  whisper.decisionFromTranscript(
+    "say fuck then shit",
+    ["fuck", "shit"],
+    "say [__] then [__]",
+    { slotCount: 2, previousWords: ["say", "missing"] }
+  ).slotEvidence,
+  ["transcript-anchor", "transcript"]
+);
+
 assert.deepStrictEqual(
   whisper.decisionFromTranscript(
     "Get your shit together fucking hit you to asshole, but well the one fucking",
@@ -234,7 +253,9 @@ assert.strictEqual(
   ["you're more on", ["moron", "fuck"], "moron"],
   ["god you morrow", ["moron", "fuck"], "moron"],
   ["flux like", ["fuck", "fuck's"], "fuck's"],
-  ["fucks sake", ["fuck", "fucks", "fuck's"], "fuck's"]
+  ["fucks sake", ["fuck", "fucks", "fuck's"], "fuck's"],
+  ["helicopter dickin'", ["dickin", "dicking"], "dickin"],
+  ["stop fuckingin' with me", ["fuck", "fucking"], "fucking"]
 ].forEach(([transcript, candidates, expected]) => {
   assert.strictEqual(
     whisper.decisionFromTranscript(
@@ -245,6 +266,18 @@ assert.strictEqual(
     ).word,
     expected
   );
+});
+
+[
+  ["waterfuck is this", ["fuck"], "why the [__] is this", "fuck"],
+  ["fucka's going on", ["fuck", "fucker"], "what the [__] is going on", "fuck"],
+  ["I would have shits my pants", ["shit"], "I would have [__] my pants", "shit"],
+  ["fucka made it", ["fucker"], "the [__] made it", "fucker"],
+  ["horse hoshit", ["shit"], "some horse [__] here", "shit"],
+  ["these motherfucker's left", ["motherfucker", "motherfuckers"], "these [__] left", "motherfuckers"],
+  ["this motherfucker's started", ["motherfucker", "motherfuckers"], "this [__] started", "motherfucker"]
+].forEach(([transcript, candidates, context, expected]) => {
+  assert.strictEqual(whisper.decisionFromTranscript(transcript, candidates, context, {}).word, expected);
 });
 
 [
