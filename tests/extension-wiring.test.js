@@ -140,8 +140,10 @@ assert.ok(!audioCapture.includes("previousCaptionRow"));
 assert.ok(!audioCapture.includes("topCaptionRow"));
 assert.ok(!audioCapture.includes("root.__uncensoredResolveToken"));
 assert.ok(audioCapture.includes("token.eventIndex === next.token.eventIndex"));
-assert.ok(audioCapture.includes("forceSingle"));
-assert.ok(audioCapture.includes("whisper retry"));
+assert.ok(!audioCapture.includes("forceSingle"));
+assert.ok(!audioCapture.includes("whisper retry"));
+assert.ok(audioCapture.includes("token.visibleOnly"));
+assert.ok(!audioCapture.includes("later anchored window"));
 assert.ok(audioCapture.includes("readMediaWindow"));
 assert.ok(audioCapture.includes("encodedSegmentNeeded"));
 assert.ok(!audioCapture.includes("Math.abs((token.timeSeconds || 0) - playhead)"));
@@ -300,7 +302,7 @@ audio.rememberTimedTextData({
   ]
 }, "lang=en&kind=formatted");
 assert.strictEqual(captionSegment.textContent, "Stop. Fucking hell");
-assert.strictEqual(audio.pendingTokenValues().length, 1);
+assert.strictEqual(audio.pendingTokenValues().length, 0);
 
 audio.setOptions({ rulesEnabled: false, whisperEnabled: true, audioNeeded: true });
 captionSegment.textContent = "cached [__] now";

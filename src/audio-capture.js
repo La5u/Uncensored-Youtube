@@ -5,7 +5,6 @@
   var runtime = root.browser || root.chrome;
 
   var AUDIO_CONTEXT_SECONDS = 1.5;
-  var AUDIO_RETRY_AFTER_SECONDS = 2.5;
   var AUDIO_DECODE_TIMEOUT_MS = 15000;
   var WHISPER_INPUT_SECONDS = 30;
   var MEDIA_GAP_TOLERANCE_SECONDS = 0.05;
@@ -362,7 +361,7 @@
     startTime = detail.startMs / 1000;
     endTime = startTime + detail.durationMs / 1000;
     pendingTokens.forEach(function findCoveredToken(token) {
-      var window = tokenCaptureWindow(token);
+      var window = tokenWindow(token);
 
       if (!needed && shouldResolveWithWhisper(token) && !token.resolved &&
           endTime > window.startTime && startTime < window.endTime) {
@@ -449,14 +448,7 @@
   function tokenWindow(token) {
     return {
       startTime: Math.max(0, token.timeSeconds - AUDIO_CONTEXT_SECONDS),
-      endTime: token.timeSeconds + (token.retryPending ? AUDIO_RETRY_AFTER_SECONDS : AUDIO_CONTEXT_SECONDS)
-    };
-  }
-
-  function tokenCaptureWindow(token) {
-    return {
-      startTime: Math.max(0, token.timeSeconds - AUDIO_CONTEXT_SECONDS),
-      endTime: token.timeSeconds + AUDIO_RETRY_AFTER_SECONDS
+      endTime: token.timeSeconds + AUDIO_CONTEXT_SECONDS
     };
   }
 
@@ -641,10 +633,14 @@
       return false;
     }
 
-    return true;
+    if (!options.rulesEnabled || !token.deterministicWord || token.visibleOnly) {
+      return true;
+    }
+
+    return deterministicIsAmbiguous(token);
   }
 
-  function transcribeTokenPcm(token, sourcePcm, sourceRate, source, deferNoWord) {
+  function transcribeTokenPcm(token, sourcePcm, sourceRate, source) {
     var pcm16 = resampleLinear(sourcePcm, sourceRate, TARGET_SAMPLE_RATE);
 
     debugLog("whisper slice", {
@@ -671,15 +667,6 @@
       });
 
       if (rejectionReason) {
-        if (deferNoWord && rejectionReason === "no word") {
-          return {
-            tokenIndex: token.tokenIndex,
-            word: "",
-            source: source,
-            transcript: decision.transcript || "",
-            evidence: decision.evidence || "none"
-          };
-        }
         if (tokenIsCurrent(token)) failedTokens.set(token.tokenIndex, { reason: rejectionReason });
         debugLog("whisper failed", { tokenIndex: token.tokenIndex, reason: rejectionReason });
         return null;
@@ -704,41 +691,7 @@
         throw new Error("Incomplete decoded media audio");
       }
 
-      return transcribeTokenPcm(token, pcm, TARGET_SAMPLE_RATE, "media", !token.retryPending);
-    }).then(function retryLaterIfAnchored(resolution) {
-      var previousWord;
-      var transcript;
-      var retryWindow;
-      var retryPcm;
-
-      if (token.retryPending) {
-        if (resolution && resolution.evidence === "transcript-anchor") return resolution;
-        if (tokenIsCurrent(token)) failedTokens.set(token.tokenIndex, { reason: "unanchored retry" });
-        return null;
-      }
-      if (resolution && resolution.word) return resolution;
-
-      previousWord = normalizeContext(token.previousWord).split(" ").pop();
-      transcript = " " + normalizeContext(resolution && resolution.transcript) + " ";
-      if (!previousWord || transcript.indexOf(" " + previousWord + " ") === -1) {
-        if (tokenIsCurrent(token)) failedTokens.set(token.tokenIndex, { reason: "no word" });
-        return null;
-      }
-
-      token.retryPending = true;
-      token.forceSingle = true;
-      retryWindow = tokenWindow(token);
-      retryPcm = readMediaWindow(retryWindow.startTime, retryWindow.endTime);
-      debugLog("whisper retry", { tokenIndex: token.tokenIndex, reason: "later anchored window" });
-      if (!retryPcm) return { deferred: true };
-      return transcribeTokenPcm(token, retryPcm, TARGET_SAMPLE_RATE, "media", false)
-        .then(function acceptAnchoredRetry(retryResolution) {
-          if (retryResolution && retryResolution.evidence === "transcript-anchor") {
-            return retryResolution;
-          }
-          if (tokenIsCurrent(token)) failedTokens.set(token.tokenIndex, { reason: "unanchored retry" });
-          return null;
-        });
+      return transcribeTokenPcm(token, pcm, TARGET_SAMPLE_RATE, "media");
     }).catch(function logSingleTokenError(error) {
       var errorInfo = {
         tokenIndex: token.tokenIndex,
@@ -757,7 +710,7 @@
   function resolveTokenGroupFromMedia(group) {
     if (group.length < 2) {
       return resolveTokenFromMedia(group[0].token).then(function resolvedSingle(resolution) {
-        if (!resolution || !resolution.deferred) applyResolvedWord(group[0].token, resolution);
+        applyResolvedWord(group[0].token, resolution);
         return resolution;
       });
     }
@@ -822,9 +775,10 @@
         });
 
         if (!completeGroup) {
-          group.forEach(function retryUnresolvedTarget(entry) {
-            entry.token.forceSingle = true;
-            debugLog("whisper retry", { tokenIndex: entry.token.tokenIndex, reason: "incomplete group" });
+          group.forEach(function failUnresolvedTarget(entry) {
+            if (tokenIsCurrent(entry.token)) {
+              failedTokens.set(entry.token.tokenIndex, { reason: "incomplete group" });
+            }
           });
           return decision;
         }
@@ -936,8 +890,8 @@
       return shouldResolveWithWhisper(token) && !token.resolved && !token.resolving;
     });
     startIndex = tokens.indexOf(next.token);
-    group = next.token.forceSingle ? [next.token] : tokens.slice(startIndex).filter(function sameEvent(token) {
-      return token.eventIndex === next.token.eventIndex && !token.forceSingle;
+    group = tokens.slice(startIndex).filter(function sameEvent(token) {
+      return token.eventIndex === next.token.eventIndex;
     });
     groupStart = tokenWindow(next.token).startTime;
     groupEnd = tokenWindow(group[group.length - 1]).endTime;
@@ -976,7 +930,7 @@
     var needed = false;
 
     pendingTokens.forEach(function findCoveredToken(token) {
-      var window = tokenCaptureWindow(token);
+      var window = tokenWindow(token);
 
       if (!needed && shouldResolveWithWhisper(token) && !token.resolved &&
           segment.endTime > window.startTime && segment.startTime < window.endTime) {

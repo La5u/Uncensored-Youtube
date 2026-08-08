@@ -13,7 +13,6 @@
   var captionDecisionKnown = false;
   var videoHasCensoredSlots = false;
   var activeVideoId = currentVideoId();
-  var lastParsedTrackKey = "";
   var scripts = [
     "src/page-hook.js",
     "src/rules-compiler.js",
@@ -221,10 +220,7 @@
       return;
     }
 
-    var trackKey = activeVideoId + "\u0000" + trackId;
-    if (trackKey === lastParsedTrackKey) return;
     data = timedText.collectTimedTextData(body, settings.rulesEnabled);
-    if (data.parsed) lastParsedTrackKey = trackKey;
     if (data.tokens.length) {
       debugLog("censored slots", {
         trackId: trackId,

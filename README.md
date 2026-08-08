@@ -237,7 +237,7 @@ echo $! > logs/paired-caption-download.pid
 ## Build
 
 ```sh
-./build.sh 1.4.0
+./build.sh 1.4.1
 ```
 
 This creates separate Chromium and Firefox ZIPs in `dist/`. See

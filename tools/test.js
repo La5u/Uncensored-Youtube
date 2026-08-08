@@ -66,9 +66,9 @@ for (const directory of ["src", "tools", "tests"]) {
 for (const file of fs.readdirSync(path.join(root, "tests")).filter((name) => name.endsWith(".test.js")).sort()) {
   run("node", [path.join("tests", file)]);
 }
-run("./build.sh", ["1.4.0"]);
-run("unzip", ["-tq", "dist/uncensored-youtube-firefox-1.4.0.zip"]);
-run("unzip", ["-tq", "dist/uncensored-youtube-chromium-1.4.0.zip"]);
+run("./build.sh", ["1.4.1"]);
+run("unzip", ["-tq", "dist/uncensored-youtube-firefox-1.4.1.zip"]);
+run("unzip", ["-tq", "dist/uncensored-youtube-chromium-1.4.1.zip"]);
 run("web-ext", ["lint", "--source-dir", "dist/firefox", "--warnings-as-errors"]);
 if (flags.has("--benchmark") || flags.has("--all")) benchmark();
 if (flags.has("--browsers") || flags.has("--all")) {

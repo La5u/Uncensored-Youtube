@@ -3,7 +3,7 @@
   "minimum_chrome_version": "148",
   "message_serialization": "structured_clone",
   "name": "Uncensored YouTube",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Restores words censored in YouTube's automatic captions.",
   "icons": {
     "16": "src/icons/icon-16.png",
