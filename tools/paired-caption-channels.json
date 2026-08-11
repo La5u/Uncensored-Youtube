@@ -87,6 +87,30 @@
       ]
     },
     {
+      "name": "Unsubscribe Podcast",
+      "sources": [
+        "https://www.youtube.com/channel/UCEk2RXhmy1ocxgGK-zNU-sQ/videos"
+      ]
+    },
+    {
+      "name": "Smosh Pit",
+      "sources": [
+        "https://www.youtube.com/channel/UCYJPby9DRCteedh5tfxVbrw/videos"
+      ]
+    },
+    {
+      "name": "The Official Channel",
+      "sources": [
+        "https://www.youtube.com/channel/UCcHYe-Qw7qUN5gFWMdj9nNw/videos"
+      ]
+    },
+    {
+      "name": "Channel 5 with Andrew Callaghan",
+      "sources": [
+        "https://www.youtube.com/channel/UC-AQKm7HUNMmxjdS371MSwg/videos"
+      ]
+    },
+    {
       "name": "The Yard",
       "sources": [
         "https://www.youtube.com/@theyardpod/videos",
@@ -169,9 +193,33 @@
       ]
     },
     {
+      "name": "FlazeFire",
+      "sources": [
+        "https://www.youtube.com/@FlazeFire/videos"
+      ]
+    },
+    {
+      "name": "Kwite",
+      "sources": [
+        "https://www.youtube.com/@Kwite/videos"
+      ]
+    },
+    {
       "name": "Neebs Gaming",
       "sources": [
         "https://www.youtube.com/@NeebsGaming/videos"
+      ]
+    },
+    {
+      "name": "GameGrumps",
+      "sources": [
+        "https://www.youtube.com/@GameGrumps/videos"
+      ]
+    },
+    {
+      "name": "vinesauce",
+      "sources": [
+        "https://www.youtube.com/@vinesauce/videos"
       ]
     },
     {

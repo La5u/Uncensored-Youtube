@@ -219,6 +219,10 @@ async function createTranscriber() {
 }
 
 function isCorrect(word, expected, context) {
+  if (/\[\s*__\s*\]['’]s\b/i.test(context || "") &&
+      expected.some((candidate) => decision.normalizeText(candidate) === "fuck 's")) {
+    return decision.normalizeText(word) === "fuck";
+  }
   function comparable(value) {
     const normalized = decision.normalizeText(value)
       .replace(/([a-z0-9'])\1{2,}/g, "$1");
@@ -515,7 +519,7 @@ function joinedCaptionText(body) {
 }
 
 function rulesFingerprint() {
-  const seed = `${rules.DETERMINISTIC_RULES.length}:${rules.ALLOWED_WORDS.length}`;
+  const seed = `${rules.DETERMINISTIC_RULES.length}:${rules.RULE_WORDS.length}`;
   let hash = 0x811c9dc5;
   for (const rule of rules.DETERMINISTIC_RULES) {
     const value = `${rule.template}|${rule.candidates.join(",")}|`;
@@ -532,7 +536,8 @@ function auxiliaryRulesFingerprint() {
     frames: ruleData.RULE_GROUPS.frames,
     priors: ruleData.CANDIDATE_PRIORS,
     continuing: ruleData.CONTINUING_PREFIX_SETS,
-    allowed: ruleData.ALLOWED_WORDS
+    allowed: ruleData.ALLOWED_WORDS,
+    ruleWords: ruleData.RULE_WORDS
   }));
 }
 

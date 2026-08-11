@@ -19,8 +19,9 @@ const exclusionInputs = [];
 let recommendationLimit = 250;
 let frameWords = 5;
 let wildcards = true;
-const MIN_OCCURRENCES = 3;
-const MIN_PRECISION = 0.9;
+let minOccurrences = 3;
+let minPrecision = 0.9;
+let minVideos = 2;
 for (let index = 0; index < extraArgs.length; index += 1) {
   if (extraArgs[index] === "--sample") sampleInputs.push(extraArgs[++index]);
   else if (extraArgs[index] === "--whisper") whisperInputs.push(extraArgs[++index]);
@@ -28,11 +29,17 @@ for (let index = 0; index < extraArgs.length; index += 1) {
   else if (extraArgs[index] === "--limit") recommendationLimit = Number(extraArgs[++index]);
   else if (extraArgs[index] === "--frameWords") frameWords = Number(extraArgs[++index]);
   else if (extraArgs[index] === "--wildcards") wildcards = extraArgs[++index] !== "false";
+  else if (extraArgs[index] === "--minOccurrences") minOccurrences = Number(extraArgs[++index]);
+  else if (extraArgs[index] === "--minPrecision") minPrecision = Number(extraArgs[++index]);
+  else if (extraArgs[index] === "--minVideos") minVideos = Number(extraArgs[++index]);
   else exclusionInputs.push(extraArgs[index]);
 }
 if (!Number.isInteger(recommendationLimit) || recommendationLimit < 1 ||
-    !Number.isInteger(frameWords) || frameWords < 1 || frameWords > 10) {
-  throw new Error("--limit must be a positive integer and --frameWords must be 1..10");
+    !Number.isInteger(frameWords) || frameWords < 1 || frameWords > 10 ||
+    !Number.isInteger(minOccurrences) || minOccurrences < 1 ||
+    !Number.isInteger(minVideos) || minVideos < 1 ||
+    !Number.isFinite(minPrecision) || minPrecision <= 0 || minPrecision > 1) {
+  throw new Error("Invalid limit, frameWords, minOccurrences, minVideos, or minPrecision");
 }
 if (!sampleInputs.length) {
   sampleInputs.push(
@@ -162,7 +169,8 @@ function readSamples(file, source) {
       });
       const decision = deterministicDecision(context);
       return { video: `${source}-${index}`, context, expected: word,
-        predicted: normalizedWord(decision && decision.word) };
+        predicted: normalizedWord(decision && decision.word),
+        ruleTemplate: decision && decision.rule.template };
     });
   });
 }
@@ -173,10 +181,11 @@ function readWhisper(file) {
   return (report.fixtures || []).flatMap((fixture) => (fixture.results || []).flatMap((row) => {
     if ((row.expected || []).length || row.source !== "transcript-anchor" ||
         !ALLOWED_WORDS.has(String(row.word || "").toLowerCase())) return [];
-    const context = row.reviewContext || row.context;
+    const context = row.context || row.reviewContext;
     const decision = deterministicDecision(context);
     return [{ video: fixture.name, context, expected: normalizedWord(row.word),
-      predicted: normalizedWord(decision && decision.word) }];
+      predicted: normalizedWord(decision && decision.word),
+      ruleTemplate: decision && decision.rule.template }];
   }));
 }
 
@@ -224,10 +233,11 @@ const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
 const pairedRows = report.fixtures.flatMap((fixture) => (fixture.results || [])
   .filter((row) => row.expected.length)
   .map((row) => {
-    const context = row.reviewContext || row.context;
+    const context = row.context || row.reviewContext;
     const decision = deterministicDecision(context);
     return { video: fixture.name, context, expected: normalizedWord(row.expected[0]),
-      predicted: normalizedWord(decision && decision.word) };
+      predicted: row.correct ? normalizedWord(row.expected[0]) : normalizedWord(decision && decision.word),
+      ruleTemplate: decision && decision.rule.template };
   }));
 const allRows = [];
 const seenRows = new Set();
@@ -246,10 +256,10 @@ function examplesFor(rowIds, candidate = "") {
   const ordered = [...rowIds].sort((left, right) =>
     Number(allRows[left].expected === candidate) - Number(allRows[right].expected === candidate));
   for (const id of ordered) {
-    const { video, context, expected, predicted, source } = allRows[id];
+    const { video, context, expected, predicted, source, ruleTemplate } = allRows[id];
     if (seen.has(context)) continue;
     seen.add(context);
-    examples.push({ video, context, expected, predicted, source });
+    examples.push({ video, context, expected, predicted, source, ruleTemplate });
     if (examples.length === 8) break;
   }
   return examples;
@@ -270,15 +280,15 @@ function opportunity(stat) {
 }
 
 function isOpportunity(stat) {
-  if (stat.occurrences < MIN_OCCURRENCES || stat.videos.size < 2 || !stat.misses) return false;
+  if (stat.occurrences < minOccurrences || stat.videos.size < minVideos || !stat.misses) return false;
   const counts = Object.values(stat.expectedCounts).sort((a, b) => b - a);
-  return (counts[0] || 0) / stat.occurrences > MIN_PRECISION ||
-    ((counts[0] || 0) + (counts[1] || 0)) / stat.occurrences > MIN_PRECISION;
+  return (counts[0] || 0) / stat.occurrences >= minPrecision ||
+    ((counts[0] || 0) + (counts[1] || 0)) / stat.occurrences >= minPrecision;
 }
 
 function selectRecommendations(statList, limit) {
   const selectable = statList.filter((stat) =>
-    stat.rowIds.length >= MIN_OCCURRENCES).map((stat) => {
+    stat.rowIds.length >= minOccurrences).map((stat) => {
     const counts = {};
     const videos = new Set();
     const videoCounts = {};
@@ -319,27 +329,32 @@ function selectRecommendations(statList, limit) {
       const row = allRows[id];
       return total + Number(row.expected === word) - Number(row.predicted === row.expected);
     }, 0);
-    const wrong = stat.rowIds.reduce((total, id) => total + Number(allRows[id].expected !== word), 0);
+    const newCorrectRows = stat.rowIds.filter((id) =>
+      allRows[id].expected === word && allRows[id].predicted !== word);
+    const newWrongRows = stat.rowIds.filter((id) =>
+      allRows[id].expected !== word && allRows[id].predicted !== word);
+    const score = newCorrectRows.length - 9 * newWrongRows.length;
     return { stat, word, precision: sorted[0][1] / stat.rowIds.length,
       videos: videos.size, dominantVideoShare: Object.values(videoCounts)
         .reduce((largest, count) => Math.max(largest, count), 0) / stat.rowIds.length,
       sourceStats, correctDelta, marginalOccurrences: marginalRows.length, marginalCorrect,
       marginalPrecision: marginalCorrect / marginalRows.length,
-      pairedGain: sourceStats.paired ? sourceStats.paired.gain : 0, wrong,
+      pairedGain: sourceStats.paired ? sourceStats.paired.gain : 0,
+      newCorrectRows, newWrongRows, score,
       authoredPattern: stat.template.replace("[__]", `[${sorted[0][0]}]`) };
-  }).filter((candidate) => candidate.videos >= 2 && candidate.precision > MIN_PRECISION &&
-    candidate.marginalOccurrences >= MIN_OCCURRENCES && candidate.marginalPrecision > MIN_PRECISION &&
+  }).filter((candidate) => candidate.videos >= minVideos && candidate.precision >= minPrecision &&
+    candidate.marginalOccurrences >= minOccurrences && candidate.marginalPrecision >= minPrecision &&
     candidate.dominantVideoShare <= 0.5 &&
     Object.values(candidate.sourceStats).some((source) =>
-      source.occurrences >= MIN_OCCURRENCES && source.videos >= 2 && source.precision > MIN_PRECISION) &&
+      source.occurrences >= minOccurrences && source.videos >= minVideos && source.precision >= minPrecision) &&
     Object.values(candidate.sourceStats).every((source) =>
-      source.occurrences < MIN_OCCURRENCES || source.videos < 2 || source.precision > MIN_PRECISION) &&
+      source.occurrences < minOccurrences || source.videos < minVideos || source.precision >= minPrecision) &&
     !excludedPatterns.has(candidate.authoredPattern.toLowerCase()) &&
     !exactRuleExists(candidate.stat.template, candidate.word));
   const claimed = new Set();
   const recommendations = [];
-  selectable.sort((left, right) => right.pairedGain - left.pairedGain ||
-    right.correctDelta * 10 - right.wrong - (left.correctDelta * 10 - left.wrong));
+  selectable.sort((left, right) => right.score - left.score ||
+    right.pairedGain - left.pairedGain || right.correctDelta - left.correctDelta);
   for (const candidate of selectable) {
     if (recommendations.length >= limit) break;
     let correctDelta = 0;
@@ -366,6 +381,11 @@ function selectRecommendations(statList, limit) {
       marginalCorrect: candidate.marginalCorrect,
       marginalPrecision: candidate.marginalPrecision,
       dominantVideoShare: candidate.dominantVideoShare,
+      score: candidate.score,
+      newCorrectCount: candidate.newCorrectRows.length,
+      newWrongCount: candidate.newWrongRows.length,
+      newCorrectRows: examplesFor(candidate.newCorrectRows, candidate.word),
+      newWrongRows: examplesFor(candidate.newWrongRows, candidate.word),
       sourceStats: candidate.sourceStats,
       examples: examplesFor(candidate.stat.rowIds, candidate.word)
     });
@@ -455,8 +475,8 @@ const generated = generatedPhraseValues.map((phrase) => {
 
 const output = {
   generatedAt: new Date().toISOString(), source: path.relative(root, reportPath),
-  thresholds: { singleCandidate: MIN_PRECISION, ambiguousCandidates: MIN_PRECISION,
-    minimumOccurrences: MIN_OCCURRENCES, minimumVideos: 2, frameWords },
+  thresholds: { singleCandidate: minPrecision, ambiguousCandidates: minPrecision,
+    minimumOccurrences: minOccurrences, minimumVideos: minVideos, frameWords },
   counts: { rows: allRows.length, pairedRows: pairedRows.length, minedFrames,
     generatedPhrases: generated.length, generatedNotInRules: generated.filter((x) => !x.alreadyInRules).length,
     opportunities: opportunities.length, recommendations: recommendations.length, windows: windows.length },

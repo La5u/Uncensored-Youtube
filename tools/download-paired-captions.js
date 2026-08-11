@@ -14,7 +14,6 @@ const audioDir = path.join(fixturesDir, "audio");
 const channelsPath = path.join(__dirname, "paired-caption-channels.json");
 const reportPath = path.join(root, "corpus/generated/paired-caption-download-report.json");
 const CENSORED_RE = /\[\s*__\s*\]/gu;
-const SWEAR_RE = /\b(?:fuck(?:ing|ed|er|ers)?|shit(?:ty|s)?|bitch(?:es)?|asshole|pussy|slut|whore|cunt|cock|piss|dick|bullshit|motherfuck(?:er|ing)?)\b/is;
 const { ALLOWED_WORDS } = require("../src/rules-data");
 const ALLOWED_WORDS_RE = new RegExp(
   `(^|[^A-Za-z0-9])(?:${ALLOWED_WORDS.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/'/g, "['\\u2019]")).join("|")})(?=$|[^A-Za-z0-9])`,
@@ -24,6 +23,7 @@ const ALLOWED_WORDS_RE = new RegExp(
 function parseArgs(argv) {
   const args = {
     channels: "",
+    revisit: "false",
     "dry-run": "false",
     "max-check": "50",
     "pair-target": "12",
@@ -49,6 +49,7 @@ function parseArgs(argv) {
     }
   }
   args.dryRun = args["dry-run"] === "true";
+  args.revisit = args.revisit === "true";
   args.maxCheck = Number(args["max-check"]);
   args.pairTarget = Number(args["pair-target"]);
   args.audioTarget = Number(args["audio-target"]);
@@ -193,7 +194,10 @@ function countCensored(filePath) {
   return matches ? matches.length : 0;
 }
 
-const hasSwears = (filePath) => SWEAR_RE.test(readCaptionText(filePath));
+function hasSwears(filePath) {
+  ALLOWED_WORDS_RE.lastIndex = 0;
+  return ALLOWED_WORDS_RE.test(readCaptionText(filePath));
+}
 
 function hasAudio(videoId) {
   return fs.existsSync(audioDir) &&
@@ -214,25 +218,6 @@ function cleanupVariants(videoId, keep = []) {
       removeFile(path.join(fixturesDir, name));
     }
   }
-}
-
-async function synthesizeCensoredFrom(uncensoredPath, destination) {
-  if (!uncensoredPath || !fs.existsSync(uncensoredPath)) return "";
-  const json = JSON.parse(fs.readFileSync(uncensoredPath, "utf8"));
-  let slots = 0;
-  for (const event of json.events || []) {
-    if (!Array.isArray(event.segs)) continue;
-    for (const seg of event.segs) {
-      if (typeof seg.utf8 !== "string") continue;
-      seg.utf8 = seg.utf8.replace(ALLOWED_WORDS_RE, (match, before) => {
-        slots += 1;
-        return `${before}[__]`;
-      });
-    }
-  }
-  if (!slots) return "";
-  fs.writeFileSync(destination, JSON.stringify(json));
-  return destination;
 }
 
 async function downloadCaption(url, videoId, kind, lang) {
@@ -337,48 +322,6 @@ async function tryAlternateGroundTruth(entry, autoLang, slots, destination) {
   return "";
 }
 
-async function processSynthetic(entry, captions, args, known, stats, item, reason) {
-  const manualPath = path.join(fixturesDir, `${entry.id}_manual.en.json3`);
-  const autoPath = path.join(fixturesDir, `${entry.id}_auto.en.json3`);
-  let uncensored = "";
-  if (captions.manualLang) uncensored = await downloadCaption(entry.url, entry.id, "manual", captions.manualLang);
-  if (!uncensored && captions.alternateAuto) {
-    uncensored = await downloadCaption(entry.url, entry.id, "auto", captions.alternateAuto);
-    if (uncensored) {
-      fs.renameSync(uncensored, manualPath);
-      uncensored = manualPath;
-    }
-  }
-  if (!uncensored || !hasSwears(uncensored)) {
-    removeFile(uncensored);
-    removeFile(manualPath);
-    cleanupVariants(entry.id);
-    item.status = reason;
-    stats.noAutomatic += 1;
-    return item;
-  }
-  if (!await synthesizeCensoredFrom(uncensored, autoPath)) {
-    removeFile(uncensored);
-    removeFile(manualPath);
-    removeFile(autoPath);
-    cleanupVariants(entry.id);
-    item.status = reason;
-    stats.noAutomatic += 1;
-    return item;
-  }
-  if (manualPath !== uncensored) fs.renameSync(uncensored, manualPath);
-  known.paired.add(entry.id);
-  known.autos.add(entry.id);
-  known.manuals.add(entry.id);
-  item.status = "paired-saved";
-  item.pairKind = "synthetic";
-  item.slots = countCensored(autoPath);
-  stats.pairedSaved += 1;
-  stats.autoGtPaired += 1;
-  cleanupVariants(entry.id, [autoPath, manualPath]);
-  return item;
-}
-
 async function processVideo(entry, args, known, stats) {
   const item = {
     id: entry.id,
@@ -416,12 +359,9 @@ async function processVideo(entry, args, known, stats) {
     ? await downloadCaption(entry.url, entry.id, "auto", captions.autoLang)
     : "";
   if (!autoPath) {
-    if (!needPair || !captions.manualLang && !captions.alternateAuto) {
-      item.status = "no-automatic";
-      stats.noAutomatic += 1;
-      return item;
-    }
-    return processSynthetic(entry, captions, args, known, stats, item, "no-automatic");
+    item.status = "no-automatic";
+    stats.noAutomatic += 1;
+    return item;
   }
   const slots = countCensored(autoPath);
   item.slots = slots;
@@ -553,6 +493,9 @@ async function main() {
   }
 
   const known = existingFixtures();
+  const untouchedReports = args.channelFilter.size
+    ? [...previousChannels.values()].filter((channel) => !args.channelFilter.has(channel.name))
+    : [];
   const report = {
     pairTarget: args.pairTarget,
     audioTarget: args.audioTarget,
@@ -563,7 +506,8 @@ async function main() {
     startedAt: new Date().toISOString(),
     channels: []
   };
-  const channelReports = channels.map((channel) => previousChannels.get(channel.name) || null);
+  const channelReports = channels.map((channel) =>
+    args.revisit ? null : previousChannels.get(channel.name) || null);
   const inFlight = new Set();
 
   console.log(
@@ -572,13 +516,16 @@ async function main() {
   );
 
   function saveReport() {
-    report.channels = channelReports.filter(Boolean);
+    report.channels = untouchedReports.concat(channelReports.filter(Boolean));
     fs.writeFileSync(args.report, JSON.stringify(report, null, 2));
   }
 
   saveReport();
   await mapLimit(channels, args.jobs, async (channel, channelIndex) => {
-    const previous = previousChannels.get(channel.name) || {};
+    const previous = args.revisit ? {} : previousChannels.get(channel.name) || {};
+    const previousAudio = previous.audioSaved ?? previous.audioFallbackSaved ?? 0;
+    if (previous.complete && previous.pairedSaved >= args.pairTarget &&
+        previousAudio >= args.audioTarget) return;
     const stats = {
       name: channel.name,
       sources: channel.sources || [],
@@ -587,10 +534,10 @@ async function main() {
       pairedSaved: previous.pairedSaved || 0,
       creatorPaired: previous.creatorPaired || 0,
       autoGtPaired: previous.autoGtPaired || 0,
-      audioSaved: previous.audioSaved ?? previous.audioFallbackSaved ?? 0,
+      audioSaved: previousAudio,
       pairedAudioSaved: previous.pairedAudioSaved || 0,
       audioFallbackSaved: previous.audioFallbackSaved || 0,
-      skippedExisting: previous.skippedExisting || 0,
+      skippedExisting: 0,
       noManual: previous.noManual || 0,
       noAutomatic: previous.noAutomatic || 0,
       noCensoredSlots: previous.noCensoredSlots || 0,
@@ -600,6 +547,18 @@ async function main() {
       complete: false
     };
     channelReports[channelIndex] = stats;
+    let consecutiveClean = 0;
+    for (let index = stats.items.length - 1; index >= 0; index -= 1) {
+      const item = stats.items[index];
+      if (item.status === "paired-saved") break;
+      if (item.status !== "transient-failure" &&
+          (!item.slots || item.status === "no-usable-gt")) consecutiveClean += 1;
+    }
+    if (consecutiveClean >= args.skipAfterClean) {
+      stats.complete = true;
+      saveReport();
+      return;
+    }
     saveReport();
     console.log(`\n=== ${channel.name}${stats.checked ? ` (resume after ${stats.checked})` : ""} ===`);
 
@@ -631,8 +590,6 @@ async function main() {
       stats.skippedExisting += 1;
       return false;
     });
-
-    let consecutiveClean = 0;
 
     for (const entry of pending) {
       if (stats.pairedSaved >= args.pairTarget && stats.audioSaved >= args.audioTarget) break;
@@ -698,6 +655,9 @@ async function main() {
     totals.audioFallback += channel.audioFallbackSaved;
     totals.checked += channel.checked;
     totals.transientFailures += channel.transientFailures;
+    ["noAutomatic", "noCensoredSlots", "noManual", "failed", "skippedExisting"].forEach((key) => {
+      totals[key] = (totals[key] || 0) + (channel[key] || 0);
+    });
     return totals;
   }, {
     paired: 0,
@@ -714,7 +674,11 @@ async function main() {
   console.log(`Report: ${args.report}`);
 }
 
-main().catch((error) => {
-  console.error(error.stack || error.message);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error.stack || error.message);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { hasSwears, parseArgs };
