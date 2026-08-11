@@ -58,17 +58,22 @@ function benchmark() {
   }
 }
 
-for (const directory of ["src", "tools", "tests"]) {
-  for (const file of fs.readdirSync(path.join(root, directory)).filter((name) => name.endsWith(".js"))) {
-    run("node", ["--check", path.join(directory, file)]);
-  }
+function javascriptFiles(directory) {
+  return fs.readdirSync(path.join(root, directory), { withFileTypes: true }).flatMap((entry) => {
+    const file = path.join(directory, entry.name);
+    return entry.isDirectory() ? javascriptFiles(file) : entry.name.endsWith(".js") ? [file] : [];
+  });
+}
+
+for (const file of ["src", "tools", "tests"].flatMap(javascriptFiles)) {
+  run("node", ["--check", file]);
 }
 for (const file of fs.readdirSync(path.join(root, "tests")).filter((name) => name.endsWith(".test.js")).sort()) {
   run("node", [path.join("tests", file)]);
 }
-run("./build.sh", ["1.4.1"]);
-run("unzip", ["-tq", "dist/uncensored-youtube-firefox-1.4.1.zip"]);
-run("unzip", ["-tq", "dist/uncensored-youtube-chromium-1.4.1.zip"]);
+run("./build.sh", ["1.5.0"]);
+run("unzip", ["-tq", "dist/uncensored-youtube-firefox-1.5.0.zip"]);
+run("unzip", ["-tq", "dist/uncensored-youtube-chromium-1.5.0.zip"]);
 run("web-ext", ["lint", "--source-dir", "dist/firefox", "--warnings-as-errors"]);
 if (flags.has("--benchmark") || flags.has("--all")) benchmark();
 if (flags.has("--browsers") || flags.has("--all")) {

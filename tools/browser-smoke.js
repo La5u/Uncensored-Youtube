@@ -1,4 +1,5 @@
 const fs = require("fs");
+const crypto = require("crypto");
 const net = require("net");
 const os = require("os");
 const path = require("path");
@@ -11,10 +12,22 @@ const verbose = args.includes("--verbose");
 const headless = args.includes("--headless");
 const firefoxOnly = args.includes("--firefox-only");
 const chromiumOnly = args.includes("--chromium-only");
-const directNavigation = args.includes("--direct");
+const navigationRoute = (args.find((arg) => arg.startsWith("--via=")) || "").split("=")[1] ||
+  (args.includes("--direct") ? "direct" : "search");
+const directNavigation = navigationRoute === "direct";
+const homeNavigation = navigationRoute === "home";
 const initialOnly = args.includes("--initial-only");
 const playUntil = Number((args.find((arg) => arg.startsWith("--until=")) || "").split("=")[1]) || 0;
 const pauseFor = Number((args.find((arg) => arg.startsWith("--pause=")) || "").split("=")[1]) || 0;
+const autoNextCount = Number((args.find((arg) => arg.startsWith("--auto-next=")) || "").split("=")[1]) || 0;
+const mode = (args.find((arg) => arg.startsWith("--mode=")) || "").split("=")[1] || "";
+const expectedWords = (args.find((arg) => arg.startsWith("--expect=")) || "").split("=")[1]
+  ?.split(",").map((word) => word.trim().toLowerCase()).filter(Boolean) || [];
+const validModes = new Set(["rules-only", "whisper-only", "hybrid", "both-off"]);
+if (mode && !validModes.has(mode)) throw new Error(`Unknown smoke mode: ${mode}`);
+if (!["search", "direct", "home"].includes(navigationRoute)) {
+  throw new Error(`Unknown navigation route: ${navigationRoute}`);
+}
 const urls = args.filter((arg) => /^https:\/\//.test(arg));
 const firstUrl = urls[0] || "https://www.youtube.com/watch?v=kTeQSzHGWyw&t=9s";
 const nextUrls = urls.slice(1);
@@ -29,6 +42,14 @@ const firefoxPort = 14000 + process.pid % 1000;
 const children = [];
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const cleanDecision = (logs, start = 0) =>
+  logs.slice(start).some((line) => line.includes("audio decoding stopped") ||
+    line.includes("captions analyzed") && line.includes('"count":0'));
+const audioMode = mode !== "rules-only" && mode !== "both-off";
+const inferenceReady = (logs, start = 0) => audioMode
+  ? logs.slice(start).some((line) => line.includes("audio decoded")) || cleanDecision(logs, start)
+  : logs.slice(start).some((line) => line.includes("captions analyzed"));
 
 function decodedThrough(logs) {
   return Math.max(...logs.map((line) => {
@@ -79,6 +100,11 @@ function launch(command, args) {
   return child;
 }
 
+function chromiumExtensionId(extensionPath) {
+  return [...crypto.createHash("sha256").update(extensionPath).digest("hex").slice(0, 32)]
+    .map((digit) => String.fromCharCode(97 + Number.parseInt(digit, 16))).join("");
+}
+
 function pkill(pattern, signal) {
   try {
     execSync(`pkill -${signal} -f '${pattern}'`);
@@ -86,7 +112,13 @@ function pkill(pattern, signal) {
 }
 
 const HEADLESS_FIREFOX = "^/usr/lib/firefox/firefox .* -headless( |$)";
-const CHROMIUM_SMOKE = "uncensored-chromium-smoke-";
+const CHROMIUM_SMOKE = "[u]ncensored-chromium-smoke-";
+
+function removeGeneratedProfiles() {
+  fs.readdirSync("/tmp").filter((name) =>
+    name.startsWith("uncensored-chromium-smoke-") || name.startsWith("firefox-profile")
+  ).forEach((name) => fs.rmSync(path.join("/tmp", name), { recursive: true, force: true }));
+}
 
 function terminateChildren() {
   children.slice().forEach((child) => {
@@ -121,8 +153,9 @@ process.on("SIGINT", () => {
 function cleanupOrphanedSmokeBrowsers() {
   pkill(HEADLESS_FIREFOX, "KILL");
   pkill(CHROMIUM_SMOKE, "KILL");
-  pkill("web-ext.*dist/(chromium|firefox)", "KILL");
-  console.log("Cleaned leftover headless smoke browsers.");
+  pkill("[w]eb-ext.*dist/(chromium|firefox)", "KILL");
+  removeGeneratedProfiles();
+  console.log("Cleaned leftover headless smoke browsers and profiles.");
 }
 
 function socketClient(url, onEvent) {
@@ -164,7 +197,11 @@ function playbackExpression(resetCaptions = false) {
   return `(() => {
     localStorage.setItem("uncensoredDebug", "1");
     const player = document.querySelector("#movie_player");
-    const automatic = player?.getOption?.("captions", "tracklist")?.find(track => track.languageCode === "en" && track.kind === "asr");
+    const responseAutomatic = player?.getPlayerResponse?.()?.captions
+      ?.playerCaptionsTracklistRenderer?.captionTracks?.find(track =>
+        track.languageCode === "en" && track.kind === "asr");
+    const automatic = responseAutomatic || player?.getOption?.("captions", "tracklist")?.find(track =>
+      track.languageCode === "en" && (track.kind === "asr" || !track.kind));
     if (automatic) player.setOption("captions", "track", automatic);
     const captions = document.querySelector(".ytp-subtitles-button");
     if (${resetCaptions} && captions && captions.getAttribute("aria-pressed") === "true") captions.click();
@@ -175,7 +212,39 @@ function playbackExpression(resetCaptions = false) {
     document.querySelector(".ytp-skip-ad-button")?.click();
     const video = document.querySelector("video");
     if (video) { video.muted = true; video.playbackRate = 2; video.play().catch(() => {}); }
-    return { hook: typeof globalThis.__uncensoredDebugAudio === "function", url: location.href };
+    // Firefox must start playback at the early Fetch-hook point or initial SABR can be buffered first.
+    return { hook: globalThis.fetch?.name === "uncensoredFetch", url: location.href };
+  })()`;
+}
+
+function finishCurrentVideoExpression() {
+  return `(() => {
+    const video = document.querySelector("video");
+    const id = new URL(location.href).searchParams.get("v");
+    if (!video || !Number.isFinite(video.duration) || video.duration <= 2) return "";
+    video.muted = true;
+    video.playbackRate = 2;
+    video.currentTime = video.duration - 1;
+    video.play().catch(() => {});
+    return id;
+  })()`;
+}
+
+function visibleCaptionExpression() {
+  return `(() => {
+    const selector = ".ytp-caption-segment, .caption-window span, .caption-visual-line span";
+    const nodes = [...document.querySelectorAll(selector)].filter(node => !node.querySelector(selector));
+    const captions = nodes.map(node => node.textContent || "").filter(Boolean);
+    const text = captions.join(" ").toLowerCase().replace(/[^a-z0-9_'\[\] ]+/g, " ").replace(/\\s+/g, " ").trim();
+    return { captions, text, time: document.querySelector("video")?.currentTime,
+      subtitleButton: document.querySelector(".ytp-subtitles-button")?.getAttribute("aria-pressed"),
+      selectedTrack: document.querySelector("#movie_player")?.getOption?.("captions", "track") || {},
+      tracks: document.querySelector("#movie_player")?.getOption?.("captions", "tracklist")?.map(track =>
+        ({ languageCode: track.languageCode, kind: track.kind, vssId: track.vssId, name: track.name })) || [],
+      responseTracks: document.querySelector("#movie_player")?.getPlayerResponse?.()?.captions
+        ?.playerCaptionsTracklistRenderer?.captionTracks?.map(track =>
+        ({ languageCode: track.languageCode, kind: track.kind, name: track.name })) || [],
+      placeholders: (text.match(/\\[\\s*__\\s*\\]/g) || []).length };
   })()`;
 }
 
@@ -196,6 +265,10 @@ function watchExpression() {
   return `(() => {
     const id = ${JSON.stringify(secondId)};
     if (new URL(location.href).searchParams.get("v") === id) return true;
+    if (${directNavigation}) {
+      location.assign("https://www.youtube.com/watch?v=" + encodeURIComponent(id));
+      return true;
+    }
     const player = document.querySelector("#movie_player");
     if (!player) return false;
     if (${playlistMode}) {
@@ -207,10 +280,7 @@ function watchExpression() {
       return false;
     }
     {
-      const selector = ${directNavigation}
-        ? 'ytd-compact-video-renderer a[href*="/watch?v="], ytd-rich-item-renderer a[href*="/watch?v="]'
-        : 'a[href*="/watch?v="]';
-      const link = [...document.querySelectorAll(selector)]
+      const link = [...document.querySelectorAll('a[href*="/watch?v="]')]
         .find(anchor => new URL(anchor.href).searchParams.get("v") === id);
       if (!link) return false;
       link.click();
@@ -255,6 +325,23 @@ async function chromium() {
   await client.ready;
   await client.send("Runtime.enable");
   await client.send("Page.enable");
+  if (mode) {
+    const extensionId = chromiumExtensionId(extensionPaths[0]);
+    const extensionUrl = `chrome-extension://${extensionId}/src/popup.html`;
+    const values = {
+      rulesEnabled: mode !== "whisper-only" && mode !== "both-off",
+      whisperEnabled: mode !== "rules-only" && mode !== "both-off"
+    };
+    await client.send("Page.navigate", { url: extensionUrl });
+    await retry(async () => {
+      const response = await client.send("Runtime.evaluate", {
+        expression: `chrome.storage.local.set(${JSON.stringify(values)}).then(() => true)`,
+        awaitPromise: true, returnByValue: true
+      });
+      return response.result.value === true;
+    });
+    console.log(`Chromium mode ${mode}: ${JSON.stringify(values)}.`);
+  }
   await client.send("Page.navigate", { url: launchUrl.href });
   if (!firstSeekTime) await wait(10000);
   let result = await retry(async () => {
@@ -284,24 +371,71 @@ async function chromium() {
   }
   try {
     await retry(async () => {
-      if (logs.some((line) => line.includes("audio decoded"))) return true;
-      const state = await client.send("Runtime.evaluate", {
-        expression: "globalThis.__uncensoredDebugAudio?.().audioNeeded", returnByValue: true
-      });
-      if (state.result.value === false) return true;
-      if (!firstSeekTime) {
-        await client.send("Runtime.evaluate", { expression: playbackExpression(), returnByValue: true });
-      }
+      if (inferenceReady(logs)) return true;
+      await client.send("Runtime.evaluate", { expression: playbackExpression(), returnByValue: true });
       return false;
     }, 90000);
   } catch (error) {
     const state = await client.send("Runtime.evaluate", {
       expression: `JSON.stringify({time: document.querySelector("video")?.currentTime,
         paused: document.querySelector("video")?.paused,
-        captions: document.querySelector(".ytp-subtitles-button")?.getAttribute("aria-pressed"),
-        audio: globalThis.__uncensoredDebugAudio?.()})`, returnByValue: true
+        captions: document.querySelector(".ytp-subtitles-button")?.getAttribute("aria-pressed")})`, returnByValue: true
     });
     throw new Error(`No initial Chromium audio or clean-caption decision. State: ${state.result.value}`);
+  }
+  if (expectedWords.length || mode === "both-off") {
+    try {
+      const visible = await retry(async () => {
+        await client.send("Runtime.evaluate", { expression: `(() => {
+          const player = document.querySelector("#movie_player");
+          const automatic = player?.getPlayerResponse?.()?.captions
+            ?.playerCaptionsTracklistRenderer?.captionTracks?.find(track =>
+              track.languageCode === "en" && track.kind === "asr");
+          if (automatic) player.setOption("captions", "track", {
+            languageCode: automatic.languageCode, kind: automatic.kind, vssId: automatic.vssId || ""
+          });
+          const captions = document.querySelector(".ytp-subtitles-button");
+          if (captions && captions.getAttribute("aria-pressed") !== "true") captions.click();
+          return true;
+        })()`, returnByValue: true });
+        if (firstSeekTime) {
+          await client.send("Runtime.evaluate", { expression: `(() => {
+            const video = document.querySelector("video");
+            const player = document.querySelector("#movie_player");
+            if (video && Math.abs(video.currentTime - ${firstSeekTime}) > 2 && player?.seekTo) {
+              player.seekTo(${firstSeekTime}, true);
+            }
+            if (video) { video.playbackRate = 0.25; video.play().catch(() => {}); }
+            return true;
+          })()`, returnByValue: true });
+        }
+        const response = await client.send("Runtime.evaluate", {
+          expression: visibleCaptionExpression(), returnByValue: true
+        });
+        const state = response.result.value;
+        if (verbose && state.text) console.log(`Visible captions: ${JSON.stringify(state)}`);
+        const found = expectedWords.every((word) =>
+          new RegExp("(?:^| )" + word.replace(/[^a-z0-9' ]/g, "") + "(?: |$)").test(state.text));
+        const disabled = mode === "both-off" && state.placeholders > 0;
+        return (found && (!mode || state.selectedTrack.kind === "asr") || disabled) && state;
+      }, 20000);
+      if (mode === "both-off") {
+        if (!visible.placeholders) {
+          throw new Error(`Disabled mode did not preserve a [__] slot: ${JSON.stringify(visible)}.`);
+        }
+        console.log(`Chromium DOM disabled-mode check passed (${firstUrl}, ${JSON.stringify(visible)}).`);
+      } else {
+        if (visible.placeholders) {
+          throw new Error(`Resolved caption still contains ${visible.placeholders} [__] slot(s): ${JSON.stringify(visible)}.`);
+        }
+        console.log(`Chromium DOM expectation passed (${mode || "default"}, ${firstUrl}, ${JSON.stringify(visible)}).`);
+      }
+    } catch (error) {
+      const response = await client.send("Runtime.evaluate", {
+        expression: visibleCaptionExpression(), returnByValue: true
+      });
+      throw new Error(`${error.message}; final DOM: ${JSON.stringify(response.result.value)}`);
+    }
   }
   if (pauseFor) {
     await client.send("Runtime.evaluate", { expression: "document.querySelector('video')?.pause()" });
@@ -309,11 +443,7 @@ async function chromium() {
     const checkpoint = logs.length;
     await client.send("Runtime.evaluate", { expression: playbackExpression(), returnByValue: true });
     await retry(async () => {
-      if (logs.slice(checkpoint).some((line) => line.includes("audio decoded"))) return true;
-      const state = await client.send("Runtime.evaluate", {
-        expression: "globalThis.__uncensoredDebugAudio?.().audioNeeded", returnByValue: true
-      });
-      if (state.result.value === false) return true;
+      if (inferenceReady(logs, checkpoint)) return true;
       await client.send("Runtime.evaluate", { expression: playbackExpression(), returnByValue: true });
       return false;
     }, 90000);
@@ -328,10 +458,7 @@ async function chromium() {
       return state.result.value.hook && time.result.value >= playUntil;
     }, (playUntil + 60) * 1000);
     const decoded = decodedThrough(logs);
-    const state = await client.send("Runtime.evaluate", {
-      expression: "globalThis.__uncensoredDebugAudio?.().audioNeeded", returnByValue: true
-    });
-    if (state.result.value !== false && decoded < playUntil - 20) {
+    if (audioMode && !cleanDecision(logs) && decoded < playUntil - 20) {
       throw new Error(`Audio stopped at ${decoded}s.`);
     }
   }
@@ -350,9 +477,40 @@ async function chromium() {
     client.socket.close();
     return;
   }
+  if (autoNextCount) {
+    for (let index = 0; index < autoNextCount; index += 1) {
+      const checkpoint = logs.length;
+      const current = await retry(async () => {
+        const value = await client.send("Runtime.evaluate", {
+          expression: finishCurrentVideoExpression(), returnByValue: true
+        });
+        return value.result.value;
+      });
+      const next = await retry(async () => {
+        const value = await client.send("Runtime.evaluate", {
+          expression: "new URL(location.href).searchParams.get('v')", returnByValue: true
+        });
+        return value.result.value && value.result.value !== current && value.result.value;
+      }, 90000);
+      await wait(5000);
+      const state = await client.send("Runtime.evaluate", { expression: playbackExpression(true), returnByValue: true });
+      if (!state.result.value.hook) throw new Error(`Chromium hook lost after playlist advance to ${next}.`);
+      await retry(() => inferenceReady(logs, checkpoint), 90000);
+      console.log(`Chromium playlist auto-next passed (${current} -> ${next}).`);
+    }
+    client.socket.close();
+    return;
+  }
   for (secondId of nextUrls.map((url) => new URL(url).searchParams.get("v"))) {
     const checkpoint = logs.length;
-    if (!playlistMode && !directNavigation) {
+    if (homeNavigation) {
+      await client.send("Page.navigate", { url: "https://www.youtube.com/" });
+      await retry(async () => {
+        const value = await client.send("Runtime.evaluate", { expression: "location.pathname", returnByValue: true });
+        return value.result.value === "/";
+      });
+      await client.send("Page.navigate", { url: "https://www.youtube.com/watch?v=" + secondId });
+    } else if (!playlistMode && !directNavigation) {
       await retry(async () => {
         const value = await client.send("Runtime.evaluate", { expression: searchExpression(), returnByValue: true });
         return value.result.value;
@@ -385,16 +543,12 @@ async function chromium() {
     await wait(8000);
     result = await client.send("Runtime.evaluate", { expression: playbackExpression(true), returnByValue: true });
     if (!result.result.value.hook) throw new Error("Chromium hook was lost after SPA navigation.");
-    const audioState = JSON.parse((await client.send("Runtime.evaluate", {
-      expression: "JSON.stringify(globalThis.__uncensoredDebugAudio?.())", returnByValue: true
-    })).result.value);
-    if (audioState.activeVideoId !== secondId) {
-      throw new Error(`Chromium hook retained ${audioState.activeVideoId} after navigating to ${secondId}.`);
+    if (!homeNavigation && !logs.slice(checkpoint).some((line) => line.includes(`new video ${secondId}`))) {
+      throw new Error(`Chromium hook did not activate video ${secondId}.`);
     }
     try {
       await retry(async () => {
-        if (audioState.audioNeeded === false) return true;
-        if (logs.slice(checkpoint).some((line) => line.includes("audio decoded"))) return true;
+        if (inferenceReady(logs, checkpoint)) return true;
         await client.send("Runtime.evaluate", { expression: playbackExpression(), returnByValue: true });
         return false;
       }, 90000);
@@ -447,14 +601,11 @@ async function firefox() {
     const value = JSON.parse(await evaluate(`JSON.stringify(${playbackExpression()})`));
     return value.hook && value;
   });
-  await retry(async () => timedTextRequests > 0 ||
-    await evaluate("globalThis.__uncensoredDebugAudio?.().audioNeeded") === false);
+  await retry(() => timedTextRequests > 0 || cleanDecision(logs));
   try {
-    await retry(async () => logs.some((line) => line.includes("audio decoded")) ||
-      await evaluate("globalThis.__uncensoredDebugAudio?.().audioNeeded") === false, 90000);
+    await retry(() => inferenceReady(logs), 90000);
   } catch (error) {
-    const audio = await evaluate("JSON.stringify(globalThis.__uncensoredDebugAudio?.())");
-    throw new Error(`No initial Firefox audio or clean-caption decision. State: ${audio}. Logs: ${logs.slice(-12).join(" | ")}`);
+    throw new Error(`No initial Firefox audio or clean-caption decision. Logs: ${logs.slice(-12).join(" | ")}`);
   }
   if (pauseFor) {
     await evaluate("document.querySelector('video')?.pause()");
@@ -462,9 +613,7 @@ async function firefox() {
     const checkpoint = logs.length;
     await evaluate(playbackExpression());
     await retry(async () => {
-      if (logs.slice(checkpoint).some((line) => line.includes("audio decoded"))) return true;
-      const state = await evaluate("globalThis.__uncensoredDebugAudio?.().audioNeeded");
-      if (state === false) return true;
+      if (inferenceReady(logs, checkpoint)) return true;
       await evaluate(playbackExpression());
       return false;
     }, 90000);
@@ -476,8 +625,7 @@ async function firefox() {
       return await evaluate("document.querySelector('video')?.currentTime") >= playUntil;
     }, (playUntil + 60) * 1000);
     const decoded = decodedThrough(logs);
-    const audioNeeded = await evaluate("globalThis.__uncensoredDebugAudio?.().audioNeeded");
-    if (audioNeeded !== false && decoded < playUntil - 20) {
+    if (audioMode && !cleanDecision(logs) && decoded < playUntil - 20) {
       throw new Error(`Firefox audio stopped at ${decoded}s.`);
     }
   }
@@ -486,10 +634,34 @@ async function firefox() {
     client.socket.close();
     return;
   }
+  if (autoNextCount) {
+    for (let index = 0; index < autoNextCount; index += 1) {
+      const timedTextCheckpoint = timedTextRequests;
+      const logCheckpoint = logs.length;
+      const current = await retry(async () => await evaluate(finishCurrentVideoExpression()));
+      const next = await retry(async () => {
+        const id = await evaluate("new URL(location.href).searchParams.get('v')");
+        return id && id !== current && id;
+      }, 90000);
+      await wait(5000);
+      const state = JSON.parse(await evaluate(`JSON.stringify(${playbackExpression(true)})`));
+      if (!state.hook) throw new Error(`Firefox hook lost after playlist advance to ${next}.`);
+      await retry(() => timedTextRequests > timedTextCheckpoint || cleanDecision(logs, logCheckpoint));
+      await retry(() => inferenceReady(logs, logCheckpoint), 90000);
+      console.log(`Firefox playlist auto-next passed (${current} -> ${next}).`);
+    }
+    await client.send("session.end");
+    client.socket.close();
+    return;
+  }
   for (secondId of nextUrls.map((url) => new URL(url).searchParams.get("v"))) {
     const timedTextCheckpoint = timedTextRequests;
     const logCheckpoint = logs.length;
-    if (!playlistMode && !directNavigation) {
+    if (homeNavigation) {
+      await evaluate('location.assign("https://www.youtube.com/"); true');
+      await retry(async () => await evaluate("location.pathname") === "/");
+      await evaluate(`location.assign(${JSON.stringify("https://www.youtube.com/watch?v=")} + ${JSON.stringify(secondId)}); true`);
+    } else if (!playlistMode && !directNavigation) {
       await retry(async () => await evaluate(searchExpression()));
       await retry(async () => await evaluate("location.pathname") === "/results");
     }
@@ -503,14 +675,11 @@ async function firefox() {
     if (!state.url.includes(secondId)) {
       throw new Error(`Firefox navigation reverted before playback: ${state.url}`);
     }
-    await retry(async () => timedTextRequests > timedTextCheckpoint ||
-      await evaluate("globalThis.__uncensoredDebugAudio?.().audioNeeded") === false);
-    const audioState = JSON.parse(await evaluate("JSON.stringify(globalThis.__uncensoredDebugAudio?.())"));
-    if (audioState.activeVideoId !== secondId) {
-      throw new Error(`Firefox hook retained ${audioState.activeVideoId} after navigating to ${secondId}.`);
+    await retry(() => timedTextRequests > timedTextCheckpoint || cleanDecision(logs, logCheckpoint));
+    if (!homeNavigation && !logs.slice(logCheckpoint).some((line) => line.includes(`new video ${secondId}`))) {
+      throw new Error(`Firefox hook did not activate video ${secondId}.`);
     }
-    await retry(() => audioState.audioNeeded === false ||
-      logs.slice(logCheckpoint).some((line) => line.includes("audio decoded")), 90000);
+    await retry(() => inferenceReady(logs, logCheckpoint), 90000);
     console.log(`Firefox SPA smoke passed (${secondId}, ${timedTextRequests} caption requests).`);
   }
   await client.send("session.end");
@@ -530,6 +699,7 @@ async function firefox() {
     if (!chromiumOnly) await firefox();
   } finally {
     terminateChildren();
+    removeGeneratedProfiles();
   }
 })().catch((error) => {
   console.error(error.stack || error);

@@ -15,10 +15,11 @@ deaf and hard-of-hearing viewers. Audio, captions, and inference stay local.
 In the fixed audio benchmark (23 videos, 525 scored slots), the default hybrid
 mode scored 92.6% precision and 91.2% coverage; Whisper-only scored 93.4%/89.1%.
 On the latest local paired-caption development snapshot, rules-only scored
-91.7% precision and 47.8% coverage across 18,251 aligned slots from 977
-contributing caption pairs (8,720 of 9,509 slots filled correctly). The separate
-any-candidate diagnostic remains a candidate-oracle measurement, not a runtime
-score.
+89.2% precision and 50.1% coverage across 113,036 aligned slots from 2,291
+contributing caption pairs (56,679 of 63,574 attempted slots correct). On the
+creator-held-out validation and test splits, precision was 88.6% and 88.5%, with
+54.5% and 49.1% coverage. The separate any-candidate diagnostic remains a
+candidate-oracle measurement, not a runtime score.
 
 On a broader unlabeled 82-video audio stress set, first-pass Whisper emitted
 3,047 of 4,788 fills (63.6%), rules-only emitted 2,071 (43.3%), and either
@@ -43,8 +44,8 @@ introduce alignment error.
 - `page-hook.js` observes YouTube JSON3 captions and SABR media responses.
 - `timedtext.js` parses captions and gives every `[__]` slot a stable identity.
 - `rules-compiler.js` validates and expands reusable rule declarations.
-- `rules-data.js` contains the deterministic patterns and candidate priors;
-  `rules.js` matches them and supplies replacements and Whisper candidates.
+- `rule-data/` separates language sets, exact rules, grammar, and priors;
+  `rules-data.js` assembles them and `rules.js` supplies replacements and Whisper candidates.
 - `sabr-parser.js` extracts audio already downloaded for playback.
 - `audio-capture.js` decodes only token-adjacent audio, queues inference, and
   reapplies results when YouTube redraws its rolling caption rows.
@@ -52,15 +53,27 @@ introduce alignment error.
   off the page thread. Chromium uses an offscreen document; Firefox uses its
   background page.
 
-Caption, audio, cache, and DOM state are scoped by video, track, and navigation
+Caption, audio, and DOM state are scoped by video, track, and navigation
 generation. Decoding and the model stop when captions contain no censored slots.
 Decoded segments are discarded when no pending token needs them.
 
 The local quantized `whisper-tiny.en` model runs through vendored
 Transformers.js and ONNX Runtime Web. No remote code is loaded.
 
-## Future plans
+### Word vocabularies
 
+`ALLOWED_WORDS` is the broad set of supported censored words accepted from local
+Whisper. `RULE_WORDS` is its conservative subset that deterministic context
+rules may emit. A word can therefore be recognized from audio without becoming
+a context-only guess. `WORD_ROLES` is a broader authoring catalog and does not
+by itself permit runtime output.
+
+Add newly supported censored words to `ALLOWED_WORDS`. Promote one to
+`RULE_WORDS` only when an exact rule or grammatical frame can identify it at the
+required precision. List order is stable because Whisper uses it to break ties.
+
+## Future plans
+- Continue replacing broad wildcard rules with validated concrete alternatives.
 - Continue validating creator-diverse paired-caption rules on held-out videos.
 - Expand conservative Whisper spelling repairs from paired audio evidence.
 
@@ -68,10 +81,8 @@ Transformers.js and ONNX Runtime Web. No remote code is loaded.
 
 - Local inference can finish after a caption scrolls away on slow hardware.
 - Ambiguous visible rows are left unchanged rather than guessed.
-- A final slot may lack enough trailing audio to complete its inference window.
 - Seeking to discarded audio requires YouTube to fetch that media again.
-- Live replacement depends on YouTube's caption markup.
-- Chromium 148+ and Firefox 140+ are required.
+- Only English is currently supported.
 
 Enable debug logs in the YouTube tab, reload, and show Verbose messages:
 
@@ -99,7 +110,11 @@ npm test -- --all
 ```
 
 Browser arguments include `--chromium-only`, `--firefox-only`, `--headless`,
-`--direct`, `--until=SECONDS`, `--pause=SECONDS`, and `--verbose`.
+`--via=search|direct|home`, `--auto-next=N`, `--until=SECONDS`, `--pause=SECONDS`,
+and `--verbose`. Chromium smoke checks can select
+`--mode=rules-only|whisper-only|hybrid|both-off`; `--expect=word[,word...]`
+checks those words in the currently visible caption text. This is a live DOM
+smoke diagnostic, not a slot-level accuracy test.
 
 Accuracy fixtures require `yt-dlp` and separate automatic and human English
 caption tracks:
@@ -208,9 +223,11 @@ node tools/evaluate-whisper-only.js --mode whisper-only \
   --output corpus/generated/mining/unpaired-whisper.json
 ```
 
-The miner considers only `ALLOWED_WORDS`, deduplicates exact rows, scans wildcard
-positions throughout each local window, and reports precision and marginal gain
-by source. Recommendations require greater than 90% overall and marginal
+The miner considers supported labels from `ALLOWED_WORDS`, deduplicates exact
+rows, scans wildcard positions throughout each local window, and reports
+precision and marginal gain by source. A recommendation outside `RULE_WORDS`
+must be explicitly promoted before deterministic rules can emit it.
+Recommendations require greater than 90% overall and marginal
 precision, greater than 90% in every supported source, and no single-video
 dominance. It also writes examples,
 four-event review context, `topMissedWords`, and `topWrongPlacements`. Use
@@ -227,6 +244,10 @@ For another text dataset, its only adapter contract is JSONL with
 pass it as another `--sample source=path`. Keep the top 300 misses and top 50
 wrong placements from each evaluation report as the next review queue.
 
+The local auxiliary adapters and their source/licensing notes are documented in
+[`docs/OPENSUBTITLES_EXPANDED_AUX.md`](docs/OPENSUBTITLES_EXPANDED_AUX.md) and
+[`docs/SBCSAE_CORPUS.md`](docs/SBCSAE_CORPUS.md).
+
 Resume the paired-caption download with audio disabled:
 
 ```sh
@@ -234,10 +255,13 @@ nohup node tools/download-paired-captions.js --pair-target 12 --audio-target 0 -
 echo $! > logs/paired-caption-download.pid
 ```
 
+Use `--channels Name[,Name] --revisit` to rescan selected creators while
+preserving unrelated channel progress in the same report.
+
 ## Build
 
 ```sh
-./build.sh 1.4.1
+./build.sh 1.5.0
 ```
 
 This creates separate Chromium and Firefox ZIPs in `dist/`. See
