@@ -77,6 +77,8 @@ assert.deepStrictEqual(
 
 assert.strictEqual(evaluator.isCorrect("fuuuuuck", ["fuck"], ""), true);
 assert.strictEqual(evaluator.isCorrect("fuck", ["fuck's"], "[__] sake"), true);
+assert.strictEqual(evaluator.isCorrect("fuck", ["fuck's"], "for [__]'s sake"), true);
+assert.strictEqual(evaluator.isCorrect("fuck's", ["fuck's"], "for [__]'s sake"), false);
 
 assert.strictEqual(evaluator.classifyResult({
   expected: ["shit"],

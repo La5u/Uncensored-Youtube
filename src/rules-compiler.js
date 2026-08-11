@@ -66,17 +66,36 @@
     return declaration(parts, Array.prototype.slice.call(arguments, 1), false);
   }
 
+  function patterns(values) {
+    if (!Array.isArray(values) || !values.length || values.some(function invalid(value) {
+      return typeof value !== "string" || !value;
+    })) {
+      throw new Error("Patterns need a nonempty array of strings");
+    }
+    return values.map(function literalPattern(value) {
+      var parts = [value];
+      parts.raw = [value];
+      return pattern(parts);
+    });
+  }
+
   function frame(parts) {
     return declaration(parts, Array.prototype.slice.call(arguments, 1), true);
   }
 
-  function group(id, patterns) {
-    if (!id || !Array.isArray(patterns) || !patterns.length) {
-      throw new Error("Rule groups need an id and patterns");
+  function group(id, priority, patterns) {
+    if (patterns === undefined) {
+      patterns = priority;
+      priority = null;
+    }
+    if (!id || priority !== null && !Number.isInteger(priority) ||
+        !Array.isArray(patterns) || !patterns.length) {
+      throw new Error("Rule groups need an id, optional integer priority, and patterns");
     }
 
     return Object.freeze({
       id: id,
+      priority: priority,
       patterns: Object.freeze(patterns.slice())
     });
   }
@@ -118,7 +137,7 @@
     }).join(" ");
   }
 
-  function rule(authoredPattern) {
+  function rule(authoredPattern, priority, groupId) {
     var candidateGroups = [];
     var template = authoredPattern.replace(/\[([^\]]+)\]/gu, function replaceCandidates(match, groupValue) {
       var candidates = groupValue.split("|");
@@ -138,20 +157,30 @@
         return groupValue[0];
       }).join(" ")];
 
-    return Object.freeze({
+    var compiled = {
       template: template,
       candidates: Object.freeze(candidates)
-    });
+    };
+    if (priority !== null && priority !== undefined) {
+      compiled.priority = priority;
+      compiled.groupId = groupId;
+    }
+    return Object.freeze(compiled);
   }
 
   function compileGroups(groups) {
     var seen = new Map();
     var compiled = [];
 
-    groups.forEach(function compileGroup(ruleGroup) {
-      ruleGroup.patterns.forEach(function compilePattern(patternValue) {
-        expand(patternValue).forEach(function compileExpanded(authoredPattern) {
-          var compiledRule = rule(authoredPattern);
+    groups.slice().sort(function priorityOrder(left, right) {
+      if (left.priority === null || right.priority === null) return 0;
+      return left.priority - right.priority;
+    }).forEach(function compileGroup(ruleGroup) {
+      ruleGroup.patterns.forEach(function compilePattern(patternValue, patternIndex) {
+        expand(patternValue).forEach(function compileExpanded(authoredPattern, expansionIndex) {
+          var priority = ruleGroup.priority === null ? null :
+            ruleGroup.priority * 1000000000 + patternIndex * 1000000 + expansionIndex;
+          var compiledRule = rule(authoredPattern, priority, ruleGroup.id);
           var prior = seen.get(compiledRule.template);
 
           if (prior) {
@@ -172,10 +201,10 @@
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
-  function regexLiteral(value) {
+  function regexLiteral(value, softPunctuation) {
     return escapeRegExp(value)
       .replace(/'/g, "['\u2019]")
-      .replace(/ /g, "\\s+");
+      .replace(/ /g, softPunctuation ? "[\\s,\"“”]+" : "\\s+");
   }
 
   function regexAlternatives(values) {
@@ -184,7 +213,7 @@
     }).map(regexLiteral).join("|");
   }
 
-  function compileFramePattern(patternValue) {
+  function compileFramePattern(patternValue, priority, groupId) {
     var phrase = regexLiteral(patternValue.parts[0]);
     var description = patternValue.parts[0];
     var roleSlot;
@@ -203,12 +232,17 @@
       phrase += regexLiteral(patternValue.parts[index + 1]);
     });
 
+    var compiledRule = {
+      template: description,
+      candidates: roleSlot.candidates,
+      role: roleSlot.slotName
+    };
+    if (priority !== null && priority !== undefined) {
+      compiledRule.priority = priority;
+      compiledRule.groupId = groupId;
+    }
     return Object.freeze({
-      rule: Object.freeze({
-        template: description,
-        candidates: roleSlot.candidates,
-        role: roleSlot.slotName
-      }),
+      rule: Object.freeze(compiledRule),
       phrase: phrase
     });
   }
@@ -218,12 +252,14 @@
     regexSet: regexSet,
     slot: slot,
     pattern: pattern,
+    patterns: patterns,
     frame: frame,
     group: group,
     expand: expand,
     compileGroups: compileGroups,
     compileFramePattern: compileFramePattern,
     escapeRegExp: escapeRegExp,
+    regexLiteral: regexLiteral,
     regexAlternatives: regexAlternatives
   });
 

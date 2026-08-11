@@ -31,19 +31,22 @@
     "you", "your"
   ]));
   var ALLOWED_WORDS = data.ALLOWED_WORDS;
-  var ALLOWED_WORD_SET = new Set(ALLOWED_WORDS);
+  var RULE_WORDS = data.RULE_WORDS;
+  var RULE_WORD_SET = new Set(RULE_WORDS);
 
   function allowedRule(rule) {
     var candidates = rule.candidates.filter(function allowedCandidate(candidate) {
       return candidate.split(/\s+/u).every(function allowedWord(word) {
-        return ALLOWED_WORD_SET.has(word);
+        return RULE_WORD_SET.has(word);
       });
     });
 
     if (candidates.length === rule.candidates.length) return rule;
     return Object.freeze({
       template: rule.template,
-      candidates: Object.freeze(candidates)
+      candidates: Object.freeze(candidates),
+      priority: rule.priority,
+      groupId: rule.groupId
     });
   }
 
@@ -174,10 +177,10 @@
     if (endsSentence) template = template.slice(0, -1);
     var startsWithPunctuation = /^[.!?]/.test(template);
     if (endsWithSpace) template = template.replace(/\s+$/, "");
-    var escaped = compiler.escapeRegExp(template)
+    var blankAt = template.indexOf(CENSORED_TOKEN);
+    var escaped = (compiler.regexLiteral(template.slice(0, blankAt), true) +
+      compiler.regexLiteral(template.slice(blankAt)))
       .replace(/\\\[__\\\]/g, "\\[__\\]")
-      .replace(/'/g, "['\u2019]")
-      .replace(/ /g, "\\s+")
       .replace(/\\\*/g, WILDCARD_REGEX);
     var suffix = endsSentence
       ? "(?=[^\\p{L}\\p{N}_'’]*$)"
@@ -219,10 +222,15 @@
   // Reusable grammatical slots run after contextual expressions but before
   // broad fallbacks.
   var ROLE_FRAME_PATTERNS = data.RULE_GROUPS.frames.reduce(function collectRoleFrames(patterns, ruleGroup) {
-    return patterns.concat(ruleGroup.patterns);
+    return patterns.concat(ruleGroup.patterns.map(function prioritizedFrame(patternValue, patternIndex) {
+      return compiler.compileFramePattern(
+        patternValue,
+        ruleGroup.priority * 1000000000 + patternIndex * 1000000,
+        ruleGroup.id
+      );
+    }));
   }, []);
-  var COMPILED_ROLE_FRAMES = Object.freeze(ROLE_FRAME_PATTERNS.map(function allowedRoleFrame(patternValue) {
-    var compiled = compiler.compileFramePattern(patternValue);
+  var COMPILED_ROLE_FRAMES = Object.freeze(ROLE_FRAME_PATTERNS.map(function allowedRoleFrame(compiled) {
     var rule = allowedRule(compiled.rule);
 
     return { rule: rule, phrase: compiled.phrase };
@@ -684,6 +692,7 @@
     CENSORED_TOKEN: CENSORED_TOKEN,
     CENSORED_TOKEN_REGEX: CENSORED_TOKEN_REGEX,
     ALLOWED_WORDS: ALLOWED_WORDS,
+    RULE_WORDS: RULE_WORDS,
     DETERMINISTIC_RULES: DETERMINISTIC_RULES,
     normalizeCensoredTokens: normalizeCensoredTokens,
     formatWordCase: formatWordCase,

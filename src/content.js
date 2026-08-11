@@ -8,14 +8,16 @@
     whisperEnabled: true
   };
   var INJECT_VERSION = String(Date.now());
-  var captureAudioEnabled = null;
-  var decodeAudioEnabled = false;
-  var captionDecisionKnown = false;
-  var videoHasCensoredSlots = false;
+  var audioEnabled = null;
+  var hasCensoredSlots = null;
   var activeVideoId = currentVideoId();
   var scripts = [
     "src/page-hook.js",
     "src/rules-compiler.js",
+    "src/rule-data/language.js",
+    "src/rule-data/exact.js",
+    "src/rule-data/grammar.js",
+    "src/rule-data/priors.js",
     "src/rules-data.js",
     "src/rules.js",
     "src/timedtext.js"
@@ -57,8 +59,7 @@
 
   function dispatchSettings() {
     var detail = Object.assign({}, settings, {
-      audioNeeded: decodeAudioEnabled,
-      captureAudio: captureAudioEnabled,
+      audioEnabled: audioEnabled,
       videoId: activeVideoId
     });
 
@@ -69,10 +70,6 @@
     if (globalThis.UncensoredAudioInference && globalThis.UncensoredAudioInference.setOptions) {
       globalThis.UncensoredAudioInference.setOptions(detail);
     }
-  }
-
-  function dispatchSettingsSoon() {
-    window.setTimeout(dispatchSettings, 0);
   }
 
   function currentVideoId() {
@@ -93,33 +90,22 @@
     videoId = videoId || currentVideoId();
     if (videoId === activeVideoId) return;
     activeVideoId = videoId;
-    captureAudioEnabled = null;
-    captionDecisionKnown = false;
-    videoHasCensoredSlots = false;
+    audioEnabled = null;
+    hasCensoredSlots = null;
     if (sabrDecoder) sabrDecoder.reset();
     updateAudioNeeded();
   }
 
   function updateAudioNeeded() {
-    var needed = settings.whisperEnabled && Boolean(activeVideoId);
-    var shouldDecode = needed && (!captionDecisionKnown || videoHasCensoredSlots);
-    var shouldCapture = shouldDecode;
-    var decodeChanged = decodeAudioEnabled !== shouldDecode;
-    var captureChanged = captureAudioEnabled !== shouldCapture;
+    var enabled = settings.whisperEnabled && Boolean(activeVideoId) && hasCensoredSlots !== false;
 
-    if (decodeChanged) {
-      decodeAudioEnabled = shouldDecode;
-      if (!shouldDecode && captionDecisionKnown) {
-        debugLog("audio decoding stopped", { reason: "no censored captions" });
-      }
+    if (audioEnabled === enabled) return;
+    audioEnabled = enabled;
+    if (!enabled && hasCensoredSlots !== null) {
+      debugLog("audio decoding stopped", { reason: "no censored captions" });
     }
-    if (!captureChanged) {
-      if (decodeChanged) dispatchSettings();
-      return;
-    }
-    captureAudioEnabled = shouldCapture;
     dispatchSettings();
-    setExtensionHostActive(shouldCapture);
+    setExtensionHostActive(enabled);
   }
 
   function setExtensionHostActive(active) {
@@ -148,12 +134,6 @@
       if (!message.buffer) return [];
     }
     return sabrDecoder.push(message);
-  }
-
-  function isEnglishTrack(trackId) {
-    var params = new URLSearchParams(trackId || "");
-    var language = params.get("tlang") || params.get("lang") || "";
-    return language.split("-")[0] === "en";
   }
 
   function loadSettings() {
@@ -189,7 +169,7 @@
         updateAudioNeeded();
       }
 
-      dispatchSettingsSoon();
+      window.setTimeout(dispatchSettings, 0);
     });
   }
 
@@ -202,7 +182,6 @@
     var detail = event && event.detail;
     var body = detail;
     var trackId = "";
-    var savedResolutions = [];
     var timedText = globalThis.UncensoredTimedText;
     var audioInference = globalThis.UncensoredAudioInference;
     var data;
@@ -211,7 +190,6 @@
       detail = JSON.parse(detail);
       body = detail.body;
       trackId = detail.trackId || "";
-      savedResolutions = detail.savedResolutions || [];
       if (detail.videoId && detail.videoId !== currentVideoId()) return;
       syncVideo(detail.videoId || currentVideoId());
     } catch (error) {}
@@ -221,21 +199,12 @@
     }
 
     data = timedText.collectTimedTextData(body, settings.rulesEnabled);
-    if (data.tokens.length) {
-      debugLog("censored slots", {
-        trackId: trackId,
-        count: data.tokens.length
-      });
-    }
-    if (data.tokens.length) {
-      captionDecisionKnown = true;
-      videoHasCensoredSlots = true;
-    } else if (data.parsed && isEnglishTrack(trackId)) {
-      captionDecisionKnown = true;
-    }
+    debugLog("captions analyzed", { trackId: trackId, count: data.tokens.length });
+    if (data.tokens.length) hasCensoredSlots = true;
+    else if (data.parsed) hasCensoredSlots = false;
     updateAudioNeeded();
     if (audioInference.rememberTimedTextData) {
-      audioInference.rememberTimedTextData(data, trackId, savedResolutions, activeVideoId);
+      audioInference.rememberTimedTextData(data, trackId, activeVideoId);
     }
   });
 
@@ -249,8 +218,7 @@
     }
     if (!detail || detail.videoId !== currentVideoId()) return;
     syncVideo(detail.videoId);
-    captionDecisionKnown = true;
-    videoHasCensoredSlots = false;
+    hasCensoredSlots = false;
     updateAudioNeeded();
   });
 
@@ -266,7 +234,7 @@
       return;
     }
 
-    if (!settings.whisperEnabled || captureAudioEnabled !== true) {
+    if (!settings.whisperEnabled || audioEnabled !== true) {
       acknowledgeSabrMessage(message);
       return;
     }
@@ -275,7 +243,7 @@
     try {
       var segments = decodeSabrMessage(message);
       var audioInference = globalThis.UncensoredAudioInference;
-      if (decodeAudioEnabled && audioInference && audioInference.setSabrAudioData) {
+      if (audioInference && audioInference.setSabrAudioData) {
         Promise.all(segments.map(function decodeSegment(segment) {
           return audioInference.setSabrAudioData(
             Object.assign({}, segment, { videoId: message.videoId })

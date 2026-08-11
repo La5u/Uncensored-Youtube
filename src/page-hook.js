@@ -1,20 +1,14 @@
 (function installUncensoredPageHook() {
   "use strict";
 
-  var PATCH_CACHE_LIMIT = 16;
-  var SAVED_RESOLUTION_KEY = "uncensoredSavedResolutions";
-  var SAVED_RESOLUTION_LIMIT = 1000;
-  var originalFetch = globalThis.__uncensoredOriginalFetch || globalThis.fetch;
-  var originalXHROpen = globalThis.__uncensoredOriginalXHROpen || XMLHttpRequest.prototype.open;
+  var originalFetch = globalThis.fetch;
+  var originalXHROpen = XMLHttpRequest.prototype.open;
   var settings = {
     rulesEnabled: false,
     whisperEnabled: true,
-    audioNeeded: null,
-    captureAudio: null
+    audioEnabled: null
   };
   var audioReplacements = new Map();
-  var audioReplacementVersion = 0;
-  var patchedTimedTextCache = new Map();
   var nextAudioStreamId = 1;
   var nextAudioMessageId = 1;
   var pendingAudioMessages = new Map();
@@ -24,8 +18,6 @@
   var navigationPending = false;
   var navigationWaiters = [];
 
-  globalThis.__uncensoredOriginalFetch = originalFetch;
-  globalThis.__uncensoredOriginalXHROpen = originalXHROpen;
   function timedTextApi() {
     return globalThis.UncensoredTimedText;
   }
@@ -49,11 +41,6 @@
     });
   }
 
-  function extractPathVideoId(pathname) {
-    var match = pathname.match(/^\/(?:live|shorts)\/([^/]+)/);
-    return match ? match[1] : "";
-  }
-
   function currentVideoId() {
     try {
       var url = new URL(location.href);
@@ -61,22 +48,11 @@
         var videoId = url.searchParams.get("v");
         if (videoId) return videoId;
       }
-      return extractPathVideoId(url.pathname);
+      var match = url.pathname.match(/^\/(?:live|shorts)\/([^/]+)/);
+      return match ? match[1] : "";
     } catch (error) {
       return "";
     }
-  }
-
-  function requestUrl(input) {
-    if (typeof input === "string") {
-      return input;
-    }
-
-    if (input && typeof input.url === "string") {
-      return input.url;
-    }
-
-    return "";
   }
 
   function safeJson(value) {
@@ -87,104 +63,10 @@
     }
   }
 
-  function clearPatchedTimedTextCache() {
-    patchedTimedTextCache.clear();
-  }
-
-  function stringHash(value) {
-    var hash = 2166136261;
-    var index;
-
-    for (index = 0; index < value.length; index += 1) {
-      hash ^= value.charCodeAt(index);
-      hash = Math.imul(hash, 16777619);
-    }
-
-    return (hash >>> 0).toString(36);
-  }
-
-  function patchedTimedTextCacheKey(body) {
-    return [
-      currentVideoId(),
-      settings.rulesEnabled ? "1" : "0",
-      audioReplacementVersion,
-      body.length,
-      stringHash(body)
-    ].join(":");
-  }
-
-  function rememberPatchedTimedText(key, body, patchedBody) {
-    if (patchedTimedTextCache.has(key)) {
-      patchedTimedTextCache.delete(key);
-    }
-
-    patchedTimedTextCache.set(key, {
-      body: body,
-      patchedBody: patchedBody
-    });
-
-    while (patchedTimedTextCache.size > PATCH_CACHE_LIMIT) {
-      patchedTimedTextCache.delete(patchedTimedTextCache.keys().next().value);
-    }
-  }
-
-  function audioReplacementKey(videoId, trackId, tokenIndex) {
-    return videoId + ":" + trackId + ":" + tokenIndex;
-  }
-
-  function readSavedResolutions(trackId) {
-    var saved;
-
-    try {
-      saved = JSON.parse(globalThis.sessionStorage.getItem(SAVED_RESOLUTION_KEY) || "null");
-      if (!saved || saved.videoId !== currentVideoId()) {
-        if (saved) globalThis.sessionStorage.removeItem(SAVED_RESOLUTION_KEY);
-        return [];
-      }
-      return saved.trackId === trackId && Array.isArray(saved.replacements)
-        ? saved.replacements.slice(0, SAVED_RESOLUTION_LIMIT)
-        : [];
-    } catch (error) {
-      return [];
-    }
-  }
-
-  function saveCurrentResolutions() {
-    var videoId = currentVideoId();
-    var replacements = [];
-
-    if (!videoId || !currentCaptionTrackId) return;
-    audioReplacements.forEach(function saveReplacement(replacement) {
-      if (replacements.length < SAVED_RESOLUTION_LIMIT && replacement.videoId === videoId &&
-          replacement.trackId === currentCaptionTrackId) {
-        replacements.push(replacement);
-      }
-    });
-    try {
-      globalThis.sessionStorage.setItem(SAVED_RESOLUTION_KEY, JSON.stringify({
-        videoId: videoId,
-        trackId: currentCaptionTrackId,
-        replacements: replacements
-      }));
-    } catch (error) {}
-  }
-
-  function discardSavedResolutionsForOtherVideo() {
-    var saved;
-
-    try {
-      saved = JSON.parse(globalThis.sessionStorage.getItem(SAVED_RESOLUTION_KEY) || "null");
-      if (saved && saved.videoId !== currentVideoId()) {
-        globalThis.sessionStorage.removeItem(SAVED_RESOLUTION_KEY);
-      }
-    } catch (error) {}
-  }
-
   function syncVideo(videoId) {
     if (videoId === activeVideoId) return;
     activeVideoId = videoId;
-    settings.audioNeeded = null;
-    settings.captureAudio = null;
+    settings.audioEnabled = null;
     audioDecisionWaiters.splice(0).forEach(function cancelAudioDecision(resolve) {
       resolve(false);
     });
@@ -192,10 +74,8 @@
       pendingAudioMessages.delete(messageId);
       resolve();
     });
-    clearPatchedTimedTextCache();
     audioReplacements.clear();
     currentCaptionTrackId = "";
-    audioReplacementVersion += 1;
   }
 
   globalThis.addEventListener("uncensored-settings", function updateSettings(event) {
@@ -204,115 +84,64 @@
       syncVideo(detail.videoId || currentVideoId());
       settings.rulesEnabled = detail.rulesEnabled !== false;
       settings.whisperEnabled = detail.whisperEnabled !== false;
-      settings.audioNeeded = detail.audioNeeded;
-      settings.captureAudio = detail.captureAudio;
-      if (settings.captureAudio !== null) {
+      settings.audioEnabled = detail.audioEnabled;
+      if (settings.audioEnabled !== null) {
         audioDecisionWaiters.splice(0).forEach(function resolveAudioDecision(resolve) {
           resolve(shouldCaptureAudio());
         });
       }
-      clearPatchedTimedTextCache();
     }
   });
 
-  function applyResolution(tokenIndex, word, source, evidence, videoId, trackId, timeSeconds, normalizedContext) {
-    var id = videoId || currentVideoId();
-
-    if (typeof tokenIndex !== "number" || !word || trackId !== currentCaptionTrackId) {
-      if (trackId !== currentCaptionTrackId) {
-        debugLog("subtitle resolution ignored", {
-          tokenIndex: tokenIndex,
-          resolutionTrackId: trackId,
-          currentCaptionTrackId: currentCaptionTrackId
-        });
-      }
-      return;
-    }
-
-    audioReplacements.set(audioReplacementKey(id, trackId, tokenIndex), {
-      videoId: id,
-      trackId: trackId,
-      tokenIndex: tokenIndex,
-      word: word,
-      source: source || "unknown",
-      evidence: evidence || "none",
-      timeSeconds: timeSeconds,
-      normalizedContext: normalizedContext || ""
-    });
-    audioReplacementVersion += 1;
-    clearPatchedTimedTextCache();
-    saveCurrentResolutions();
-  }
-
   function rememberResolution(detail) {
-    var videoId;
-
     detail = safeJson(detail);
     if (!detail || !Number.isInteger(detail.tokenIndex) || detail.tokenIndex < 0 ||
-        !allowedResolutionWord(detail.word)) {
-      return;
-    }
+        !allowedResolutionWord(detail.word)) return;
 
-    videoId = detail.videoId || currentVideoId();
-    if (videoId !== currentVideoId()) {
-      return;
-    }
-    applyResolution(detail.tokenIndex, detail.word, detail.source, detail.evidence, videoId, detail.trackId || "",
-      detail.timeSeconds, detail.normalizedContext);
+    var videoId = detail.videoId || currentVideoId();
+    var trackId = detail.trackId || "";
+    if (videoId !== currentVideoId() || trackId !== currentCaptionTrackId) return;
+
+    audioReplacements.set(videoId + ":" + trackId + ":" + detail.tokenIndex, {
+      videoId: videoId,
+      trackId: trackId,
+      tokenIndex: detail.tokenIndex,
+      word: detail.word,
+      source: detail.source || "unknown",
+      evidence: detail.evidence || "none"
+    });
   }
 
   function isTimedTextUrl(input) {
-    var url = requestUrl(input);
-
-    try {
-      url = new URL(url, location.href);
-    } catch (error) {
-      return false;
-    }
-
+    var url = new URL(input, location.href);
     return url.href.indexOf("/api/timedtext") !== -1 && url.searchParams.get("fmt") === "json3";
   }
 
   function captionTrackId(input) {
-    var url;
-
-    try {
-      url = new URL(requestUrl(input), location.href);
-      return ["lang", "kind", "name", "tlang", "vssId"].map(function trackPart(name) {
-        return name + "=" + (url.searchParams.get(name) || "");
-      }).join("&");
-    } catch (error) {
-      return "";
-    }
+    var url = new URL(input, location.href);
+    return ["lang", "kind", "name", "tlang", "vssId"].map(function trackPart(name) {
+      return name + "=" + (url.searchParams.get(name) || "");
+    }).join("&");
   }
 
   function timedTextVideoId(input) {
-    try {
-      return new URL(requestUrl(input), location.href).searchParams.get("v") || currentVideoId();
-    } catch (error) {
-      return currentVideoId();
-    }
+    return new URL(input, location.href).searchParams.get("v") || currentVideoId();
   }
 
   function notifyTimedText(body, input, videoId) {
     var trackId = captionTrackId(input);
-    var savedResolutions;
 
     syncVideo(videoId);
     if (trackId !== currentCaptionTrackId) {
       currentCaptionTrackId = trackId;
       audioReplacements.clear();
-      audioReplacementVersion += 1;
-      clearPatchedTimedTextCache();
     }
-    savedResolutions = readSavedResolutions(trackId);
     globalThis.setTimeout(function dispatchTimedText() {
       try {
         globalThis.dispatchEvent(new CustomEvent("uncensored-timedtext", {
           detail: JSON.stringify({
             body: body,
             trackId: trackId,
-            savedResolutions: savedResolutions,
             videoId: videoId
           })
         }));
@@ -327,10 +156,6 @@
       response = player && player.getPlayerResponse && player.getPlayerResponse();
     } catch (error) {}
     var videoId = response && response.videoDetails && response.videoDetails.videoId;
-    var tracks = response && response.captions &&
-      response.captions.playerCaptionsTracklistRenderer &&
-      response.captions.playerCaptionsTracklistRenderer.captionTracks;
-
     if ((!videoId || videoId !== currentVideoId() || !response || !response.captions) &&
         attempt < 8) {
       globalThis.setTimeout(function retryCaptionCheck() {
@@ -340,10 +165,7 @@
     }
     if (!videoId || videoId !== currentVideoId()) return;
     if (response && response.captions) return;
-    debugLog("no captions fallback", {
-      videoId: videoId,
-      tracks: Array.isArray(tracks) ? tracks.length : null
-    });
+    debugLog("no captions fallback", { videoId: videoId });
     globalThis.dispatchEvent(new CustomEvent("uncensored-no-captions", {
       detail: JSON.stringify({ videoId: videoId })
     }));
@@ -422,14 +244,8 @@
   }
 
   function isGoogleVideoPlaybackUrl(input) {
-    var url;
+    var url = new URL(input);
     var mime;
-
-    try {
-      url = new URL(requestUrl(input), location.href);
-    } catch (error) {
-      return false;
-    }
 
     if (!/(^|\.)googlevideo\.com$/.test(url.hostname) || url.pathname.indexOf("/videoplayback") === -1) {
       return false;
@@ -440,17 +256,17 @@
   }
 
   function shouldCaptureAudio(videoId) {
-    return settings.whisperEnabled && settings.captureAudio === true &&
+    return settings.whisperEnabled && settings.audioEnabled === true &&
       (!videoId || videoId === currentVideoId());
   }
 
   function shouldObserveAudio() {
     return settings.whisperEnabled && (navigationPending ||
-      settings.captureAudio !== false && currentVideoId());
+      settings.audioEnabled !== false && currentVideoId());
   }
 
   function waitForAudioDecision(videoId) {
-    if (settings.captureAudio !== null) return Promise.resolve(shouldCaptureAudio(videoId));
+    if (settings.audioEnabled !== null) return Promise.resolve(shouldCaptureAudio(videoId));
     return new Promise(function wait(resolve) {
       var timer;
       function finish(needed) {
@@ -479,16 +295,6 @@
     });
   }
 
-  function relaySabrBuffer(streamId, videoId, bufferPromise) {
-    bufferPromise.then(function relayBuffer(buffer) {
-      return postAudioMessage({ type: "chunk", streamId: streamId, videoId: videoId, buffer: buffer }, [buffer]);
-    }).then(function finishBuffer() {
-      postAudioMessage({ type: "end", streamId: streamId, videoId: videoId });
-    }, function finishFailedBuffer() {
-      postAudioMessage({ type: "end", streamId: streamId, videoId: videoId });
-    });
-  }
-
   function processSabrResponse(response, responseVideoId, duringNavigation) {
     var streamId = nextAudioStreamId;
     nextAudioStreamId += 1;
@@ -505,21 +311,15 @@
           videoId: currentVideoId(),
           duringNavigation: duringNavigation
         });
-        if (cloned.body) cloned.body.cancel().catch(function ignoreCancelError() {});
+        cloned.body.cancel().catch(function ignoreCancelError() {});
         return;
       }
       processClonedSabrResponse(cloned, streamId, videoId);
     });
   }
 
+  // Chromium + Firefox: SABR audio arrives through readable Fetch response streams.
   function processClonedSabrResponse(cloned, streamId, videoId) {
-    if (!cloned.body || typeof cloned.body.getReader !== "function") {
-      postAudioMessage({ type: "start", streamId: streamId, videoId: videoId }).then(function startFullBuffer() {
-        relaySabrBuffer(streamId, videoId, cloned.arrayBuffer());
-      });
-      return;
-    }
-
     var reader = cloned.body.getReader();
 
     function pump() {
@@ -551,7 +351,8 @@
     var replacements = [];
 
     audioReplacements.forEach(function collectReplacement(replacement, key) {
-      if (key.indexOf(keyPrefix) === 0 && (settings.rulesEnabled || replacement.source === "media")) {
+      if (key.indexOf(keyPrefix) === 0 && (replacement.source === "media"
+        ? settings.whisperEnabled : settings.rulesEnabled)) {
         replacements.push(replacement);
       }
     });
@@ -560,171 +361,58 @@
 
   function patchTimedTextBody(body) {
     var api = timedTextApi();
-    var cacheKey;
-    var cached;
-    var patchedBody;
 
-    if (!api || typeof body !== "string") {
-      return body;
-    }
-
-    cacheKey = patchedTimedTextCacheKey(body);
-    cached = patchedTimedTextCache.get(cacheKey);
-    if (cached && cached.body === body) {
-      patchedTimedTextCache.delete(cacheKey);
-      patchedTimedTextCache.set(cacheKey, cached);
-      return cached.patchedBody;
-    }
-
-    if (api.patchTimedTextBodyWithOverrides) {
-      patchedBody = api.patchTimedTextBodyWithOverrides(
-        body,
-        replacementsForCurrentVideo(),
-        settings.rulesEnabled,
-        !settings.whisperEnabled
-      );
-    } else {
-      patchedBody = settings.rulesEnabled && api.patchTimedTextBody ? api.patchTimedTextBody(body) : body;
-    }
-
-    rememberPatchedTimedText(cacheKey, body, patchedBody);
-    return patchedBody;
+    return !api || typeof body !== "string" ? body : api.patchTimedTextBodyWithOverrides(
+      body,
+      replacementsForCurrentVideo(),
+      settings.rulesEnabled,
+      !settings.whisperEnabled
+    );
   }
 
-  function debugAudio() {
-    var video = document.querySelector("video");
-    var report = {
-      hasTimedTextApi: Boolean(timedTextApi()),
-      currentSrc: video && video.currentSrc || "",
-      videoId: currentVideoId(),
-      activeVideoId: activeVideoId,
-      captionTrackId: currentCaptionTrackId,
-      replacementCount: audioReplacements.size,
-      audioNeeded: settings.audioNeeded,
-      captureAudio: settings.captureAudio,
-      navigationPending: navigationPending,
-      pendingAudioMessages: pendingAudioMessages.size,
-      fetchHook: globalThis.fetch === uncensoredFetch,
-      xhrHook: XMLHttpRequest.prototype.open === uncensoredOpen
-    };
-
-    if (console && console.log) {
-      console.log("[uncensored] audio debug " + JSON.stringify(report));
-    }
-
-    return report;
-  }
-
-  globalThis.__uncensoredDebugAudio = debugAudio;
-  function uncensoredFetch(input, init) {
+  // Chromium + Firefox: observe Fetch only for multiplexed SABR media.
+  function uncensoredFetch() {
     var requestVideoId = currentVideoId();
     var requestDuringNavigation = navigationPending;
-    var videoId = isTimedTextUrl(input) ? timedTextVideoId(input) : requestVideoId;
 
-    return originalFetch.apply(this, arguments).then(function maybePatch(response) {
-      if (shouldObserveAudio() &&
-          (isGoogleVideoPlaybackUrl(response && response.url) || isGoogleVideoPlaybackUrl(input))) {
+    return originalFetch.apply(this, arguments).then(function observeAudio(response) {
+      if (shouldObserveAudio() && isGoogleVideoPlaybackUrl(response.url)) {
         processSabrResponse(response, requestVideoId, requestDuringNavigation);
       }
-
-      if (isTimedTextUrl(input)) {
-        if (videoId !== currentVideoId()) return response;
-        if (!settings.rulesEnabled) {
-          response.clone().text().then(function observeTimedText(body) {
-            notifyTimedText(body, input, videoId);
-          }, function ignoreTimedTextError() {});
-          return response;
-        }
-        return response.clone().text().then(function rewriteTimedText(body) {
-          var patchedBody;
-          try {
-            notifyTimedText(body, input, videoId);
-            patchedBody = patchTimedTextBody(body);
-          } catch (patchError) {
-            debugLog("patchTimedTextBody failed", patchError && (patchError.message || String(patchError)));
-            if (console && console.warn) {
-              console.warn("[uncensored] patchTimedTextBody failed " + (patchError && (patchError.message || String(patchError))));
-            }
-            return response;
-          }
-
-          if (patchedBody === body) {
-            return response;
-          }
-
-          return new Response(patchedBody, {
-            status: response.status,
-            statusText: response.statusText,
-            headers: response.headers
-          });
-        }, function keepOriginal() {
-          return response;
-        });
-      }
-
       return response;
     });
   }
 
+  // Chromium + Firefox: selected-track JSON3 captions arrive through XHR, not Fetch.
   function uncensoredOpen(method, url) {
-    var result;
+    var timedText = isTimedTextUrl(url);
+    var videoId = timedText ? timedTextVideoId(url) : currentVideoId();
+    var result = originalXHROpen.apply(this, arguments);
 
-    this.__uncensoredTimedTextUrl = isTimedTextUrl(url);
-    this.__uncensoredTimedTextRequestUrl = url;
-    this.__uncensoredVideoId = this.__uncensoredTimedTextUrl ? timedTextVideoId(url) : currentVideoId();
-    result = originalXHROpen.apply(this, arguments);
-
-    if (this.__uncensoredTimedTextUrl) {
+    if (timedText) {
       this.addEventListener("readystatechange", function onReadyStateChange() {
-        var patchedBody;
+        if (this.readyState !== 4) return;
+        this.removeEventListener("readystatechange", onReadyStateChange);
+        if ((this.responseType !== "" && this.responseType !== "text") ||
+            typeof this.responseText !== "string" || videoId !== currentVideoId()) return;
 
-        if (this.readyState !== 4 || (this.responseType !== "" && this.responseType !== "text") ||
-            typeof this.responseText !== "string") {
-          return;
-        }
-        if (this.__uncensoredVideoId !== currentVideoId()) return;
-
-        try {
-          notifyTimedText(this.responseText, this.__uncensoredTimedTextRequestUrl, this.__uncensoredVideoId);
-          patchedBody = patchTimedTextBody(this.responseText);
-        } catch (patchError) {
-          debugLog("patchTimedTextBody XHR failed", patchError && (patchError.message || String(patchError)));
-          if (console && console.warn) {
-            console.warn("[uncensored] patchTimedTextBody XHR failed " + (patchError && (patchError.message || String(patchError))));
-          }
-          return;
-        }
-
-        if (patchedBody === this.responseText) {
-          return;
-        }
+        notifyTimedText(this.responseText, url, videoId);
+        var patchedBody = patchTimedTextBody(this.responseText);
+        if (patchedBody === this.responseText) return;
 
         try {
-          Object.defineProperty(this, "responseText", {
-            configurable: true,
-            value: patchedBody
-          });
-          if (this.responseType === "" || this.responseType === "text") {
-            Object.defineProperty(this, "response", {
-              configurable: true,
-              value: patchedBody
-            });
-          }
+          Object.defineProperty(this, "responseText", { value: patchedBody });
+          Object.defineProperty(this, "response", { value: patchedBody });
         } catch (error) {}
       });
     }
-
     return result;
   }
 
+  // Chromium can replace these wrappers during SPA navigation, so both are reinstalled.
   function installNetworkHooks() {
-    if (globalThis.fetch !== uncensoredFetch) {
-      globalThis.fetch = uncensoredFetch;
-    }
-
-    if (XMLHttpRequest.prototype.open !== uncensoredOpen) {
-      XMLHttpRequest.prototype.open = uncensoredOpen;
-    }
+    globalThis.fetch = uncensoredFetch;
+    XMLHttpRequest.prototype.open = uncensoredOpen;
   }
 
   installNetworkHooks();
@@ -743,7 +431,6 @@
     navigationPending = false;
     releaseNavigationWaiters();
     syncVideo(currentVideoId());
-    discardSavedResolutionsForOtherVideo();
     notifyMissingCaptions(0);
   });
 })();

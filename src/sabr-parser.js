@@ -208,7 +208,7 @@
       }
 
       if (header.isInitSeg) {
-        entry.initChunks = [chunk];
+        entry.initChunks.push(chunk);
         if (onInitSegment) {
           onInitSegment(header.itag, chunk);
         }
@@ -324,8 +324,9 @@
   }
 
   function createStreamDecoder() {
-    var PARSER_LIMIT = 64;
+    var PARSER_LIMIT = 8;
     var parsers = new Map();
+    var ignoredStreams = new Set();
     var initByItag = new Map();
 
     function completeInitFor(state, itag) {
@@ -341,6 +342,10 @@
     }
 
     function parserFor(streamId) {
+      if (parsers.size >= PARSER_LIMIT) {
+        ignoredStreams.add(streamId);
+        return null;
+      }
       var state = { pending: new Map(), segments: [] };
 
       state.parser = createParser({
@@ -366,7 +371,6 @@
         }
       });
 
-      if (parsers.size >= PARSER_LIMIT) parsers.delete(parsers.keys().next().value);
       parsers.set(streamId, state);
       return state;
     }
@@ -377,11 +381,15 @@
 
         if (message.type === "start") {
           parsers.delete(message.streamId);
+          ignoredStreams.delete(message.streamId);
           state = parserFor(message.streamId);
         } else if (message.type === "chunk" && message.buffer) {
-          state = parsers.get(message.streamId) || parserFor(message.streamId);
-          state.parser.push(message.buffer);
+          if (!ignoredStreams.has(message.streamId)) {
+            state = parsers.get(message.streamId) || parserFor(message.streamId);
+            if (state) state.parser.push(message.buffer);
+          }
         } else if (message.type === "end") {
+          ignoredStreams.delete(message.streamId);
           state = parsers.get(message.streamId);
           if (state) {
             state.parser.flush();
@@ -399,6 +407,7 @@
       },
       reset: function reset() {
         parsers.clear();
+        ignoredStreams.clear();
       }
     };
   }

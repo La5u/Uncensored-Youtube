@@ -17,6 +17,27 @@
   var MASKED_F_TEST_REGEX = /\bf\s*[*#_\u2010-\u2015-]+(?=\s|[.,!?]|$)/iu;
   var MASKED_F_MARKER = "maskedfword";
   var transcriberPromise = null;
+  var ANCHOR_HOMOPHONES = {
+    to: ["too", "two"],
+    too: ["to", "two"],
+    two: ["to", "too"],
+    for: ["four"],
+    four: ["for"],
+    know: ["no"],
+    no: ["know"],
+    right: ["write", "rite"],
+    write: ["right", "rite"],
+    rite: ["right", "write"],
+    there: ["their", "they're"],
+    their: ["there", "they're"],
+    "they're": ["there", "their"],
+    your: ["you're"],
+    "you're": ["your"],
+    here: ["hear"],
+    hear: ["here"],
+    see: ["sea"],
+    sea: ["see"]
+  };
 
   function debugEnabled() {
     try {
@@ -55,43 +76,26 @@
     };
   }
 
-  function loadTransformers() {
-    if (root.transformers && root.transformers.pipeline) {
-      return Promise.resolve(root.transformers);
-    }
-
-    return Promise.reject(new Error("Transformers.js module is unavailable"));
-  }
-
   function getTranscriber() {
     if (!transcriberPromise) {
-      transcriberPromise = loadTransformers().then(function createPipeline(transformers) {
-        if (!transformers || !transformers.pipeline) {
-          throw new Error("Transformers.js pipeline is unavailable");
-        }
-
+      transcriberPromise = Promise.resolve(root.transformers).then(function createPipeline(transformers) {
         debugLog("loading whisper model", {
           model: DEFAULT_MODEL,
           baseUrl: baseUrl
         });
 
-        if (transformers.env && transformers.env.localModelPath !== undefined) {
-          transformers.env.localModelPath = baseUrl + "src/models/";
-          transformers.env.allowRemoteModels = false;
-          transformers.env.allowLocalModels = true;
-          if (baseUrl.indexOf("chrome-extension://") === 0) {
-            transformers.env.useBrowserCache = false;
-            transformers.env.useWasmCache = false;
-          }
+        transformers.env.localModelPath = baseUrl + "src/models/";
+        transformers.env.allowRemoteModels = false;
+        transformers.env.allowLocalModels = true;
+        if (baseUrl.indexOf("chrome-extension://") === 0) {
+          transformers.env.useBrowserCache = false;
+          transformers.env.useWasmCache = false;
         }
-
-        if (transformers.env && transformers.env.backends && transformers.env.backends.onnx && transformers.env.backends.onnx.wasm) {
-          transformers.env.backends.onnx.wasm.wasmPaths = {
-            wasm: baseUrl + "src/vendor/ort-wasm-simd-threaded.asyncify.wasm"
-          };
-          transformers.env.backends.onnx.wasm.proxy = false;
-          transformers.env.backends.onnx.wasm.numThreads = 1;
-        }
+        transformers.env.backends.onnx.wasm.wasmPaths = {
+          wasm: baseUrl + "src/vendor/ort-wasm-simd-threaded.asyncify.wasm"
+        };
+        transformers.env.backends.onnx.wasm.proxy = false;
+        transformers.env.backends.onnx.wasm.numThreads = 1;
 
         return transformers.pipeline("automatic-speech-recognition", DEFAULT_MODEL, {
           dtype: "q8",
@@ -103,6 +107,9 @@
           debugLog("whisper model ready");
           return transcriber;
         });
+      }).catch(function resetFailedTranscriber(error) {
+        transcriberPromise = null;
+        throw error;
       });
     }
 
@@ -196,7 +203,6 @@
 
   function entryAfterAnchor(entries, previousWord, offset, afterIndex) {
     var anchor = normalizeText(previousWord).split(" ").pop();
-    var homophones = { to: ["too", "two"], too: ["to", "two"], two: ["to", "too"] };
 
     if (!anchor) return -1;
     function find(words) {
@@ -212,13 +218,8 @@
 
     var exact = find([anchor]);
     if (exact.length) return exact.length === 1 ? exact[0] : -1;
-    var fallback = find(homophones[anchor] || []);
+    var fallback = find(ANCHOR_HOMOPHONES[anchor] || []);
     return fallback.length === 1 ? fallback[0] : -1;
-  }
-
-  function wordAfterAnchor(entries, previousWord, offset) {
-    var index = entryAfterAnchor(entries, previousWord, offset, -1);
-    return index < 0 ? "" : entries[index].candidate;
   }
 
   function alignedSlots(entries, options) {
@@ -250,9 +251,13 @@
     });
   }
 
-  function repairTranscriptForCandidates(transcript, candidates) {
+  function repairTranscriptForCandidates(transcript, candidates, allowWithExisting) {
     var candidateSet = new Set(candidates || []);
     var normalized = normalizeTranscriptText(transcript);
+    var hasExisting = transcriptEntries(normalized, candidates, []).some(function hasCandidate(entry) {
+      return Boolean(entry.candidate);
+    });
+    var value = String(transcript || "");
     var aliases = [
       [/\bmore\s+on\b/giu, "moron"],
       [/\bmorrow\b/giu, "moron"],
@@ -260,18 +265,44 @@
       [/\bass\s+hole\b/giu, "asshole"],
       [/\b(?:forkin|forking|fakin|fakins|fackin|fackins)\b/giu, "fucking"],
       [/\b(?:shh|shis|shiz)\b/giu, "shit"],
-      [/\bbetch\b/giu, "bitch"]
+      [/\bbetch\b/giu, "bitch"],
+      [/\bfock\b/giu, "fuck"]
     ];
 
-    if (transcriptEntries(normalized, candidates, []).some(function hasCandidate(entry) {
-      return Boolean(entry.candidate);
-    })) {
-      return transcript;
+    if (candidateSet.has("bitch") && !hasExisting) {
+      value = value.replace(/\bbits\b/giu, " bitch ");
+    }
+    if (!allowWithExisting && hasExisting) return transcript;
+
+    return aliases.reduce(function repair(repaired, alias) {
+      return candidateSet.has(alias[1]) ? repaired.replace(alias[0], " " + alias[1] + " ") : repaired;
+    }, value);
+  }
+
+  function repairTranscriptForContext(transcript, candidates, context) {
+    var candidateSet = new Set(candidates || []);
+    var value = String(transcript || "");
+    var normalizedContext = String(context || "").toLowerCase();
+
+    function replaceWhen(pattern, replacement, enabled) {
+      if (enabled) value = value.replace(pattern, " " + replacement + " ");
     }
 
-    return aliases.reduce(function repair(value, alias) {
-      return candidateSet.has(alias[1]) ? value.replace(alias[0], " " + alias[1] + " ") : value;
-    }, String(transcript || ""));
+    replaceWhen(/\bobitious\b/giu, "bitches",
+      candidateSet.has("bitches") && /sons?\s+of\s+\[\s*__\s*\]/u.test(normalizedContext));
+    replaceWhen(/\bson'?s?\s+of\s+bitch\b/giu, "sons of bitches",
+      candidateSet.has("bitches") && /sons?\s+of\s+\[\s*__\s*\]/u.test(normalizedContext));
+    replaceWhen(/\bflocked\b/giu, "fucked",
+      candidateSet.has("fucked") && /\[\s*__\s*\]\s+up\b/u.test(normalizedContext));
+    replaceWhen(/\bfluke\b/giu, "fuck",
+      candidateSet.has("fuck") && /get\s+the\s+\[\s*__\s*\]/u.test(normalizedContext));
+    replaceWhen(/\bshout\b/giu, "fuck",
+      candidateSet.has("fuck") && /shut\s+the\s+\[\s*__\s*\]\s+up\b/u.test(normalizedContext));
+    replaceWhen(/\bfox\b/giu, "fuck",
+      candidateSet.has("fuck") && /creature\s+of\s+the\s+\[\s*__\s*\]/u.test(normalizedContext));
+    replaceWhen(/\bfock\b/giu, "fuck's",
+      candidateSet.has("fuck's") && /\[\s*__\s*\]\s+sake\b/u.test(normalizedContext));
+    return value;
   }
 
   function contextFWord(word, context) {
@@ -303,9 +334,20 @@
     if ((previous === "jesus" && next === "christ") ||
         (previous === "god" && /^(?:damn|dammit)$/.test(next))) return "fucking";
     if (previous === "this" && /^(?:thing|game|guy|train|shit)$/.test(next)) return "fucking";
+    if (previousTwo === "piece" && previous === "of" && next === "ass" && word === "fuck") {
+      return "fucking";
+    }
     if (/^(?:get|got|getting)$/.test(previous) &&
         (/^(?:up|by|over|now)$/.test(next) || previous === "getting" && !next)) return "fucked";
     return word;
+  }
+
+  function articleAllowsWord(word, context) {
+    var beforeSlot = String(context || "").split(/\[\s*__\s*\]/u)[0] || "";
+    var article = /\b(an?)\s*$/iu.exec(beforeSlot);
+
+    if (!word || !article) return true;
+    return article[1].toLowerCase() === (/^[aeiou]/iu.test(word) ? "an" : "a");
   }
 
   function hiddenCompoundPart(word, context) {
@@ -345,9 +387,14 @@
     }
     if ((candidates || []).indexOf("fuck's") !== -1 &&
         /\[\s*__\s*\]\s+sake\b/iu.test(context || "")) {
-      transcript = String(transcript || "").replace(/\b(?:fox|flux|flax)(?=\s+(?:like|sake)\b)/giu, "fuck");
+      transcript = String(transcript || "")
+        .replace(/\b(?:fock|fox|flux|flax)(?=\s+sake\b)/giu, "fuck")
+        .replace(/\b(?:fock|fox|flux|flax)(?=\s+like\b)/giu, "fuck");
+      if ((candidates || []).indexOf("fuck") === -1) candidates = candidates.concat("fuck");
     }
-    transcript = repairTranscriptForCandidates(transcript, candidates);
+    transcript = repairTranscriptForContext(transcript, candidates, context);
+    transcript = repairTranscriptForCandidates(transcript, candidates,
+      Boolean(options && (options.previousWord || options.previousWords || options.slotCount > 1)));
     var entries = transcriptEntries(transcript, candidates,
       options && options.fCandidatesBySlot || [fCandidates]);
     var words = entries.map(function candidateWord(entry) {
@@ -357,11 +404,16 @@
     var slotWords = slots.map(function slotWord(slot) { return slot.word; });
     if (options && Array.isArray(options.contexts)) {
       slotWords = slotWords.map(function refineSlotWord(slotWord, slotIndex) {
-        return contextFWord(slotWord, options.contexts[slotIndex]);
+        var slotContext = options.contexts[slotIndex];
+        slotWord = contextFWord(slotWord, slotContext);
+        return articleAllowsWord(slotWord, slotContext) ? slotWord : "";
       });
     }
-    var anchoredWord = wordAfterAnchor(entries, options && options.previousWord,
-      options && options.previousWordOffset);
+    var anchoredIndex = entryAfterAnchor(entries, options && options.previousWord,
+      options && options.previousWordOffset, -1);
+    var anchoredWord = anchoredIndex < 0 ? "" : entries[anchoredIndex].candidate;
+    var decisionContext = options && Array.isArray(options.contexts)
+      ? options.contexts[options.slotOrdinal || 0] : context;
     var word;
     var evidence = "none";
 
@@ -384,13 +436,20 @@
     var refinedWord = contextFWord(word, context);
     if (refinedWord !== word && evidence !== "transcript-anchor") evidence = "transcript-context";
     word = refinedWord;
-    if (word && evidence === "none") evidence = "transcript";
+    if (!articleAllowsWord(word, decisionContext)) {
+      word = "";
+      evidence = "none";
+    } else if (word && evidence === "none") {
+      evidence = "transcript";
+    }
 
     return {
       word: word,
       words: words,
       slotWords: slotWords,
-      slotEvidence: slots.map(function slotEvidence(slot) { return slot.evidence; }),
+      slotEvidence: slots.map(function slotEvidence(slot, slotIndex) {
+        return slotWords[slotIndex] ? slot.evidence : "none";
+      }),
       transcript: transcript || "",
       evidence: evidence
     };

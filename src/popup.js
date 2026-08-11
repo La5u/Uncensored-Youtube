@@ -2,20 +2,17 @@
   "use strict";
 
   var runtime = globalThis.browser || globalThis.chrome;
+  var storage = runtime.storage.local;
   var defaults = {
     rulesEnabled: true,
     whisperEnabled: true
   };
   var metrics = {
-    hybrid: { precision: "92.6", coverage: "77.0" },
-    rules: { precision: "91.7", coverage: "43.3" },
-    whisper: { precision: "93.4", coverage: "63.6" },
+    hybrid: { precision: "92.6", coverage: "91.2" },
+    rules: { precision: "89.2", coverage: "50.1" },
+    whisper: { precision: "93.4", coverage: "89.1" },
     disabled: { precision: "", coverage: "0.0" }
   };
-
-  function storage() {
-    return runtime && runtime.storage && runtime.storage.local;
-  }
 
   function element(id) {
     return document.getElementById(id);
@@ -42,18 +39,14 @@
     var data = {};
 
     data[event.target.id] = event.target.checked;
-    storage().set(data);
+    storage.set(data);
     updateMetrics();
   }
 
   element("versionLabel").textContent = "v" + runtime.runtime.getManifest().version;
   setControls(defaults);
 
-  if (!storage()) {
-    return;
-  }
-
-  storage().get(defaults).then(setControls, function useDefaults() {
+  storage.get(defaults).then(setControls, function useDefaults() {
     setControls(defaults);
   });
 

@@ -51,6 +51,15 @@ assert.strictEqual(
   "shit"
 );
 
+const unanchoredAliasGuard = whisper.decisionFromTranscript(
+  "more on shit",
+  ["moron", "shit"],
+  "[__]",
+  {}
+);
+assert.deepStrictEqual(unanchoredAliasGuard.words, ["shit"]);
+assert.strictEqual(unanchoredAliasGuard.word, "shit");
+
 assert.deepStrictEqual(
   whisper.decisionFromTranscript(
     "Fuck, you know that get your shit together. Fuck, I want to hit you too, asshole.",
@@ -78,6 +87,22 @@ const homophoneFallback = whisper.decisionFromTranscript(
 );
 assert.strictEqual(homophoneFallback.word, "shit");
 assert.strictEqual(homophoneFallback.evidence, "transcript-anchor");
+
+for (const [transcript, previousWord, expected] of [
+  ["go for shit", "four", "shit"],
+  ["you know fuck", "no", "fuck"],
+  ["write shit down", "right", "shit"],
+  ["hear fuck now", "here", "fuck"]
+]) {
+  const decision = whisper.decisionFromTranscript(
+    transcript,
+    ["fuck", "shit"],
+    "anchor [__]",
+    { previousWord }
+  );
+  assert.strictEqual(decision.word, expected);
+  assert.strictEqual(decision.evidence, "transcript-anchor");
+}
 
 const exactAnchorPriority = whisper.decisionFromTranscript(
   "go to fuck but too shit",
@@ -175,6 +200,44 @@ assert.strictEqual(
   ).word,
   "bitch"
 );
+
+assert.strictEqual(
+  whisper.decisionFromTranscript("you are such bits", ["bitch", "shit"], "such a [__]", {}).word,
+  "bitch"
+);
+assert.deepStrictEqual(
+  whisper.decisionFromTranscript("say shit bits", ["bitch", "shit"], "say [__]", { previousWord: "say" }).words,
+  ["shit"]
+);
+
+for (const [article, word, expected] of [
+  ["a", "bitch", "bitch"],
+  ["an", "asshole", "asshole"],
+  ["a", "asshole", ""],
+  ["an", "bitch", ""]
+]) {
+  const decision = whisper.decisionFromTranscript(
+    `he is ${article} ${word}`,
+    ["asshole", "bitch"],
+    `he is ${article} [__]`,
+    { previousWord: article }
+  );
+  assert.strictEqual(decision.word, expected);
+  if (!expected) assert.strictEqual(decision.evidence, "none");
+}
+
+const articleSlots = whisper.decisionFromTranscript(
+  "an bitch and a asshole",
+  ["asshole", "bitch"],
+  "an [__] and a [__]",
+  {
+    contexts: ["an [__]", "a [__]"],
+    slotCount: 2,
+    previousWords: ["an", "a"]
+  }
+);
+assert.deepStrictEqual(articleSlots.slotWords, ["", ""]);
+assert.deepStrictEqual(articleSlots.slotEvidence, ["none", "none"]);
 
 assert.deepStrictEqual(
   whisper.decisionFromTranscript(
@@ -296,6 +359,28 @@ assert.strictEqual(
 });
 
 [
+  ["The first boss, and then I flocked up, man.", ["fucked"], "I [__] up", "fucked"],
+  ["Get that fluke away from me, trap.", ["fuck"], "get the [__]", "fuck"],
+  ["Shout out, get up!", ["fuck"], "shut the [__] up", "fuck"],
+  ["That creature of the fox.", ["fuck"], "creature of the [__]", "fuck"],
+  ["BUCKET FOR FOCK SAGMAN!", ["fuck", "fuck's"], "[__] sake", "fuck's"],
+  ["You whiny son's obitious, okay?", ["bitches"], "sons of [__]", "bitches"],
+  ["Wonder which one of you whiny sons of bitch is like", ["bitches"], "sons of [__]", "bitches"],
+  ["shit first, then morrow", ["moron", "shit"], "first [__]", "moron"]
+].forEach(([transcript, candidates, context, expected]) => {
+  assert.strictEqual(
+    whisper.decisionFromTranscript(transcript, candidates, context,
+      transcript.includes("morrow") ? { previousWord: "then" } : {}).word,
+    expected
+  );
+});
+
+assert.strictEqual(
+  whisper.decisionFromTranscript("fock sake", ["fuck's"], "[__] sake", {}).word,
+  "fuck's"
+);
+
+[
   ["waterfuck is this", ["fuck"], "why the [__] is this", "fuck"],
   ["fucka's going on", ["fuck", "fucker"], "what the [__] is going on", "fuck"],
   ["I would have shits my pants", ["shit"], "I would have [__] my pants", "shit"],
@@ -332,6 +417,7 @@ assert.strictEqual(
   ["fuck", "this [__] train", "fucking"],
   ["fuck", "you're getting [__] now", "fucked"],
   ["fucking", "how the [__] game works", "fucking"],
+  ["fuck", "piece of [__] ass", "fucking"],
   ["fucked", "the [__] up bee", "fucked"],
   ["shit", "Jesus [__] Christ", "shit"]
 ].forEach(([transcript, context, expected]) => {

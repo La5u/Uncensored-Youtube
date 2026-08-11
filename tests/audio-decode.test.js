@@ -6,9 +6,12 @@ global.document = {
   querySelectorAll() { return []; }
 };
 global.addEventListener = function addEventListener() {};
+global.requestAnimationFrame = function requestAnimationFrame(callback) { callback(); };
 global.UncensoredRules = {
   CENSORED_TOKEN_REGEX: /\[__\]/,
-  ALLOWED_WORDS: []
+  ALLOWED_WORDS: [],
+  applyDeterministicRules() { return { replacements: [] }; },
+  formatWordCase(word) { return word; }
 };
 
 let decodeCalls = 0;
@@ -53,7 +56,7 @@ new Promise(function waitForDecode(resolve) {
   audio.rememberTimedTextData({
     tokens: [{ tokenIndex: 0, timeSeconds: 10, context: "say [__] now" }],
     timeline: []
-  }, "lang=en&kind=asr", [], "test");
+  }, "lang=en&kind=asr", "test");
   audio.setOptions({ rulesEnabled: false, whisperEnabled: true, videoId: "test" });
   return audio.setSabrAudioData({ buffer: new ArrayBuffer(1), startMs: 10000 });
 }).then(function verifyRecovery() {

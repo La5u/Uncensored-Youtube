@@ -17,11 +17,6 @@
     return sender && sender.tab && sender.tab.id;
   }
 
-  function markActive(sender) {
-    var id = senderTabId(sender);
-    if (typeof id === "number") activeTabs.add(id);
-  }
-
   function ensureOffscreen() {
     if (offscreenClosing) {
       return offscreenClosing.then(ensureOffscreen);
@@ -52,6 +47,9 @@
         uncensoredOffscreen: true,
         kind: kind,
         data: data
+      }).catch(function resetAfterDeliveryFailure(error) {
+        offscreenReady = null;
+        throw error;
       });
     });
   }
@@ -63,14 +61,10 @@
   var whisperNextId = 1;
   var whisperPending = new Map();
 
-  function stopBackgroundWorkers() {
-    if (whisperWorker || whisperPending.size) resetWhisperWorker("Extension host stopped");
-  }
-
   function closeIdleHost() {
     if (activeTabs.size || offscreenClosing) return;
     if (!useOffscreen) {
-      stopBackgroundWorkers();
+      if (whisperWorker || whisperPending.size) resetWhisperWorker("Extension host stopped");
       return;
     }
 
@@ -108,31 +102,24 @@
 
   function startWhisperWorker() {
     if (whisperReady) return whisperReady;
-    whisperReady = new Promise(function createWorker(resolve, reject) {
-      var url = runtime.runtime.getURL("src/whisper-module-worker.js");
-      try {
-        whisperWorker = new Worker(url, { type: "module" });
-      } catch (error) {
-        whisperReady = null;
-        reject(error);
-        return;
+    try {
+      whisperWorker = new Worker(runtime.runtime.getURL("src/whisper-module-worker.js"), { type: "module" });
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    var worker = whisperWorker;
+    worker.onmessage = function onWorkerMessage(event) {
+      var message = event.data || {};
+      var pending = whisperPending.get(message.id);
+      if (pending) {
+        whisperPending.delete(message.id);
+        pending(message.ok ? (message.decision || message) : new Error(message.error || "Worker failed"));
       }
-      var worker = whisperWorker;
-      worker.onmessage = function onWorkerMessage(event) {
-        var message = event.data || {};
-        var pending = whisperPending.get(message.id);
-        if (pending) {
-          whisperPending.delete(message.id);
-          pending(message.ok ? (message.decision || message) : new Error(message.error || "Worker failed"));
-        }
-      };
-      worker.onerror = function onWorkerError() {
-        if (whisperWorker === worker) {
-          resetWhisperWorker("Worker error");
-        }
-      };
-      resolve(worker);
-    });
+    };
+    worker.onerror = function onWorkerError() {
+      if (whisperWorker === worker) resetWhisperWorker("Worker error");
+    };
+    whisperReady = Promise.resolve(worker);
     return whisperReady;
   }
 
@@ -157,7 +144,7 @@
     });
   }
 
-  if (runtime.runtime && runtime.runtime.onMessage) {
+  if (runtime.runtime.onMessage) {
     runtime.runtime.onMessage.addListener(function onWhisperMessage(message, sender, sendResponse) {
       if (!message) return;
 
@@ -177,7 +164,8 @@
       }
 
       if (!message.uncensoredWhisper) return;
-      markActive(sender);
+      var whisperTabId = senderTabId(sender);
+      if (typeof whisperTabId === "number") activeTabs.add(whisperTabId);
 
       if (useOffscreen) {
         postOffscreen("whisper", {

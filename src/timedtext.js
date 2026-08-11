@@ -97,20 +97,6 @@
     return (startMs + offsetMs) / 1000;
   }
 
-  function unique(values) {
-    var seen = Object.create(null);
-    var result = [];
-
-    values.forEach(function addUnique(value) {
-      if (value && !seen[value]) {
-        seen[value] = true;
-        result.push(value);
-      }
-    });
-
-    return result;
-  }
-
   function deterministicCandidatePieces(replacement, pieceIndex) {
     var span = replacement.tokenSpan || 1;
     var candidates = replacement.rule.candidates.map(function candidatePiece(candidate) {
@@ -120,7 +106,7 @@
     });
     var pieces = String(replacement.word).split(/\s+/);
 
-    return unique(candidates.concat(pieces[pieceIndex] || replacement.word));
+    return Array.from(new Set(candidates.concat(pieces[pieceIndex] || replacement.word))).filter(Boolean);
   }
 
   function deterministicTokenMap(replacements) {
@@ -260,9 +246,6 @@
             adjacentTokenIndex: eventTokenGroups[eventTokenIndex].index,
             adjacentTokenCount: eventTokenGroups[eventTokenIndex].count,
             eventIndex: eventIndex,
-            eventText: eventText,
-            previousEventText: position > 0 ? visibleEvents[position - 1] : "",
-            segIndex: segIndex,
             timeSeconds: tokenTimeSeconds(payload, event, eventIndex, seg, segIndex, offset),
             previousWord: previousWord,
             previousWordOffset: previousWordOffset,

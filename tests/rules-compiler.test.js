@@ -29,7 +29,20 @@ assert.strictEqual(
   ])[0].template,
   "try to [__] "
 );
+const prioritized = compiler.compileGroups([
+  compiler.group("later", 20, [compiler.pattern`later [shit]`]),
+  compiler.group("earlier", 10, [compiler.pattern`earlier [fuck]`])
+]);
+assert.deepStrictEqual(prioritized.map((rule) => rule.groupId), ["earlier", "later"]);
+assert.ok(prioritized[0].priority < prioritized[1].priority);
 assert.throws(() => compiler.set("duplicate", ["same", "same"]), /Duplicate value/);
+assert.deepStrictEqual(compiler.expand(compiler.patterns(["oh [shit]", "why [fuck]"])[1]), ["why [fuck]"]);
+assert.throws(() => compiler.patterns([]), /nonempty array/);
+assert.throws(() => compiler.patterns([""]), /nonempty array/);
+const softPunctuation = new RegExp(compiler.regexLiteral("oh ", true) +
+  compiler.regexLiteral("[__] me"), "iu");
+assert.ok(softPunctuation.test('oh, "[__] me'));
+assert.ok(!softPunctuation.test("oh. [__] me"));
 assert.throws(
   () => compiler.compileGroups([
     compiler.group("duplicate", [compiler.pattern`holy [shit]`, compiler.pattern`holy [fuck]`])

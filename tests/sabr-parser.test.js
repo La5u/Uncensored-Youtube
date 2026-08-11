@@ -130,6 +130,39 @@ assert.strictEqual(decoded.length, 1);
 assert.strictEqual(decoded[0].startMs, 1200);
 assert.strictEqual(decoded[0].durationMs, 300);
 assert.deepStrictEqual(Array.from(new Uint8Array(decoded[0].buffer)), [...webmInit, 20, 21, 22]);
+
+const splitInitDecoder = sabr.createStreamDecoder();
+const splitWebmHeader = Uint8Array.from([0x1a, 0x45, 0xdf, 0xa3]);
+const splitCodec = Uint8Array.from(Buffer.from("A_OPUS"));
+const splitInitPayload = concat([
+  part(20, header({ headerId: 6, itag: 140, isInitSeg: true })),
+  part(21, concat([Uint8Array.from([6]), splitWebmHeader])),
+  part(20, header({ headerId: 7, itag: 140, isInitSeg: true })),
+  part(21, concat([Uint8Array.from([7]), splitCodec]))
+]);
+splitInitDecoder.push({ type: "start", streamId: 2 });
+splitInitDecoder.push({ type: "chunk", streamId: 2, buffer: splitInitPayload.buffer });
+const splitDecoded = splitInitDecoder.push({ type: "chunk", streamId: 2, buffer: mediaPayload.buffer });
+assert.deepStrictEqual(
+  Array.from(new Uint8Array(splitDecoded[0].buffer)),
+  [...splitWebmHeader, ...splitCodec, 20, 21, 22]
+);
+
+const overflowDecoder = sabr.createStreamDecoder();
+overflowDecoder.push({ type: "start", streamId: 1 });
+overflowDecoder.push({ type: "chunk", streamId: 1, buffer: decoderInit.buffer.slice(0, 7) });
+for (let streamId = 2; streamId <= 9; streamId += 1) {
+  overflowDecoder.push({ type: "start", streamId });
+}
+overflowDecoder.push({ type: "chunk", streamId: 1, buffer: decoderInit.buffer.slice(7) });
+const overflowDecoded = overflowDecoder.push({ type: "chunk", streamId: 1, buffer: mediaPayload.buffer });
+assert.strictEqual(overflowDecoded.length, 1);
+overflowDecoder.push({ type: "end", streamId: 2 });
+assert.deepStrictEqual(
+  overflowDecoder.push({ type: "chunk", streamId: 9, buffer: concat([decoderInit, mediaPayload]).buffer }),
+  []
+);
+
 streamDecoder.push({ type: "end", streamId: 1 });
 streamDecoder.reset();
 const resumed = streamDecoder.push({ type: "chunk", streamId: 1, buffer: mediaPayload.buffer });
