@@ -244,15 +244,19 @@
   }
 
   function isGoogleVideoPlaybackUrl(input) {
-    var url = new URL(input);
-    var mime;
+    try {
+      var url = new URL(input, location.href);
+      var mime;
 
-    if (!/(^|\.)googlevideo\.com$/.test(url.hostname) || url.pathname.indexOf("/videoplayback") === -1) {
+      if (!/(^|\.)googlevideo\.com$/.test(url.hostname) || url.pathname.indexOf("/videoplayback") === -1) {
+        return false;
+      }
+
+      mime = url.searchParams.get("mime") || "";
+      return url.searchParams.get("sabr") === "1" || !mime || mime.indexOf("video/") !== 0;
+    } catch (error) {
       return false;
     }
-
-    mime = url.searchParams.get("mime") || "";
-    return url.searchParams.get("sabr") === "1" || !mime || mime.indexOf("video/") !== 0;
   }
 
   function shouldCaptureAudio(videoId) {
@@ -376,8 +380,12 @@
     var requestDuringNavigation = navigationPending;
 
     return originalFetch.apply(this, arguments).then(function observeAudio(response) {
-      if (shouldObserveAudio() && isGoogleVideoPlaybackUrl(response.url)) {
-        processSabrResponse(response, requestVideoId, requestDuringNavigation);
+      try {
+        if (shouldObserveAudio() && isGoogleVideoPlaybackUrl(response.url)) {
+          processSabrResponse(response, requestVideoId, requestDuringNavigation);
+        }
+      } catch (error) {
+        debugLog("fetch observation failed", error && (error.message || String(error)));
       }
       return response;
     });

@@ -40,6 +40,7 @@ const storage = new Map();
 const listeners = new Map();
 const timedTextDetails = [];
 const patchOverrides = [];
+let fetchResult;
 const context = {
   URL,
   URLSearchParams,
@@ -55,7 +56,7 @@ const context = {
     setItem(key, value) { storage.set(key, value); },
     removeItem(key) { storage.delete(key); }
   },
-  fetch() { return Promise.reject(new Error("unused")); },
+  fetch() { return fetchResult; },
   addEventListener(type, listener) { listeners.set(type, listener); },
   dispatchEvent(event) {
     if (event.type === "uncensored-timedtext") timedTextDetails.push(JSON.parse(event.detail));
@@ -125,4 +126,27 @@ plain.open("GET", "https://www.youtube.com/youtubei/v1/player");
 plain.finish("plain response");
 assert.strictEqual(plain.responseText, "plain response");
 
-console.log("page-hook.test.js passed");
+(async function testTransparentFetchObservation() {
+  for (const response of [
+    new Response("synthetic response"),
+    { get url() { throw new Error("url unavailable"); } },
+    {
+      url: "https://rr1.googlevideo.com/videoplayback?sabr=1",
+      clone() { throw new Error("response cannot be cloned"); }
+    }
+  ]) {
+    fetchResult = Promise.resolve(response);
+    assert.strictEqual(await context.fetch("/youtubei/v1/browse"), response,
+      "observation errors must not replace or reject a successful response");
+  }
+
+  const networkError = new Error("network failed");
+  fetchResult = Promise.reject(networkError);
+  await assert.rejects(context.fetch("/youtubei/v1/browse"), (error) => error === networkError,
+    "real Fetch failures must pass through unchanged");
+
+  console.log("page-hook.test.js passed");
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

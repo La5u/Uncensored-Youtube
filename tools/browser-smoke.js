@@ -217,6 +217,28 @@ function playbackExpression(resetCaptions = false) {
   })()`;
 }
 
+function fetchTransparencyExpression() {
+  return `(async () => {
+    const urlDescriptor = Object.getOwnPropertyDescriptor(Response.prototype, "url");
+    const clone = Response.prototype.clone;
+    try {
+      Object.defineProperty(Response.prototype, "url", { configurable: true, get: () => "" });
+      let response = await fetch("data:text/plain,synthetic-response");
+      if (await response.text() !== "synthetic-response") throw new Error("empty response.url altered Fetch");
+
+      Object.defineProperty(Response.prototype, "url", { configurable: true,
+        get: () => "https://rr1.googlevideo.com/videoplayback?sabr=1" });
+      Response.prototype.clone = () => { throw new Error("synthetic response cannot be cloned"); };
+      response = await fetch("data:text/plain,uncloneable-response");
+      if (await response.text() !== "uncloneable-response") throw new Error("clone failure altered Fetch");
+      return true;
+    } finally {
+      Object.defineProperty(Response.prototype, "url", urlDescriptor);
+      Response.prototype.clone = clone;
+    }
+  })()`;
+}
+
 function finishCurrentVideoExpression() {
   return `(() => {
     const video = document.querySelector("video");
@@ -245,6 +267,16 @@ function visibleCaptionExpression() {
         ?.playerCaptionsTracklistRenderer?.captionTracks?.map(track =>
         ({ languageCode: track.languageCode, kind: track.kind, name: track.name })) || [],
       placeholders: (text.match(/\\[\\s*__\\s*\\]/g) || []).length };
+  })()`;
+}
+
+function homeExpression() {
+  return `(() => {
+    if (location.pathname === "/") return true;
+    const home = document.querySelector("ytd-topbar-logo-renderer a, a#logo, #logo a");
+    if (!home) return false;
+    home.click();
+    return true;
   })()`;
 }
 
@@ -348,6 +380,11 @@ async function chromium() {
     const response = await client.send("Runtime.evaluate", { expression: playbackExpression(), returnByValue: true });
     return response.result.value.hook && response;
   });
+  result = await client.send("Runtime.evaluate", {
+    expression: fetchTransparencyExpression(), awaitPromise: true, returnByValue: true
+  });
+  if (result.result.value !== true) throw new Error("Chromium Fetch transparency check failed.");
+  console.log("Chromium Fetch transparency check passed.");
   if (firstSeekTime) {
     await retry(async () => {
       const sought = await client.send("Runtime.evaluate", { expression: `(() => {
@@ -504,12 +541,20 @@ async function chromium() {
   for (secondId of nextUrls.map((url) => new URL(url).searchParams.get("v"))) {
     const checkpoint = logs.length;
     if (homeNavigation) {
-      await client.send("Page.navigate", { url: "https://www.youtube.com/" });
       await retry(async () => {
-        const value = await client.send("Runtime.evaluate", { expression: "location.pathname", returnByValue: true });
-        return value.result.value === "/";
+        const value = await client.send("Runtime.evaluate", { expression: homeExpression(), returnByValue: true });
+        return value.result.value;
       });
-      await client.send("Page.navigate", { url: "https://www.youtube.com/watch?v=" + secondId });
+      await retry(async () => {
+        const value = await client.send("Runtime.evaluate", {
+          expression: `location.pathname === "/" && navigator.onLine &&
+            !document.body.innerText.includes("Connect to the internet")`, returnByValue: true
+        });
+        return value.result.value;
+      });
+      await client.send("Runtime.evaluate", {
+        expression: `location.assign(${JSON.stringify("https://www.youtube.com/watch?v=")} + ${JSON.stringify(secondId)})`
+      });
     } else if (!playlistMode && !directNavigation) {
       await retry(async () => {
         const value = await client.send("Runtime.evaluate", { expression: searchExpression(), returnByValue: true });
@@ -601,6 +646,8 @@ async function firefox() {
     const value = JSON.parse(await evaluate(`JSON.stringify(${playbackExpression()})`));
     return value.hook && value;
   });
+  if (!await evaluate(fetchTransparencyExpression())) throw new Error("Firefox Fetch transparency check failed.");
+  console.log("Firefox Fetch transparency check passed.");
   await retry(() => timedTextRequests > 0 || cleanDecision(logs));
   try {
     await retry(() => inferenceReady(logs), 90000);
@@ -658,8 +705,9 @@ async function firefox() {
     const timedTextCheckpoint = timedTextRequests;
     const logCheckpoint = logs.length;
     if (homeNavigation) {
-      await evaluate('location.assign("https://www.youtube.com/"); true');
-      await retry(async () => await evaluate("location.pathname") === "/");
+      await retry(async () => await evaluate(homeExpression()));
+      await retry(async () => await evaluate(`location.pathname === "/" && navigator.onLine &&
+        !document.body.innerText.includes("Connect to the internet")`));
       await evaluate(`location.assign(${JSON.stringify("https://www.youtube.com/watch?v=")} + ${JSON.stringify(secondId)}); true`);
     } else if (!playlistMode && !directNavigation) {
       await retry(async () => await evaluate(searchExpression()));

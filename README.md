@@ -261,7 +261,7 @@ preserving unrelated channel progress in the same report.
 ## Build
 
 ```sh
-./build.sh 1.5.0
+./build.sh 1.5.1
 ```
 
 This creates separate Chromium and Firefox ZIPs in `dist/`. See
