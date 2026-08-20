@@ -1,0 +1,20 @@
+{
+  "channels": [
+    {"name": "Some More News", "sources": ["https://www.youtube.com/@SMN/videos"]},
+    {"name": "Last Week Tonight", "sources": ["https://www.youtube.com/@LastWeekTonight/videos"]},
+    {"name": "Lindsay Ellis", "sources": ["https://www.youtube.com/@LindsayEllisVids/videos"]},
+    {"name": "Big Joel", "sources": ["https://www.youtube.com/@BigJoel/videos"]},
+    {"name": "Patrick H Willems", "sources": ["https://www.youtube.com/@patrickhwillems/videos"]},
+    {"name": "Jenny Nicholson", "sources": ["https://www.youtube.com/@JennyNicholson/videos"]},
+    {"name": "Knowing Better", "sources": ["https://www.youtube.com/@KnowingBetter/videos"]},
+    {"name": "Shaun", "sources": ["https://www.youtube.com/@Shaun_vids/videos"]},
+    {"name": "münecat", "sources": ["https://www.youtube.com/@munecat/videos"]},
+    {"name": "FD Signifier", "sources": ["https://www.youtube.com/@FDSignifire/videos"]},
+    {"name": "Sarah Z", "sources": ["https://www.youtube.com/@SarahZ/videos"]},
+    {"name": "CJ The X", "sources": ["https://www.youtube.com/@CJTheX/videos"]},
+    {"name": "BobbyBroccoli", "sources": ["https://www.youtube.com/@BobbyBroccoli/videos"]},
+    {"name": "Defunctland", "sources": ["https://www.youtube.com/@Defunctland/videos"]},
+    {"name": "Coffeezilla", "sources": ["https://www.youtube.com/@Coffeezilla/videos"]},
+    {"name": "NileRed", "sources": ["https://www.youtube.com/@NileRed/videos"]}
+  ]
+}

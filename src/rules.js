@@ -50,34 +50,31 @@
     });
   }
 
-  function compileAllowedGroups(groups) {
-    return Object.freeze(compiler.compileGroups(groups).map(allowedRule)
-      .filter(function nonemptyRule(rule) {
-        return rule.candidates.length;
-      }));
-  }
-
-  var EXACT_RULE_COUNT = compileAllowedGroups(data.RULE_GROUPS.exact).length;
   var SPECIFIC_GROUPS = data.RULE_GROUPS.exact.concat(data.RULE_GROUPS.productive);
-  var SPECIFIC_RULE_COUNT = compileAllowedGroups(SPECIFIC_GROUPS).length;
-  var LOW_CONFIDENCE_GROUPS = data.RULE_GROUPS.lowConfidence || [];
-  var FALLBACK_RULE_START = compileAllowedGroups(SPECIFIC_GROUPS.concat(LOW_CONFIDENCE_GROUPS)).length;
-  var DETERMINISTIC_RULES = compileAllowedGroups(
+  var LOW_CONFIDENCE_GROUPS = data.RULE_GROUPS.lowConfidence;
+  var DETERMINISTIC_RULES = Object.freeze(compiler.compileGroups(
     SPECIFIC_GROUPS.concat(LOW_CONFIDENCE_GROUPS, data.RULE_GROUPS.fallback)
-  );
+  ));
+  function firstRuleIndex(groupPrefix) {
+    var index = DETERMINISTIC_RULES.findIndex(function startsWithGroup(rule) {
+      return rule.groupId.indexOf(groupPrefix) === 0;
+    });
+    return index < 0 ? DETERMINISTIC_RULES.length : index;
+  }
+  var EXACT_RULE_COUNT = firstRuleIndex("productive/");
+  var SPECIFIC_RULE_COUNT = firstRuleIndex("low-confidence/");
+  var FALLBACK_RULE_START = firstRuleIndex("fallback/");
   var openEndedPrefixes = DETERMINISTIC_RULES.filter(function openEndedRule(candidate) {
     return /\[__\]\s$/.test(candidate.template);
   }).map(function openEndedPrefix(candidate) {
     return candidate.template.replace(/\[__\]\s$/, "").trim();
   });
-  var CONTINUING_PREFIXES = Object.freeze(data.CONTINUING_PREFIX_SETS.reduce(
+  var CONTINUING_PREFIXES = Object.freeze(Array.from(new Set(data.CONTINUING_PREFIX_SETS.reduce(
     function appendContinuingSet(prefixes, values) {
       return prefixes.concat(values);
     },
     openEndedPrefixes
-  ).filter(function uniqueNonemptyPrefix(prefix, index, prefixes) {
-    return prefix && prefixes.indexOf(prefix) === index;
-  }));
+  ).filter(Boolean))));
   var CONTINUING_PREFIX_REGEX = new RegExp(
     "(^|[^\\p{L}\\p{N}_'’])(?:" + compiler.regexAlternatives(CONTINUING_PREFIXES) + ")\\s*$",
     "iu"
@@ -202,6 +199,9 @@
       regex: null
     };
   });
+  var RULE_ENTRIES_BY_TEMPLATE = new Map(RULE_ENTRIES.map(function indexRule(entry) {
+    return [entry.rule.template, entry];
+  }));
 
   function ensureCompiled(entry) {
     if (!entry.regex) {
@@ -225,17 +225,25 @@
     return patterns.concat(ruleGroup.patterns.map(function prioritizedFrame(patternValue, patternIndex) {
       return compiler.compileFramePattern(
         patternValue,
-        ruleGroup.priority * 1000000000 + patternIndex * 1000000,
+        ruleGroup.id === "frames/single-intensifier-suffixes"
+          ? 5000 * 1000000000 + 31 * 1000000 - 1
+          : ruleGroup.priority * 1000000000 + patternIndex * 1000000,
         ruleGroup.id
       );
     }));
   }, []);
-  var COMPILED_ROLE_FRAMES = Object.freeze(ROLE_FRAME_PATTERNS.map(function allowedRoleFrame(compiled) {
+  var COMPILED_FRAMES = ROLE_FRAME_PATTERNS.map(function allowedRoleFrame(compiled) {
     var rule = allowedRule(compiled.rule);
 
     return { rule: rule, phrase: compiled.phrase };
   }).map(function compileRoleFrame(patternValue, index) {
     return compileExpressionRule(patternValue, RULE_ENTRIES.length + index);
+  });
+  var COMPILED_ROLE_FRAMES = Object.freeze(COMPILED_FRAMES.filter(function roleFrame(compiled) {
+    return compiled.rule.groupId !== "frames/single-intensifier-suffixes";
+  }));
+  var COMPILED_FALLBACK_FRAMES = Object.freeze(COMPILED_FRAMES.filter(function fallbackFrame(compiled) {
+    return compiled.rule.groupId === "frames/single-intensifier-suffixes";
   }));
 
   function trieNode() {
@@ -351,11 +359,15 @@
     lowConfidenceOffset = lowConfidenceOffset < 0 ? candidates.length : lowConfidenceOffset;
     fallbackOffset = fallbackOffset < 0 ? candidates.length : fallbackOffset;
     // Narrow rare-word phrases must beat broad grammatical frames.
+    var fallbackCandidates = candidates.slice(fallbackOffset).concat(COMPILED_FALLBACK_FRAMES);
+    fallbackCandidates.sort(function fallbackPriority(left, right) {
+      return left.rule.priority - right.rule.priority || left.index - right.index;
+    });
     return candidates.slice(0, lowConfidenceOffset)
       .concat(
         candidates.slice(lowConfidenceOffset, fallbackOffset),
         COMPILED_ROLE_FRAMES,
-        candidates.slice(fallbackOffset)
+        fallbackCandidates
       );
   }
 
@@ -447,13 +459,13 @@
   }
 
   function exactRuleContinuesAfterToken(text, tokenStart, tokenEnd, candidateData) {
-    var candidates = candidateData.rules || candidateData;
+    var candidates = candidateData.rules;
 
     return candidates.some(function matchesExactContinuation(compiled) {
       var ranges;
 
       if (compiled.index >= EXACT_RULE_COUNT) return false;
-      ranges = candidateData.ranges && candidateData.ranges.get(compiled.index) || [];
+      ranges = candidateData.ranges.get(compiled.index);
       return ranges.some(function checkRange(range) {
         var source;
         var windowStart;
@@ -517,7 +529,7 @@
     var normalizedText = insertVirtualSentencePunctuation(ignoreNonSpeechLabels(normalizeCensoredTokens(text)));
     var policy = options && options.ambiguous || "score";
 
-    if (typeof normalizedText !== "string" || normalizedText.indexOf(CENSORED_TOKEN) === -1) {
+    if (normalizedText.indexOf(CENSORED_TOKEN) === -1) {
       return {
         text: text,
         replacements: [],
@@ -681,9 +693,7 @@
     var candidateData = candidateRuleData(text);
 
     return templates.some(function matchesTemplate(template) {
-      var entry = RULE_ENTRIES.find(function findRule(compiled) {
-        return compiled.rule.template === template;
-      });
+      var entry = RULE_ENTRIES_BY_TEMPLATE.get(template);
       return Boolean(entry && candidateData.ranges.has(entry.index));
     });
   }
@@ -692,6 +702,7 @@
     CENSORED_TOKEN: CENSORED_TOKEN,
     CENSORED_TOKEN_REGEX: CENSORED_TOKEN_REGEX,
     ALLOWED_WORDS: ALLOWED_WORDS,
+    NOT_CENSORED_WORDS: data.NOT_CENSORED_WORDS,
     RULE_WORDS: RULE_WORDS,
     DETERMINISTIC_RULES: DETERMINISTIC_RULES,
     normalizeCensoredTokens: normalizeCensoredTokens,

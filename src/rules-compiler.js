@@ -131,19 +131,15 @@
     return expanded.map(finishPattern);
   }
 
-  function placeholderFor(candidate) {
-    return candidate.split(/\s+/u).map(function tokenPlaceholder() {
-      return CENSORED_TOKEN;
-    }).join(" ");
-  }
-
   function rule(authoredPattern, priority, groupId) {
     var candidateGroups = [];
     var template = authoredPattern.replace(/\[([^\]]+)\]/gu, function replaceCandidates(match, groupValue) {
       var candidates = groupValue.split("|");
 
       candidateGroups.push(candidates);
-      return placeholderFor(candidates[0]);
+      return candidates[0].split(/\s+/u).map(function tokenPlaceholder() {
+        return CENSORED_TOKEN;
+      }).join(" ");
     });
     var candidates;
 

@@ -13,29 +13,182 @@ const fixturesDir = path.join(root, "test-fixtures");
 const audioDir = path.join(fixturesDir, "audio");
 const channelsPath = path.join(__dirname, "paired-caption-channels.json");
 const reportPath = path.join(root, "corpus/generated/paired-caption-download-report.json");
+const checkedLedgerPath = path.join(root, "corpus/generated/checked-video-ledger.json");
 const CENSORED_RE = /\[\s*__\s*\]/gu;
 const { ALLOWED_WORDS } = require("../src/rules-data");
+const { groundTruthWords } = require("./evaluation-alignment");
 const ALLOWED_WORDS_RE = new RegExp(
   `(^|[^A-Za-z0-9])(?:${ALLOWED_WORDS.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/'/g, "['\\u2019]")).join("|")})(?=$|[^A-Za-z0-9])`,
   "giu"
 );
+
+// Keep the legacy pairKind (it is present in old reports), but give every
+// saved pair a stable provenance classification.  The fixture filenames
+// intentionally stay `_auto`/`_manual` for evaluator compatibility. In a
+// pairClass, the first word is the uncensored track and the second is the
+// censored automatic track (for example, auto-auto is the high-value pair);
+// synthetic is kept separate because its censored side was generated locally.
+const PAIR_PROVENANCE = Object.freeze({
+  "creator-manual": { pairClass: "manual-auto", censoredKind: "auto-censored", uncensoredKind: "manual" },
+  "subtitle-en": { pairClass: "manual-auto", censoredKind: "auto-censored", uncensoredKind: "manual" },
+  "auto-en": { pairClass: "auto-auto", censoredKind: "auto-censored", uncensoredKind: "auto-uncensored" },
+  "auto-en-en": { pairClass: "auto-auto", censoredKind: "auto-censored", uncensoredKind: "auto-uncensored" },
+  // These values occur in historical reports produced by the old synthetic
+  // fallback. They are not equivalent to a real censored automatic track.
+  synthetic: { pairClass: "synthetic", censoredKind: "synthetic-censored", uncensoredKind: "unknown" },
+  "synthetic-auto": { pairClass: "synthetic", censoredKind: "synthetic-censored", uncensoredKind: "auto-uncensored" }
+});
+const PAIR_PROVENANCE_VERSION = 1;
+const CHECKED_LEDGER_VERSION = 1;
+const NEGATIVE_CHECK_STATUSES = new Set([
+  "no-manual",
+  "no-automatic",
+  "no-censored-slots",
+  "already-censored-auto",
+  "no-allowed-words",
+  "no-usable-gt",
+  "audio-failed"
+]);
+const CHECKED_VIDEO_TYPES = new Set([
+  "synthetic-auto", "auto-auto", "manual-auto", "audio", "paired"
+]);
+
+function classifyPairKind(pairKind) {
+  const provenance = PAIR_PROVENANCE[pairKind];
+  return provenance ? { ...provenance } : {
+    pairClass: "",
+    censoredKind: "",
+    uncensoredKind: ""
+  };
+}
+
+function summarizePairItems(items) {
+  const counts = { manualAuto: 0, autoAuto: 0, synthetic: 0 };
+  for (const item of items || []) {
+    if (item.status !== "paired-saved") continue;
+    const pairClass = item.pairClass || classifyPairKind(item.pairKind).pairClass;
+    if (pairClass === "manual-auto") counts.manualAuto += 1;
+    else if (pairClass === "auto-auto") counts.autoAuto += 1;
+    else if (pairClass === "synthetic") counts.synthetic += 1;
+  }
+  return counts;
+}
+
+function checkedVideoType(args) {
+  if (args.syntheticAutoOnly) return "synthetic-auto";
+  if (args.autoAutoOnly) return "auto-auto";
+  if (args.manualAutoOnly) return "manual-auto";
+  if (args.pairTarget === 0 && args.audioTarget > 0) return "audio";
+  return "paired";
+}
+
+function checkedVideoKey(videoId, checkType) {
+  return `${videoId}|${checkType}`;
+}
+
+function emptyCheckedVideoLedger() {
+  return { version: CHECKED_LEDGER_VERSION, checks: Object.create(null) };
+}
+
+function loadCheckedVideoLedger(filePath = checkedLedgerPath) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    if (parsed && parsed.version === CHECKED_LEDGER_VERSION &&
+        parsed.checks && typeof parsed.checks === "object" && !Array.isArray(parsed.checks)) {
+      const checks = Object.fromEntries(Object.entries(parsed.checks).filter(([key, status]) => {
+        const separator = key.indexOf("|");
+        return separator > 0 && CHECKED_VIDEO_TYPES.has(key.slice(separator + 1)) &&
+          NEGATIVE_CHECK_STATUSES.has(status);
+      }));
+      return { version: CHECKED_LEDGER_VERSION, checks };
+    }
+  } catch { /* an absent or incomplete ledger is safe to rebuild */ }
+  return emptyCheckedVideoLedger();
+}
+
+function saveCheckedVideoLedger(ledger, filePath = checkedLedgerPath) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  writeAtomic(filePath, JSON.stringify(ledger));
+}
+
+function hasCheckedVideo(ledger, videoId, checkType) {
+  return NEGATIVE_CHECK_STATUSES.has(ledger?.checks?.[checkedVideoKey(videoId, checkType)]);
+}
+
+function recordCheckedVideo(ledger, videoId, checkType, status) {
+  if (!videoId || !checkType || !NEGATIVE_CHECK_STATUSES.has(status)) return false;
+  const key = checkedVideoKey(videoId, checkType);
+  if (ledger.checks[key] === status) return false;
+  ledger.checks[key] = status;
+  return true;
+}
+
+function checkedVideoTypeFromReport(report) {
+  return checkedVideoType({
+    syntheticAutoOnly: report.syntheticAutoOnly === true,
+    autoAutoOnly: report.autoAutoOnly === true,
+    manualAutoOnly: report.manualAutoOnly === true,
+    pairTarget: Number(report.pairTarget) || 0,
+    audioTarget: Number(report.audioTarget) || 0
+  });
+}
+
+function importCheckedVideoReports(ledger, reportsDir, excludePath) {
+  if (!fs.existsSync(reportsDir)) return false;
+  const excluded = excludePath ? path.resolve(excludePath) : "";
+  let changed = false;
+  for (const name of fs.readdirSync(reportsDir)) {
+    if (!name.endsWith("-report.json")) continue;
+    const filePath = path.join(reportsDir, name);
+    if (path.resolve(filePath) === excluded || fs.existsSync(`${filePath}.lock`)) continue;
+    let report;
+    try {
+      report = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    } catch { continue; }
+    if (!report || typeof report !== "object" || Array.isArray(report)) continue;
+    const checkType = checkedVideoTypeFromReport(report);
+    for (const channel of report.channels || []) {
+      for (const item of channel.items || []) {
+        if (recordCheckedVideo(ledger, item.id, item.checkType || checkType, item.status)) {
+          changed = true;
+        }
+      }
+    }
+  }
+  return changed;
+}
+
+function distributedSample(items, limit) {
+  if (!limit || items.length <= limit) return items;
+  if (limit === 1) return [items[0]];
+  return Array.from({ length: limit }, (_, index) =>
+    items[Math.round(index * (items.length - 1) / (limit - 1))]);
+}
 
 function parseArgs(argv) {
   const args = {
     channels: "",
     revisit: "false",
     "dry-run": "false",
+    "synthetic-auto-only": "false",
+    "auto-auto-only": "false",
+    "manual-auto-only": "false",
     "max-check": "50",
     "pair-target": "12",
     "audio-target": "3",
     "audio-slot-threshold": "10",
+    "new-slot-cap": "0",
     "skip-after-clean": "12",
     "list-limit": "80",
+    "sample-per-channel": "0",
     jobs: "2",
     retries: "2",
     "retry-delay": "15",
+    "request-sleep": "1",
+    "max-global-429": "4",
     config: channelsPath,
     report: reportPath,
+    "checked-ledger": checkedLedgerPath,
     "cookies-from-browser": ""
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -49,24 +202,38 @@ function parseArgs(argv) {
     }
   }
   args.dryRun = args["dry-run"] === "true";
+  args.syntheticAutoOnly = args["synthetic-auto-only"] === "true";
+  args.autoAutoOnly = args["auto-auto-only"] === "true";
+  args.manualAutoOnly = args["manual-auto-only"] === "true";
   args.revisit = args.revisit === "true";
   args.maxCheck = Number(args["max-check"]);
   args.pairTarget = Number(args["pair-target"]);
   args.audioTarget = Number(args["audio-target"]);
   args.audioSlotThreshold = Number(args["audio-slot-threshold"]);
+  args.newSlotCap = Number(args["new-slot-cap"]);
   args.skipAfterClean = Number(args["skip-after-clean"]);
   args.listLimit = Number(args["list-limit"]);
+  args.samplePerChannel = Number(args["sample-per-channel"]);
   args.jobs = Number(args.jobs);
   args.retries = Number(args.retries);
   args.retryDelay = Number(args["retry-delay"]);
+  args.requestSleep = Number(args["request-sleep"]);
+  args.maxGlobal429 = Number(args["max-global-429"]);
   args.cookiesFromBrowser = String(args["cookies-from-browser"]).trim();
+  args.checkedLedger = String(args["checked-ledger"]).trim() || checkedLedgerPath;
   const positive = [args.maxCheck, args.listLimit, args.jobs, args.retryDelay];
-  const nonnegative = [args.pairTarget, args.audioTarget, args.audioSlotThreshold, args.skipAfterClean, args.retries];
+  const nonnegative = [args.pairTarget, args.audioTarget, args.audioSlotThreshold,
+    args.skipAfterClean, args.retries, args.newSlotCap, args.maxGlobal429,
+    args.samplePerChannel];
   if (!positive.every((n) => Number.isInteger(n) && n > 0) ||
-      !nonnegative.every((n) => Number.isInteger(n) && n >= 0)) {
+      !nonnegative.every((n) => Number.isInteger(n) && n >= 0) ||
+      !Number.isFinite(args.requestSleep) || args.requestSleep < 0) {
     throw new Error("Limits/jobs must be positive; targets and thresholds may be zero.");
   }
   args.channelFilter = new Set(String(args.channels).split(",").map((s) => s.trim()).filter(Boolean));
+  if ([args.syntheticAutoOnly, args.autoAutoOnly, args.manualAutoOnly].filter(Boolean).length > 1) {
+    throw new Error("Caption pair-only modes are mutually exclusive.");
+  }
   return args;
 }
 
@@ -74,12 +241,16 @@ let retryCount = 2;
 let retryDelayMs = 15000;
 let blockedUntil = 0;
 let cookiesArgs = [];
+let requestSleepSeconds = 1;
+let maxGlobal429 = 4;
+let consecutiveGlobal429 = 0;
+let runAborted = false;
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 function transientFailure(result) {
   return result.status !== 0 &&
-    /(?:HTTP Error 429|Too Many Requests|confirm you.re not a bot|temporar(?:y|ily)|timed? out|connection reset)/i
+    /(?:HTTP Error 429|Too Many Requests|confirm you.re not a bot|temporar(?:y|ily)|timed? out|connection reset|failed to resolve|name or service not known|network is unreachable)/i
       .test(`${result.stdout}\n${result.stderr}`);
 }
 
@@ -89,7 +260,8 @@ async function waitForBackoff() {
 
 function runYtDlp(ytArgs) {
   return new Promise((resolve) => {
-    const child = spawn("yt-dlp", ["--sleep-requests", "1", ...cookiesArgs, ...ytArgs], {
+    const child = spawn("yt-dlp", ["--sleep-requests", String(requestSleepSeconds),
+      ...cookiesArgs, ...ytArgs], {
       stdio: ["ignore", "pipe", "pipe"]
     });
     let stdout = "";
@@ -110,7 +282,10 @@ async function runYtDlpWithRetry(ytArgs) {
   for (let attempt = 0; attempt <= retryCount; attempt += 1) {
     await waitForBackoff();
     result = await runYtDlp(ytArgs);
-    if (!transientFailure(result)) return result;
+    if (!transientFailure(result)) {
+      consecutiveGlobal429 = 0;
+      return result;
+    }
     if (attempt < retryCount) {
       const delay = retryDelayMs * (2 ** attempt);
       blockedUntil = Math.max(blockedUntil, Date.now() + delay);
@@ -118,6 +293,14 @@ async function runYtDlpWithRetry(ytArgs) {
     }
   }
   result.transient = true;
+  if (/HTTP Error 429|Too Many Requests|confirm you.re not a bot/i
+    .test(`${result.stdout}\n${result.stderr}`)) {
+    consecutiveGlobal429 += 1;
+    if (maxGlobal429 && consecutiveGlobal429 >= maxGlobal429) {
+      runAborted = true;
+      result.abortRun = true;
+    }
+  }
   blockedUntil = Math.max(blockedUntil, Date.now() + retryDelayMs * 8);
   console.warn(`[yt-dlp] rate limited; pausing new requests for ${retryDelayMs * 8 / 1000}s`);
   return result;
@@ -127,6 +310,7 @@ function throwIfTransient(result) {
   if (!result.transient) return;
   const error = new Error("yt-dlp transient failure");
   error.transient = true;
+  error.abortRun = result.abortRun;
   throw error;
 }
 
@@ -137,23 +321,28 @@ async function listEntries(source, limit) {
   const result = await runYtDlpWithRetry([
     "--flat-playlist",
     "--playlist-end", String(limit),
-    "--print", "%(id)s\t%(title)s\t%(channel)s\t%(webpage_url)s",
+    "--print", "%(id)s\t%(title)s\t%(channel)s\t%(channel_id)s\t%(webpage_url)s",
     "--ignore-errors",
     expanded
   ]);
+  throwIfTransient(result);
   if (result.status !== 0 && !result.stdout) {
     return { error: (result.stderr || "list failed").trim(), entries: [] };
   }
   const entries = String(result.stdout || "").split("\n").map((line) => {
-    const [id, title, channel, url] = line.trim().split("\t");
+    const [id, title, channel, channelId, url] = line.trim().split("\t");
     if (!id || id === "NA" || id.length < 6) return null;
     return {
       id,
       title: title || id,
       channel: channel || "",
+      channelId: channelId === "NA" ? "" : channelId,
       url: url && url !== "NA" ? url : `https://www.youtube.com/watch?v=${id}`
     };
   }).filter(Boolean);
+  if (!entries.length) {
+    return { error: (result.stderr || "empty listing").trim(), entries: [] };
+  }
   return { error: "", entries };
 }
 
@@ -199,6 +388,66 @@ function hasSwears(filePath) {
   return ALLOWED_WORDS_RE.test(readCaptionText(filePath));
 }
 
+function synthesizeCensoredCaption(sourcePath, destinationPath) {
+  const payload = JSON.parse(fs.readFileSync(sourcePath, "utf8"));
+  let slots = 0;
+  for (const event of payload.events || []) {
+    for (const segment of event.segs || []) {
+      segment.utf8 = String(segment.utf8 || "").replace(ALLOWED_WORDS_RE, (match, prefix) => {
+        slots += 1;
+        return `${prefix}[__]`;
+      });
+    }
+  }
+  if (slots) fs.writeFileSync(destinationPath, JSON.stringify(payload));
+  return slots;
+}
+
+function captionEvents(filePath) {
+  try {
+    const payload = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    return (payload.events || []).map((event) => ({
+      start: Number(event.tStartMs || 0),
+      end: Number(event.tStartMs || 0) + Number(event.dDurationMs || 0),
+      text: (event.segs || []).map((segment) => segment.utf8 || "").join("")
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function hasTimedGroundTruth(censoredPath, uncensoredPath, requireSameTimeline = false) {
+  const censoredEvents = captionEvents(censoredPath);
+  const uncensoredEvents = captionEvents(uncensoredPath);
+  const sameTimeline = censoredEvents.length === uncensoredEvents.length &&
+    censoredEvents.every((event, index) => (
+      event.start === uncensoredEvents[index].start && event.end === uncensoredEvents[index].end
+    ));
+  let found = false;
+  const valid = sameTimeline && censoredEvents.every((event, index) => {
+    CENSORED_RE.lastIndex = 0;
+    if (!CENSORED_RE.test(event.text)) return true;
+    found = true;
+    const pattern = event.text.split(/\[\s*__\s*\]/u)
+      .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("([\\s\\S]*?)");
+    const match = new RegExp(`^${pattern}$`, "u").exec(uncensoredEvents[index].text);
+    return Boolean(match && match.slice(1).every((replacement) => (
+      requireSameTimeline ? groundTruthWords(replacement).length : /\p{L}/u.test(replacement)
+    )));
+  });
+  if (found && valid) return true;
+  if (requireSameTimeline) return false;
+  const censored = censoredEvents.filter((event) => {
+    CENSORED_RE.lastIndex = 0;
+    return CENSORED_RE.test(event.text);
+  });
+  const uncensored = uncensoredEvents.filter((event) => groundTruthWords(event.text).length);
+  return censored.some((slot) => uncensored.some((candidate) => (
+    candidate.start <= slot.end + 1500 && candidate.end >= slot.start - 1500
+  )));
+}
+
 function hasAudio(videoId) {
   return fs.existsSync(audioDir) &&
     fs.readdirSync(audioDir).some((name) => name.startsWith(`${videoId}.`));
@@ -208,6 +457,49 @@ function removeFile(filePath) {
   try {
     if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
   } catch { /* ignore cleanup failures */ }
+}
+
+function writeAtomic(filePath, contents) {
+  const temporaryPath = `${filePath}.tmp-${process.pid}`;
+  try {
+    fs.writeFileSync(temporaryPath, contents);
+    fs.renameSync(temporaryPath, filePath);
+  } catch (error) {
+    removeFile(temporaryPath);
+    throw error;
+  }
+}
+
+function acquireReportLock(filePath) {
+  const lockPath = `${filePath}.lock`;
+  try {
+    const descriptor = fs.openSync(lockPath, "wx");
+    fs.writeFileSync(descriptor, String(process.pid));
+    fs.closeSync(descriptor);
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+    const owner = fs.readFileSync(lockPath, "utf8").trim() || "unknown";
+    throw new Error(`Report is already being written by PID ${owner}: ${filePath}`);
+  }
+  let released = false;
+  const stop = (code) => () => {
+    release();
+    process.exit(code);
+  };
+  const stopInt = stop(130);
+  const stopTerm = stop(143);
+  const release = () => {
+    if (released) return;
+    released = true;
+    removeFile(lockPath);
+    process.removeListener("exit", release);
+    process.removeListener("SIGINT", stopInt);
+    process.removeListener("SIGTERM", stopTerm);
+  };
+  process.once("exit", release);
+  process.once("SIGINT", stopInt);
+  process.once("SIGTERM", stopTerm);
+  return release;
 }
 
 function cleanupVariants(videoId, keep = []) {
@@ -297,7 +589,7 @@ async function downloadAudio(url, videoId) {
   return result.status === 0 && hasAudio(videoId);
 }
 
-async function tryAlternateGroundTruth(entry, autoLang, slots, destination) {
+async function tryAlternateGroundTruth(entry, autoLang, slots, censoredPath, destination) {
   const template = path.join(fixturesDir, `${entry.id}_gt.%(ext)s`);
   for (const lang of ["en-en", "en"]) {
     if (lang === autoLang) continue;
@@ -312,7 +604,7 @@ async function tryAlternateGroundTruth(entry, autoLang, slots, destination) {
       .find((candidate) => candidate.startsWith(`${entry.id}_gt.`) && candidate.endsWith(".json3"));
     if (!name) continue;
     const filePath = path.join(fixturesDir, name);
-    if (hasSwears(filePath) && countCensored(filePath) < slots) {
+    if (hasTimedGroundTruth(censoredPath, filePath, true) && countCensored(filePath) < slots) {
       fs.renameSync(filePath, destination);
       cleanupVariants(entry.id, [destination]);
       return `auto-${lang}`;
@@ -327,10 +619,14 @@ async function processVideo(entry, args, known, stats) {
     id: entry.id,
     title: entry.title,
     channel: entry.channel,
+    creatorId: entry.channelId || "",
     source: entry.source,
     status: "",
     slots: 0,
-    pairKind: ""
+    pairKind: "",
+    pairClass: "",
+    censoredKind: "",
+    uncensoredKind: ""
   };
   if (known.paired.has(entry.id)) {
     item.status = "skipped-existing-paired";
@@ -354,10 +650,18 @@ async function processVideo(entry, args, known, stats) {
     return item;
   }
 
-  const captions = await probe(entry.url);
-  const autoPath = captions.autoLang
+  const existingAutoPath = args.autoAutoOnly
+    ? path.join(fixturesDir, `${entry.id}_auto.en.json3`) : "";
+  const preserveAuto = Boolean(existingAutoPath && fs.existsSync(existingAutoPath));
+  const captions = preserveAuto ? { autoLang: "" } : await probe(entry.url);
+  if (args.manualAutoOnly && !captions.manualLang) {
+    item.status = "no-manual";
+    stats.noManual += 1;
+    return item;
+  }
+  const autoPath = preserveAuto ? existingAutoPath : (captions.autoLang
     ? await downloadCaption(entry.url, entry.id, "auto", captions.autoLang)
-    : "";
+    : "");
   if (!autoPath) {
     item.status = "no-automatic";
     stats.noAutomatic += 1;
@@ -365,31 +669,73 @@ async function processVideo(entry, args, known, stats) {
   }
   const slots = countCensored(autoPath);
   item.slots = slots;
+  if (args.syntheticAutoOnly) {
+    if (slots || !hasSwears(autoPath)) {
+      removeFile(autoPath);
+      cleanupVariants(entry.id);
+      item.status = slots ? "already-censored-auto" : "no-allowed-words";
+      if (!slots) stats.noCensoredSlots += 1;
+      return item;
+    }
+    const manualPath = path.join(fixturesDir, `${entry.id}_manual.en.json3`);
+    fs.copyFileSync(autoPath, manualPath);
+    item.slots = synthesizeCensoredCaption(manualPath, autoPath);
+    if (!item.slots) {
+      removeFile(autoPath);
+      removeFile(manualPath);
+      item.status = "no-allowed-words";
+      stats.noCensoredSlots += 1;
+      return item;
+    }
+    if (args.newSlotCap && stats.newSlots + item.slots > args.newSlotCap) {
+      removeFile(autoPath);
+      removeFile(manualPath);
+      item.status = "new-slot-cap";
+      return item;
+    }
+    known.paired.add(entry.id);
+    known.autos.add(entry.id);
+    known.manuals.add(entry.id);
+    item.status = "paired-saved";
+    item.pairKind = "synthetic-auto";
+    Object.assign(item, classifyPairKind(item.pairKind));
+    stats.pairedSaved += 1;
+    stats.newSlots += item.slots;
+    stats.syntheticPaired += 1;
+    cleanupVariants(entry.id, [autoPath, manualPath]);
+    return item;
+  }
   if (!slots) {
-    removeFile(autoPath);
-    cleanupVariants(entry.id);
+    if (!preserveAuto) removeFile(autoPath);
+    cleanupVariants(entry.id, preserveAuto ? [autoPath] : []);
     item.status = "no-censored-slots";
     stats.noCensoredSlots += 1;
     return item;
   }
 
   if (needPair) {
+    if (args.newSlotCap && stats.newSlots + slots > args.newSlotCap) {
+      if (!preserveAuto) removeFile(autoPath);
+      cleanupVariants(entry.id, preserveAuto ? [autoPath] : []);
+      item.status = "new-slot-cap";
+      return item;
+    }
     const manualPath = path.join(fixturesDir, `${entry.id}_manual.en.json3`);
     let pairKind = "";
-    if (captions.manualLang) {
+    if (!args.autoAutoOnly && captions.manualLang) {
       const downloaded = await downloadCaption(
         entry.url, entry.id, "manual", captions.manualLang
       );
-      if (downloaded && hasSwears(downloaded) && countCensored(downloaded) < slots) {
+      if (downloaded && hasTimedGroundTruth(autoPath, downloaded) && countCensored(downloaded) < slots) {
         pairKind = captions.creatorManual ? "creator-manual" : "subtitle-en";
       } else {
         removeFile(downloaded);
         removeFile(manualPath);
       }
     }
-    if (!pairKind) {
+    if (!pairKind && !args.manualAutoOnly) {
       pairKind = await tryAlternateGroundTruth(
-        entry, captions.autoLang, slots, manualPath
+        entry, captions.autoLang, slots, autoPath, manualPath
       );
     }
     if (pairKind && fs.existsSync(autoPath) && fs.existsSync(manualPath)) {
@@ -398,9 +744,15 @@ async function processVideo(entry, args, known, stats) {
       known.manuals.add(entry.id);
       item.status = "paired-saved";
       item.pairKind = pairKind;
+      Object.assign(item, classifyPairKind(pairKind));
       stats.pairedSaved += 1;
+      stats.newSlots += slots;
       if (pairKind === "creator-manual") stats.creatorPaired += 1;
-      else stats.autoGtPaired += 1;
+      if (item.pairClass === "manual-auto") stats.manualAutoPaired += 1;
+      else if (item.pairClass === "auto-auto") {
+        stats.autoAutoPaired += 1;
+        stats.autoGtPaired += 1;
+      } else if (item.pairClass === "synthetic") stats.syntheticPaired += 1;
       cleanupVariants(entry.id, [autoPath, manualPath]);
       if (needAudio && slots >= args.audioSlotThreshold &&
           await downloadAudio(entry.url, entry.id)) {
@@ -435,9 +787,9 @@ async function processVideo(entry, args, known, stats) {
     return item;
   }
 
-  removeFile(autoPath);
+  if (!preserveAuto) removeFile(autoPath);
   removeFile(path.join(fixturesDir, `${entry.id}_manual.en.json3`));
-  cleanupVariants(entry.id);
+  cleanupVariants(entry.id, preserveAuto ? [autoPath] : []);
   item.status = "no-usable-gt";
   stats.noManual += 1;
   return item;
@@ -446,7 +798,7 @@ async function processVideo(entry, args, known, stats) {
 async function mapLimit(items, limit, worker) {
   let next = 0;
   async function runWorker() {
-    while (next < items.length) {
+    while (next < items.length && !runAborted) {
       const index = next;
       next += 1;
       await worker(items[index], index);
@@ -459,13 +811,29 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   retryCount = args.retries;
   retryDelayMs = args.retryDelay * 1000;
+  requestSleepSeconds = args.requestSleep;
+  maxGlobal429 = args.maxGlobal429;
+  consecutiveGlobal429 = 0;
+  runAborted = false;
   cookiesArgs = args.cookiesFromBrowser
     ? ["--cookies-from-browser", args.cookiesFromBrowser]
     : [];
   fs.mkdirSync(audioDir, { recursive: true });
   fs.mkdirSync(path.dirname(args.report), { recursive: true });
+  fs.mkdirSync(path.dirname(args.checkedLedger), { recursive: true });
+  acquireReportLock(args.report);
+  if (path.resolve(args.checkedLedger) !== path.resolve(args.report)) {
+    acquireReportLock(args.checkedLedger);
+  }
 
-  const config = JSON.parse(fs.readFileSync(args.config, "utf8"));
+  const rawConfig = JSON.parse(fs.readFileSync(args.config, "utf8"));
+  const config = rawConfig.channels ? rawConfig : {
+    channels: (rawConfig.candidates || []).map((candidate) => ({
+      name: candidate.name,
+      channelId: candidate.channelId || "",
+      sources: [candidate.url]
+    }))
+  };
   let previousChannels = new Map();
   if (fs.existsSync(args.report)) {
     try {
@@ -493,13 +861,36 @@ async function main() {
   }
 
   const known = existingFixtures();
+  const checkedLedger = loadCheckedVideoLedger(args.checkedLedger);
+  const hadCheckedLedger = Object.keys(checkedLedger.checks).length > 0;
+  let checkedLedgerDirty = false;
+  const checkType = checkedVideoType(args);
+  if (!hadCheckedLedger && args.checkedLedger === checkedLedgerPath) {
+    checkedLedgerDirty = importCheckedVideoReports(
+      checkedLedger, path.dirname(args.checkedLedger), args.report
+    );
+  }
+  if (!args.revisit) {
+    for (const channel of previousChannels.values()) {
+      for (const item of channel.items || []) {
+        if (recordCheckedVideo(
+          checkedLedger, item.id, item.checkType || checkType, item.status
+        )) checkedLedgerDirty = true;
+      }
+    }
+  }
   const untouchedReports = args.channelFilter.size
     ? [...previousChannels.values()].filter((channel) => !args.channelFilter.has(channel.name))
     : [];
   const report = {
+    pairProvenanceVersion: PAIR_PROVENANCE_VERSION,
+    syntheticAutoOnly: args.syntheticAutoOnly,
+    autoAutoOnly: args.autoAutoOnly,
+    manualAutoOnly: args.manualAutoOnly,
     pairTarget: args.pairTarget,
     audioTarget: args.audioTarget,
     audioSlotThreshold: args.audioSlotThreshold,
+    newSlotCap: args.newSlotCap,
     jobs: args.jobs,
     retries: args.retries,
     retryDelay: args.retryDelay,
@@ -516,43 +907,69 @@ async function main() {
   );
 
   function saveReport() {
+    if (checkedLedgerDirty) {
+      saveCheckedVideoLedger(checkedLedger, args.checkedLedger);
+      checkedLedgerDirty = false;
+    }
     report.channels = untouchedReports.concat(channelReports.filter(Boolean));
-    fs.writeFileSync(args.report, JSON.stringify(report, null, 2));
+    writeAtomic(args.report, JSON.stringify(report, null, 2));
   }
 
   saveReport();
   await mapLimit(channels, args.jobs, async (channel, channelIndex) => {
     const previous = args.revisit ? {} : previousChannels.get(channel.name) || {};
     const previousAudio = previous.audioSaved ?? previous.audioFallbackSaved ?? 0;
+    const previousItems = (previous.items || []).map((item) => item.pairClass
+      ? item
+      : { ...item, ...classifyPairKind(item.pairKind) });
+    const previousPairCounts = summarizePairItems(previousItems);
+    const previousSlots = previousItems.reduce((total, item) =>
+      total + (item.status === "paired-saved" ? Number(item.slots) || 0 : 0), 0);
     if (previous.complete && previous.pairedSaved >= args.pairTarget &&
-        previousAudio >= args.audioTarget) return;
+        previousAudio >= args.audioTarget) {
+      previous.items = previousItems;
+      previous.manualAutoPaired ??= previousPairCounts.manualAuto;
+      previous.autoAutoPaired ??= previousPairCounts.autoAuto;
+      previous.syntheticPaired ??= previousPairCounts.synthetic;
+      channelReports[channelIndex] = previous;
+      saveReport();
+      return;
+    }
     const stats = {
       name: channel.name,
       sources: channel.sources || [],
       availableEntries: previous.availableEntries || 0,
       checked: previous.checked || 0,
       pairedSaved: previous.pairedSaved || 0,
+      newSlots: previous.newSlots ?? previousSlots,
       creatorPaired: previous.creatorPaired || 0,
       autoGtPaired: previous.autoGtPaired || 0,
+      manualAutoPaired: previous.manualAutoPaired ?? previousPairCounts.manualAuto,
+      autoAutoPaired: previous.autoAutoPaired ?? previousPairCounts.autoAuto,
+      syntheticPaired: previous.syntheticPaired ?? previousPairCounts.synthetic,
       audioSaved: previousAudio,
       pairedAudioSaved: previous.pairedAudioSaved || 0,
       audioFallbackSaved: previous.audioFallbackSaved || 0,
       skippedExisting: 0,
+      skippedChecked: 0,
       noManual: previous.noManual || 0,
       noAutomatic: previous.noAutomatic || 0,
       noCensoredSlots: previous.noCensoredSlots || 0,
       transientFailures: previous.transientFailures || 0,
+      listFailures: previous.listFailures || 0,
       failed: previous.failed || 0,
-      items: previous.items || [],
+      items: previousItems,
       complete: false
     };
     channelReports[channelIndex] = stats;
     let consecutiveClean = 0;
+    const isClean = (item) => item.status !== "transient-failure" &&
+      (args.syntheticAutoOnly ? item.status !== "paired-saved" :
+        (!item.slots || item.status === "no-usable-gt"));
     for (let index = stats.items.length - 1; index >= 0; index -= 1) {
       const item = stats.items[index];
       if (item.status === "paired-saved") break;
-      if (item.status !== "transient-failure" &&
-          (!item.slots || item.status === "no-usable-gt")) consecutiveClean += 1;
+      if (isClean(item)) consecutiveClean += 1;
     }
     if (consecutiveClean >= args.skipAfterClean) {
       stats.complete = true;
@@ -564,35 +981,66 @@ async function main() {
 
     const seen = new Set();
     const queue = [];
+    let listedSource = false;
+    let listingFailed = false;
     for (const source of channel.sources || []) {
-      const { error, entries } = await listEntries(source, args.listLimit);
+      let listed;
+      try {
+        listed = await listEntries(source, args.listLimit);
+      } catch (error) {
+        if (error.abortRun || !error.transient) throw error;
+        stats.transientFailures += 1;
+        console.log(`[${channel.name}] list ${source}: transient failure`);
+        continue;
+      }
+      const { error, entries } = listed;
       if (error && !entries.length) {
+        listingFailed = true;
         console.log(`[${channel.name}] list ${source}: fail: ${error.slice(0, 100)}`);
         continue;
       }
+      listedSource = true;
       let added = 0;
       for (const entry of entries) {
         if (seen.has(entry.id)) continue;
         seen.add(entry.id);
-        queue.push({ ...entry, source });
+        queue.push({ ...entry, channelId: entry.channelId || channel.channelId || "", source });
         added += 1;
       }
       console.log(`[${channel.name}] list ${source}: ${entries.length} listed, ${added} new`);
     }
 
+    if (listingFailed && !listedSource) {
+      stats.listFailures += 1;
+      saveReport();
+      return;
+    }
+
+    const sampledQueue = distributedSample(queue, args.samplePerChannel);
     stats.availableEntries = Math.max(stats.availableEntries, queue.length);
     const processed = new Set(stats.items
       .filter((item) => item.status !== "transient-failure")
       .map((item) => item.id));
-    const pending = queue.filter((entry) => {
+    const pending = sampledQueue.filter((entry) => {
       if (processed.has(entry.id)) return false;
-      if (!known.paired.has(entry.id)) return true;
-      stats.skippedExisting += 1;
-      return false;
+      if (known.paired.has(entry.id)) {
+        stats.skippedExisting += 1;
+        return false;
+      }
+      if (checkType === "audio" && known.audioOnly.has(entry.id)) {
+        stats.skippedExisting += 1;
+        return false;
+      }
+      if (!args.revisit && hasCheckedVideo(checkedLedger, entry.id, checkType)) {
+        stats.skippedChecked += 1;
+        return false;
+      }
+      return true;
     });
 
     for (const entry of pending) {
-      if (stats.pairedSaved >= args.pairTarget && stats.audioSaved >= args.audioTarget) break;
+      if ((args.newSlotCap && stats.newSlots >= args.newSlotCap * 0.99) ||
+          (stats.pairedSaved >= args.pairTarget && stats.audioSaved >= args.audioTarget)) break;
       if (stats.checked >= args.maxCheck) break;
       if (consecutiveClean >= args.skipAfterClean) {
         console.log(
@@ -611,25 +1059,34 @@ async function main() {
       try {
         item = await processVideo(entry, args, known, stats);
       } catch (error) {
+        if (error.abortRun) throw error;
         if (!error.transient) throw error;
         stats.transientFailures += 1;
         item = {
           id: entry.id,
           title: entry.title,
           channel: entry.channel,
+          creatorId: entry.channelId || "",
           source: entry.source,
           status: "transient-failure",
           slots: 0,
-          pairKind: ""
+          pairKind: "",
+          pairClass: "",
+          censoredKind: "",
+          uncensoredKind: "",
+          checkType
         };
       } finally {
         inFlight.delete(entry.id);
       }
+      item.checkType = checkType;
+      if (recordCheckedVideo(checkedLedger, item.id, checkType, item.status)) {
+        checkedLedgerDirty = true;
+      }
       stats.items.push(item);
       saveReport();
       if (item.status === "paired-saved") consecutiveClean = 0;
-      else if (item.status !== "transient-failure" &&
-        (!item.slots || item.status === "no-usable-gt")) consecutiveClean += 1;
+      else if (isClean(item)) consecutiveClean += 1;
       const extra = [item.slots ? `slots=${item.slots}` : "", item.pairKind]
         .filter(Boolean).join(" ");
       console.log(`[${channel.name}] [${stats.checked}] ${item.status}${extra ? ` ${extra}` : ""}`);
@@ -639,35 +1096,48 @@ async function main() {
     saveReport();
     console.log(
       `[${channel.name}] summary: paired=${stats.pairedSaved} ` +
-      `(creator=${stats.creatorPaired} autoGT=${stats.autoGtPaired}) ` +
+      `(manual-auto=${stats.manualAutoPaired} auto-auto=${stats.autoAutoPaired} ` +
+      `synthetic=${stats.syntheticPaired}) ` +
       `audio=${stats.audioSaved} (paired=${stats.pairedAudioSaved} ` +
       `fallback=${stats.audioFallbackSaved}) checked=${stats.checked}`
     );
   });
 
-  report.finishedAt = new Date().toISOString();
+  if (report.channels.every((channel) => channel.complete)) {
+    report.finishedAt = new Date().toISOString();
+  }
   report.totals = report.channels.reduce((totals, channel) => {
+    const pairCounts = summarizePairItems(channel.items);
     totals.paired += channel.pairedSaved;
+    totals.newSlots += channel.newSlots || 0;
     totals.creatorPaired += channel.creatorPaired;
     totals.autoGtPaired += channel.autoGtPaired;
+    totals.manualAutoPaired += channel.manualAutoPaired ?? pairCounts.manualAuto;
+    totals.autoAutoPaired += channel.autoAutoPaired ?? pairCounts.autoAuto;
+    totals.syntheticPaired += channel.syntheticPaired ?? pairCounts.synthetic;
     totals.audio += channel.audioSaved;
     totals.pairedAudio += channel.pairedAudioSaved;
     totals.audioFallback += channel.audioFallbackSaved;
     totals.checked += channel.checked;
     totals.transientFailures += channel.transientFailures;
-    ["noAutomatic", "noCensoredSlots", "noManual", "failed", "skippedExisting"].forEach((key) => {
+    ["noAutomatic", "noCensoredSlots", "noManual", "failed", "listFailures", "skippedExisting", "skippedChecked"].forEach((key) => {
       totals[key] = (totals[key] || 0) + (channel[key] || 0);
     });
     return totals;
   }, {
     paired: 0,
+    newSlots: 0,
     creatorPaired: 0,
     autoGtPaired: 0,
+    manualAutoPaired: 0,
+    autoAutoPaired: 0,
+    syntheticPaired: 0,
     audio: 0,
     pairedAudio: 0,
     audioFallback: 0,
     checked: 0,
-    transientFailures: 0
+    transientFailures: 0,
+    skippedChecked: 0
   });
   saveReport();
   console.log(`\nDone. ${JSON.stringify(report.totals)}`);
@@ -681,4 +1151,22 @@ if (require.main === module) {
   });
 }
 
-module.exports = { hasSwears, parseArgs };
+module.exports = {
+  acquireReportLock,
+  classifyPairKind,
+  checkedVideoKey,
+  checkedVideoType,
+  checkedVideoTypeFromReport,
+  distributedSample,
+  hasSwears,
+  hasTimedGroundTruth,
+  hasCheckedVideo,
+  importCheckedVideoReports,
+  loadCheckedVideoLedger,
+  parseArgs,
+  recordCheckedVideo,
+  saveCheckedVideoLedger,
+  summarizePairItems,
+  synthesizeCensoredCaption,
+  writeAtomic
+};

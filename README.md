@@ -12,18 +12,13 @@ deaf and hard-of-hearing viewers. Audio, captions, and inference stay local.
 | Off | On | Use only local Whisper results. |
 | Off | Off | Leave captions unchanged. |
 
-In the fixed audio benchmark (23 videos, 525 scored slots), the default hybrid
-mode scored 92.6% precision and 91.2% coverage; Whisper-only scored 93.4%/89.1%.
-On the latest local paired-caption development snapshot, rules-only scored
-89.2% precision and 50.1% coverage across 113,036 aligned slots from 2,291
-contributing caption pairs (56,679 of 63,574 attempted slots correct). On the
-creator-held-out validation and test splits, precision was 88.6% and 88.5%, with
-54.5% and 49.1% coverage. The separate any-candidate diagnostic remains a
-candidate-oracle measurement, not a runtime score.
-
-On a broader unlabeled 82-video audio stress set, first-pass Whisper emitted
-3,047 of 4,788 fills (63.6%), rules-only emitted 2,071 (43.3%), and either
-first pass emitted 3,689 (77.0%). These are fill rates, not accuracy measurements.
+On the current local development corpus, strict rules-only evaluation scores
+89.60% precision and 44.81% coverage on 26,429 aligned manual-auto slots. The
+separate synthetic tier scores 89.94%/40.16% on 149,135 slots; the two auto-auto
+fixtures score 100%/80% on 10 aligned slots. The validation split has only nine synthetic
+slots (100% precision, 11.1% coverage), and no paired test fixtures were found,
+so there is not yet a defensible held-out test estimate. The any-candidate
+diagnostic remains a candidate-oracle measurement, not a runtime score.
 
 ### Evaluation caveats
 
@@ -44,8 +39,9 @@ introduce alignment error.
 - `page-hook.js` observes YouTube JSON3 captions and SABR media responses.
 - `timedtext.js` parses captions and gives every `[__]` slot a stable identity.
 - `rules-compiler.js` validates and expands reusable rule declarations.
-- `rule-data/` separates language sets, exact rules, grammar, and priors;
-  `rules-data.js` assembles them and `rules.js` supplies replacements and Whisper candidates.
+- `rule-data/` separates language sets, exact rules, and grammar;
+  `rules-data.js` assembles them with compact candidate priors, and `rules.js`
+  supplies replacements and Whisper candidates.
 - `sabr-parser.js` extracts audio already downloaded for playback.
 - `audio-capture.js` decodes only token-adjacent audio, queues inference, and
   reapplies results when YouTube redraws its rolling caption rows.
@@ -68,14 +64,23 @@ rules may emit. A word can therefore be recognized from audio without becoming
 a context-only guess. `WORD_ROLES` is a broader authoring catalog and does not
 by itself permit runtime output.
 
-Add newly supported censored words to `ALLOWED_WORDS`. Promote one to
-`RULE_WORDS` only when an exact rule or grammatical frame can identify it at the
-required precision. List order is stable because Whisper uses it to break ties.
+Add newly supported censored words to `ALLOWED_WORDS` only after the
+manual-auto audit confirms repeated whole-word evidence absent from visible
+automatic captions. A split form such as `chicken [__]` does not validate
+`chickenshit`. `NOT_CENSORED_WORDS` records swear labels that YouTube leaves visible in
+those tracks and is disjoint from `ALLOWED_WORDS`; the vocabulary-discovery
+audit skips them so a nearby visible swear cannot become a false new label. Promote one to `RULE_WORDS` only when an
+exact rule or grammatical frame can identify it at the required precision. List
+order is stable because Whisper uses it to break ties.
 
 ## Future plans
 - Continue replacing broad wildcard rules with validated concrete alternatives.
 - Continue validating creator-diverse paired-caption rules on held-out videos.
 - Expand conservative Whisper spelling repairs from paired audio evidence.
+- Re-run the caption audit after vocabulary changes; keep visible automatic
+  labels in `NOT_CENSORED_WORDS` and regenerate synthetic fixtures deliberately.
+- Follow [`docs/NEXT_RULE_IMPROVEMENT_PLAN.md`](docs/NEXT_RULE_IMPROVEMENT_PLAN.md)
+  for the frozen baseline, evidence gates, and next-session workflow.
 
 ## Limitations
 
@@ -137,6 +142,10 @@ below 50% alignment are retained for their valid slots but marked
 jq '.fixtures[] | select(.reviewRecommended) | {name, scoredCount, unscoredCount}' \
   corpus/generated/paired-rules-only-report.json
 ```
+
+Historical `_manual` filenames may contain manual or alternate automatic
+ground truth. See `docs/CAPTION_CORPUS_AUDIT.md` and use `--pairClass` to keep
+manual-auto, auto-auto, synthetic, and unknown evidence separate.
 
 Keep strict accuracy separate from the candidate-oracle benchmark, which counts
 a slot as correct when its answer appears anywhere in a matched rule's `|`
@@ -248,20 +257,89 @@ The local auxiliary adapters and their source/licensing notes are documented in
 [`docs/OPENSUBTITLES_EXPANDED_AUX.md`](docs/OPENSUBTITLES_EXPANDED_AUX.md) and
 [`docs/SBCSAE_CORPUS.md`](docs/SBCSAE_CORPUS.md).
 
-Resume the paired-caption download with audio disabled:
+### Growing the caption corpus
 
-```sh
-nohup node tools/download-paired-captions.js --pair-target 12 --audio-target 0 --jobs 3 >> logs/paired-caption-download.log 2>&1 &
-echo $! > logs/paired-caption-download.pid
+Put creator channels or playlists in a config shaped like
+`tools/paired-caption-channels.json`. Prefer profanity-rich conversational
+creators, include canonical `channelId` values when known, and give every run a
+descriptive report. Run one downloader at a time: the report and global
+checked-video ledger are locked, and the ledger deduplicates video IDs
+separately for each acquisition mode. `--pair-target`, `--max-check`, and
+`--new-slot-cap` apply per configured creator.
+
+```json
+{
+  "channels": [{
+    "name": "Creator name",
+    "channelId": "UC...",
+    "sources": ["https://www.youtube.com/@handle/videos"]
+  }]
+}
 ```
 
-Use `--channels Name[,Name] --revisit` to rescan selected creators while
-preserving unrelated channel progress in the same report.
+Real `manual-auto` pairs need both a censored automatic English track and a
+separate human English track with usable time-local ground truth. They are the
+primary rule evidence but are relatively rare:
+
+```sh
+node tools/download-paired-captions.js \
+  --config tools/paired-caption-channels.json \
+  --report corpus/generated/manual-auto-next-report.json \
+  --manual-auto-only true --audio-target 0 \
+  --pair-target 12 --new-slot-cap 5000 \
+  --list-limit 200 --sample-per-channel 30 \
+  --max-check 30 --skip-after-clean 12 --jobs 3
+```
+
+Uncensored-auto-derived synthetic pairs are the scalable path. They require
+only one uncensored automatic English track containing an `ALLOWED_WORDS`
+entry. The downloader saves the original as exact ground truth and creates a
+same-timeline censored copy locally. These are `synthetic`, not real
+`auto-auto`, and must remain a separate evaluation tier:
+
+```sh
+node tools/download-paired-captions.js \
+  --config tools/paired-caption-channels.json \
+  --report corpus/generated/synthetic-auto-next-report.json \
+  --synthetic-auto-only true --audio-target 0 \
+  --pair-target 50 --new-slot-cap 5000 \
+  --list-limit 200 --sample-per-channel 100 \
+  --max-check 100 --skip-after-clean 40 --jobs 3
+```
+
+This mode rejects already-censored tracks and tracks with no supported word.
+Adding a ground-truth-supported word to `ALLOWED_WORDS` therefore also expands
+future synthetic discovery. After such a vocabulary change, intentionally
+rescan selected creators with `--channels Name[,Name] --revisit`; otherwise the
+global ledger correctly skips previous clean negatives. Without `--revisit`,
+using the same config and report safely resumes unfinished work. A new report
+starts a new acquisition lane but still respects the global ledger.
+
+True `auto-auto` discovery needs two distinct automatic English tracks with an
+exact same-timeline replacement. It is much rarer—755 earlier checks plus a
+106-video Sseth and 200-video Ariel feed enumeration found no additional pair
+among 303 definitive outcomes; three videos remained transiently unavailable.
+It can be attempted explicitly with `--auto-auto-only true`. Never merge its
+results with synthetic pairs.
+
+After every acquisition, freeze writers and audit provenance before evaluating:
+
+```sh
+node tools/audit-caption-corpus.js \
+  --pair-class manual-auto,auto-auto,synthetic \
+  --output corpus/generated/caption-corpus-audit.json
+```
+
+Check the report's per-channel statuses before treating a run as exhausted.
+DNS failures, empty listings, rate limits, and other transient failures are not
+negative evidence. Keep `manual-auto`, `auto-auto`, and `synthetic` metrics
+separate, cap prolific creators with `--new-slot-cap`, and use
+`--sample-per-channel` to spread checks across a creator's catalog.
 
 ## Build
 
 ```sh
-./build.sh 1.5.1
+./build.sh 1.5.2
 ```
 
 This creates separate Chromium and Firefox ZIPs in `dist/`. See

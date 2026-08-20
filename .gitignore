@@ -6,3 +6,6 @@ tmp/
 corpus/
 logs/
 test-fixtures/
+.codex/
+.tmp-*.json
+-.en-orig.json3

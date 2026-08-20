@@ -4,14 +4,14 @@ const ALIGNMENT_DRIFTS = [1.5, 2, 3];
 const RUNTIME_WORD_SET = new Set(rules.ALLOWED_WORDS);
 // Ground truth may contain censored words that runtime deliberately does not
 // propose. Keep those labels local to paired-caption evaluation.
-const GROUND_TRUTH_WORDS = [...rules.ALLOWED_WORDS,
+const GROUND_TRUTH_WORDS = [...rules.ALLOWED_WORDS, ...rules.NOT_CENSORED_WORDS,
   "nigger", "nigga", "niggas", "retarded", "retard", "faggots", "fuckwit", "fucko", "fuckup",
   "sluts", "slutty", "bitchy", "shitballs", "shitshow", "dogshit", "clusterfuck", "fuckable", "ass", "asses",
   "bastard", "bastards", "piss", "pissed", "pissing", "crap",
   "dick", "shitty", "faggot", "cuck", "cucks", "tranny", "trannies",
   "fuckface", "genderfuck", "niggers", "fags", "midget", "midgets", "shemale",
   "chinaman", "sissy", "hooker", "dickshit", "dickgirl", "chickenshit",
-  "bullshits", "clit", "dipshits", "blowjob", "cunty", "spick", "cuntskeleton",
+  "clit", "dipshits", "blowjob", "cunty", "spick", "cuntskeleton",
   "shat"];
 const GROUND_TRUTH_WORD_SET = new Set(GROUND_TRUTH_WORDS);
 
@@ -103,7 +103,7 @@ function tokenLabel(value) {
   return GROUND_TRUTH_WORD_SET.has(root) ? root : "";
 }
 
-function manualSwearEvents(payload) {
+function manualSwearEvents(payload, includeEvaluationOnly = false) {
   const contextTokens = [];
   const swearEvents = (payload.events || []).flatMap((event, eventIndex) => {
     if (!event || !Array.isArray(event.segs)) return [];
@@ -115,7 +115,9 @@ function manualSwearEvents(payload) {
     const contextIndexes = [];
     tokens.forEach((value, index) => {
       const label = tokenLabel(value);
-      if (RUNTIME_WORD_SET.has(label)) contextIndexes.push(contextTokens.length);
+      if (label && (includeEvaluationOnly || RUNTIME_WORD_SET.has(label))) {
+        contextIndexes.push(contextTokens.length);
+      }
       contextTokens.push({
         value,
         label,
@@ -213,7 +215,7 @@ function lcs(left, right) {
   return row[right.length];
 }
 
-function contextProposal(token, manualTokens, usedOccurrences) {
+function contextProposal(token, manualTokens) {
   const parts = String(token.context || "").split(/\[\s*__\s*\]/u);
   const left = lexicalWords(parts[0]).slice(-10);
   const right = lexicalWords(parts[1]).slice(0, 10);
@@ -237,8 +239,7 @@ function contextProposal(token, manualTokens, usedOccurrences) {
   }).sort((leftCandidate, rightCandidate) => rightCandidate.score - leftCandidate.score);
   const best = candidates[0];
   if (!best || !best.label || !best.leftExact || !best.rightExact
-    || best.score - (candidates[1] ? candidates[1].score : 0) < 3
-    || usedOccurrences.has(best.contextIndex)) return null;
+    || best.score - (candidates[1] ? candidates[1].score : 0) < 3) return null;
   return best;
 }
 
@@ -274,6 +275,18 @@ function trackOffset(tokens, manualTokens) {
   return cluster.length % 2 ? cluster[middle] : (cluster[middle - 1] + cluster[middle]) / 2;
 }
 
+function normalizeCompoundLabel(word, context) {
+  const text = String(context || "").toLowerCase();
+  if (word === "shitballs" && /\[\s*__\s*\]\s+balls\b/u.test(text)) return "shit";
+  if (word === "shitshow" && /\[\s*__\s*\]\s+show\b/u.test(text)) return "shit";
+  if (word === "dogshit" && /\bdog\s+\[\s*__\s*\]/u.test(text)) return "shit";
+  if (word === "chickenshit" && /\bchicken\s+\[\s*__\s*\]/u.test(text)) return "shit";
+  if (word === "clusterfuck" && /\bcluster\s+\[\s*__\s*\]/u.test(text)) return "fuck";
+  if (word === "fuckface" && /\[\s*__\s*\]\s+face\b/u.test(text)) return "fuck";
+  if (word === "motherfucker" && /\bmother\s+\[\s*__\s*\]/u.test(text)) return "fucker";
+  return word;
+}
+
 function align(tokens, manualEvents, expectedByToken) {
   const manualTokens = manualEvents.contextTokens || [];
   const occurrences = manualEvents.flatMap((event) => event.words.map((word, index) => ({
@@ -296,15 +309,33 @@ function align(tokens, manualEvents, expectedByToken) {
     .filter((index) => index !== undefined)
     .map((index) => occurrences[index].contextIndex)
     .filter((index) => index !== undefined)));
+  const protectedTokens = new Set(Object.keys(expectedByToken || {}).map(Number));
   Object.entries(expectedByToken || {}).forEach(([tokenIndex, words]) => {
     expected.set(Number(tokenIndex), words[0]);
   });
-  tokens.filter((token) => !expected.has(token.tokenIndex))
-    .map((token) => ({ token, proposal: contextProposal(token, manualTokens, usedOccurrences) }))
+  // Prefer a unique two-sided lexical match over timing alone. This prevents a
+  // visible swear near the blank from being reused as the hidden label.
+  const proposals = tokens
+    .map((token) => ({ token, proposal: contextProposal(token, manualTokens) }))
     .filter(({ proposal }) => proposal)
-    .sort((left, right) => right.proposal.score - left.proposal.score)
+    .sort((left, right) => right.proposal.score - left.proposal.score);
+  const proposalByToken = new Map(proposals.map(({ token, proposal }) => [token.tokenIndex, proposal]));
+  proposals
     .forEach(({ token, proposal }) => {
-      if (usedOccurrences.has(proposal.contextIndex)) return;
+      const previousIndex = contextIndexByToken.get(token.tokenIndex);
+      const displaced = [...contextIndexByToken].find(([tokenIndex, contextIndex]) => (
+        tokenIndex !== token.tokenIndex && contextIndex === proposal.contextIndex
+      ));
+      if (displaced) {
+        const [displacedToken] = displaced;
+        const displacedProposal = proposalByToken.get(displacedToken);
+        if (protectedTokens.has(displacedToken) ||
+            displacedProposal?.score >= proposal.score) return;
+        expected.delete(displacedToken);
+        contextIndexByToken.delete(displacedToken);
+      }
+      if (usedOccurrences.has(proposal.contextIndex) && previousIndex !== proposal.contextIndex && !displaced) return;
+      if (previousIndex !== undefined) usedOccurrences.delete(previousIndex);
       expected.set(token.tokenIndex, proposal.label);
       contextIndexByToken.set(token.tokenIndex, proposal.contextIndex);
       usedOccurrences.add(proposal.contextIndex);
@@ -333,12 +364,8 @@ function align(tokens, manualEvents, expectedByToken) {
   tokens.forEach((token) => {
     const word = expected.get(token.tokenIndex);
     const context = String(token.context || "").toLowerCase();
-
-    if (word === "shitballs" && /\[\s*__\s*\]\s+balls\b/u.test(context)) expected.set(token.tokenIndex, "shit");
-    if (word === "shitshow" && /\[\s*__\s*\]\s+show\b/u.test(context)) expected.set(token.tokenIndex, "shit");
-    if (word === "dogshit" && /\bdog\s+\[\s*__\s*\]/u.test(context)) expected.set(token.tokenIndex, "shit");
-    if (word === "clusterfuck" && /\bcluster\s+\[\s*__\s*\]/u.test(context)) expected.set(token.tokenIndex, "fuck");
-    if (word === "motherfucker" && /\bmother\s+\[\s*__\s*\]/u.test(context)) expected.set(token.tokenIndex, "fucker");
+    const normalized = normalizeCompoundLabel(word, context);
+    if (normalized !== word) expected.set(token.tokenIndex, normalized);
     const contextIndex = contextIndexByToken.get(token.tokenIndex);
     const splitAssFuckery = manualTokens[contextIndex]?.value === "ass"
       && manualTokens[contextIndex + 1]?.value === "fuckery";
@@ -351,4 +378,4 @@ function align(tokens, manualEvents, expectedByToken) {
   })) };
 }
 
-module.exports = { align, groundTruthWords, manualSwearEvents };
+module.exports = { align, groundTruthWords, manualSwearEvents, normalizeCompoundLabel };

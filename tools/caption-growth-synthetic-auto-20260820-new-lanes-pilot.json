@@ -1,0 +1,36 @@
+{
+  "channels": [
+    {
+      "name": "UpIsNotJump",
+      "sources": [
+        "https://www.youtube.com/watch?v=dASMu4doTrY",
+        "https://www.youtube.com/watch?v=z1DnivbPt2g",
+        "https://www.youtube.com/watch?v=oo0xaSQ72Lw"
+      ]
+    },
+    {
+      "name": "KSI",
+      "sources": [
+        "https://www.youtube.com/watch?v=J0gaa02lg7E",
+        "https://www.youtube.com/watch?v=O9XQDICB3to",
+        "https://www.youtube.com/watch?v=2Y7F91vFM1g"
+      ]
+    },
+    {
+      "name": "UberHaxorNova",
+      "sources": [
+        "https://www.youtube.com/watch?v=PublmPeQYug",
+        "https://www.youtube.com/watch?v=quofY3GXYMc",
+        "https://www.youtube.com/watch?v=pdIL_DlCzsM"
+      ]
+    },
+    {
+      "name": "ChilledChaos",
+      "sources": [
+        "https://www.youtube.com/watch?v=wvsHjG8ewiE",
+        "https://www.youtube.com/watch?v=mSU3yyO-SAA",
+        "https://www.youtube.com/watch?v=16HogelkhsE"
+      ]
+    }
+  ]
+}

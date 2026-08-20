@@ -1,0 +1,28 @@
+{
+  "channels": [
+    {
+      "name": "Jacksfilms",
+      "sources": [
+        "https://www.youtube.com/watch?v=P0M0Bnet_KE",
+        "https://www.youtube.com/watch?v=xvb9sT_sTWg",
+        "https://www.youtube.com/watch?v=cQWiXed7Lts"
+      ]
+    },
+    {
+      "name": "SovietWomble",
+      "sources": [
+        "https://www.youtube.com/watch?v=yelMVr-6Jt0",
+        "https://www.youtube.com/watch?v=jEbxeV3RODg",
+        "https://www.youtube.com/watch?v=pfrIlbYiSaU"
+      ]
+    },
+    {
+      "name": "Bad Friends",
+      "sources": [
+        "https://www.youtube.com/watch?v=1DKGtW9jDIw",
+        "https://www.youtube.com/watch?v=QjYIUvBkU-o",
+        "https://www.youtube.com/watch?v=tkGS5uZJmPo"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "channels": [
+    {
+      "name": "TigerBelly",
+      "sources": [
+        "https://www.youtube.com/watch?v=7vwvE3LLkTc",
+        "https://www.youtube.com/watch?v=KyWr___4feI",
+        "https://www.youtube.com/watch?v=MuyvGsv4v4I"
+      ]
+    },
+    {
+      "name": "Tom Segura",
+      "sources": [
+        "https://www.youtube.com/watch?v=nR1YtaU-ztM",
+        "https://www.youtube.com/watch?v=HDSoYGf36aE",
+        "https://www.youtube.com/watch?v=qeXL4QXcoZY"
+      ]
+    },
+    {
+      "name": "The Click",
+      "sources": [
+        "https://www.youtube.com/watch?v=Zf5XgM7ixNM",
+        "https://www.youtube.com/watch?v=1LsGtoEWVp8",
+        "https://www.youtube.com/watch?v=fA5U51i0oyo"
+      ]
+    },
+    {
+      "name": "Oney Plays",
+      "sources": [
+        "https://www.youtube.com/watch?v=PKK5FmKeEb0",
+        "https://www.youtube.com/watch?v=nM-BC7ElJ_I",
+        "https://www.youtube.com/watch?v=3qb7p86rM-A"
+      ]
+    }
+  ]
+}

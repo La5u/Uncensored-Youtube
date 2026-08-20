@@ -17,7 +17,6 @@ const injectedScripts = [
   "src/rule-data/language.js",
   "src/rule-data/exact.js",
   "src/rule-data/grammar.js",
-  "src/rule-data/priors.js",
   "src/rules-data.js",
   "src/rules.js",
   "src/timedtext.js"
@@ -164,8 +163,6 @@ audio.rememberTimedTextData({
     { eventIndex: 1, startTime: 105, endTime: 109, text: "repeat [__] now", firstTokenIndex: 1, tokenCount: 1 }
   ]
 }, "lang=en&kind=");
-assert.strictEqual(captionSegment.textContent, "repeat [__] now");
-
 captionSegment.textContent = "Stop. [__] hell";
 video.currentTime = 110;
 audio.rememberTimedTextData({

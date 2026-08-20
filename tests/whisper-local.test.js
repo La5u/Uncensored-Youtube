@@ -10,6 +10,49 @@ assert.strictEqual(
   ).word,
   "fucking"
 );
+assert.strictEqual(
+  whisper.decisionFromTranscript(
+    "fuck shit, I don't know, fuck shit",
+    ["fuck", "shit"],
+    "I don't fudge that [__]. That was",
+    {}
+  ).word,
+  ""
+);
+assert.deepStrictEqual(
+  whisper.decisionFromTranscript(
+    "I gotta go why? fucking asshole",
+    ["fucking", "asshole"],
+    "No, go away. [__]",
+    { previousWord: "away" }
+  ),
+  {
+    word: "asshole",
+    words: ["fucking", "asshole"],
+    slotWords: [],
+    slotEvidence: [],
+    transcript: "I gotta go why? fucking asshole",
+    evidence: "transcript-tail"
+  }
+);
+assert.strictEqual(
+  whisper.decisionFromTranscript(
+    "the fucking guy giving this bitch",
+    ["fucking", "bitch"],
+    "Always Sunny the [__]",
+    { previousWord: "the" }
+  ).word,
+  "fucking"
+);
+assert.strictEqual(
+  whisper.decisionFromTranscript(
+    "go why fucking asshole",
+    ["fucking", "asshole"],
+    "go away [__] …",
+    { previousWord: "away" }
+  ).word,
+  ""
+);
 
 assert.strictEqual(
   whisper.decisionFromTranscript(
@@ -239,6 +282,45 @@ const articleSlots = whisper.decisionFromTranscript(
 assert.deepStrictEqual(articleSlots.slotWords, ["", ""]);
 assert.deepStrictEqual(articleSlots.slotEvidence, ["none", "none"]);
 
+// When a short Whisper window contains several profanities, an exact visible
+// tail is a safer placement anchor than the first profanity after the prefix.
+assert.strictEqual(
+  whisper.decisionFromTranscript(
+    "Fuck you fucking shit flower",
+    ["fuck", "fucking", "shit"],
+    "piece of [__] Flower",
+    { previousWord: "of" }
+  ).word,
+  "shit"
+);
+assert.strictEqual(
+  whisper.decisionFromTranscript(
+    "Peace are fucking shit. Go fuck.",
+    ["fuck", "fucking", "shit"],
+    "piece of [__] go",
+    { previousWord: "of", previousWordOffset: 1 }
+  ).word,
+  "shit"
+);
+assert.strictEqual(
+  whisper.decisionFromTranscript(
+    "Fuck yourself. Peace out fucking ass.",
+    ["fuck", "fucking"],
+    "piece of [__] ass",
+    { previousWord: "of" }
+  ).word,
+  "fucking"
+);
+assert.strictEqual(
+  whisper.decisionFromTranscript(
+    "out of my space as fucking shh ripper",
+    ["fuck", "fucking", "shit"],
+    "Get out of my spaces, [__] ripper",
+    { previousWord: "spaces" }
+  ).word,
+  ""
+);
+
 assert.deepStrictEqual(
   whisper.decisionFromTranscript(
     "He's a cloth. Greg is a cook shit.",
@@ -246,7 +328,61 @@ assert.deepStrictEqual(
     "[__] [__] [__]",
     { slotCount: 3 }
   ).words,
-  ["shit"]
+  ["cock", "shit"]
+);
+
+assert.strictEqual(
+  whisper.decisionFromTranscript(
+    "There you see that shift respect them",
+    ["shit"],
+    "there you see that [__] respect them",
+    { previousWord: "that" }
+  ).word,
+  "shit"
+);
+assert.strictEqual(
+  whisper.decisionFromTranscript(
+    "I'm shedding myself",
+    ["shitting"],
+    "I'm [__] myself",
+    { previousWord: "I'm" }
+  ).word,
+  "shitting"
+);
+assert.strictEqual(
+  whisper.decisionFromTranscript(
+    "Alright, fuck see I'm gonna let you cocksy, man",
+    ["cock", "fuck"],
+    "I'm gonna let you [__] see mine",
+    { previousWord: "you" }
+  ).word,
+  "cock"
+);
+assert.strictEqual(
+  whisper.decisionFromTranscript(
+    "Let the cook work",
+    ["shit"],
+    "let the [__] work",
+    { previousWord: "the" }
+  ).word,
+  ""
+);
+assert.strictEqual(
+  whisper.decisionFromTranscript(
+    "Let the cook work",
+    ["cock"],
+    "let the [__] work",
+    { previousWord: "the" }
+  ).word,
+  ""
+);
+assert.strictEqual(
+  whisper.decisionFromTranscript("The shift changed", ["shit"], "the [__] changed").word,
+  ""
+);
+assert.strictEqual(
+  whisper.decisionFromTranscript("I'm shedding light", ["shitting"], "I'm [__] light").word,
+  ""
 );
 
 const videoGroup = whisper.decisionFromTranscript(
@@ -393,16 +529,12 @@ assert.strictEqual(
 });
 
 [
-  ["shitballs", "Oh [__] balls", "shit"],
-  ["shitshow", "a complete [__] show", "shit"],
-  ["dogshit", "looks like dog [__]", "shit"],
-  ["clusterfuck", "a cluster [__]", "fuck"],
-  ["shitballs", "Oh [__]", "shitballs"]
+  ["clusterfuck", "a cluster [__]", "fuck"]
 ].forEach(([transcript, context, expected]) => {
   assert.strictEqual(
     whisper.decisionFromTranscript(
       transcript,
-      ["shit", "fuck", "shitballs", "shitshow", "dogshit", "clusterfuck"],
+      ["shit", "fuck", "clusterfuck"],
       context,
       {}
     ).word,

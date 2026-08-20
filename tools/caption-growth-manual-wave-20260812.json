@@ -1,0 +1,18 @@
+{
+  "channels": [
+    {"name": "Fundie Fridays", "sources": ["https://www.youtube.com/@FundieFridays/videos"]},
+    {"name": "Exactly Right Media", "sources": ["https://www.youtube.com/@ExactlyRightMedia/videos"]},
+    {"name": "Philosophy Tube", "sources": ["https://www.youtube.com/@PhilosophyTube/videos"]},
+    {"name": "Bailey Sarian", "sources": ["https://www.youtube.com/@BaileySarian/videos"]},
+    {"name": "Niko Omilana", "sources": ["https://www.youtube.com/@NikoOmilana/videos"]},
+    {"name": "Joshua Weissman", "sources": ["https://www.youtube.com/@JoshuaWeissman/videos"]},
+    {"name": "RedLetterMedia", "sources": ["https://www.youtube.com/@RedLetterMedia/videos"]},
+    {"name": "ContraPoints", "sources": ["https://www.youtube.com/@ContraPoints/videos"]},
+    {"name": "Cold Ones", "sources": ["https://www.youtube.com/@coldones/videos"]},
+    {"name": "The Official Podcast", "sources": ["https://www.youtube.com/@officialpodcast/videos"]},
+    {"name": "Jacksfilms", "sources": ["https://www.youtube.com/@jacksfilms/videos"]},
+    {"name": "Tom Segura", "sources": ["https://www.youtube.com/@TomSegura/videos"]},
+    {"name": "Bad Friends", "sources": ["https://www.youtube.com/@BadFriends/videos"]},
+    {"name": "F**kface Podcast", "sources": ["https://www.youtube.com/@Fkface/videos"]}
+  ]
+}

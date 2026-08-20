@@ -25,10 +25,11 @@ const compiled = {
     return { rule: plainRule(frame.rule), phrase: frame.phrase };
   })),
   allowed: data.ALLOWED_WORDS,
+  notCensored: data.NOT_CENSORED_WORDS,
   ruleWords: data.RULE_WORDS,
   roles: data.WORD_ROLES,
   priors: data.CANDIDATE_PRIORS
 };
 const digest = crypto.createHash("sha256").update(JSON.stringify(compiled)).digest("hex");
-assert.strictEqual(digest, "6d7c19649d8dd0bf52f65bd78e30592a3766364595fca5107a1dd4ad34bd7f33");
+assert.strictEqual(digest, "d8a1daef660838e79992140516c659a3e7ac30a6f4bd61999575ec667882ba4b");
 console.log("rules-data-structure.test.js passed");

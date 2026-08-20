@@ -151,10 +151,6 @@
     return header;
   }
 
-  function readSabrHeaderId(data) {
-    return readUmpVarint(data, 0);
-  }
-
   function chunksToArrayBuffer(chunks) {
     var length = chunks.reduce(function sum(total, chunk) {
       return total + chunk.length;
@@ -189,7 +185,7 @@
     }
 
     function appendAudioChunk(header, chunk) {
-      var key = String(header.itag || 0);
+      var key = String(header.itag);
       var entry;
       var segment;
 
@@ -230,8 +226,8 @@
 
     function finalizeSegment(headerId) {
       var header = headers[headerId];
-      var entry = audio.get(String(header && header.itag || 0));
-      var segment = entry && entry.activeSegments && entry.activeSegments[String(headerId)];
+      var entry = audio.get(String(header && header.itag));
+      var segment = entry && entry.activeSegments[String(headerId)];
       var chunks;
 
       if (!segment || !segment.chunks.length) {
@@ -239,11 +235,11 @@
       }
 
       delete entry.activeSegments[String(headerId)];
-      chunks = (entry ? entry.initChunks : []).concat(segment.chunks);
+      chunks = entry.initChunks.concat(segment.chunks);
       if (onSegment) {
         onSegment({
-          itag: segment.header.itag || (header && header.itag) || 0,
-          header: segment.header || header || {},
+          itag: segment.header.itag,
+          header: segment.header,
           bytes: segment.bytes,
           chunks: chunks
         });
@@ -284,12 +280,12 @@
               headers[header.headerId] = header;
             }
           } else if (part.type === 21 && part.data.length) {
-            headerId = readSabrHeaderId(part.data);
+            headerId = readUmpVarint(part.data, 0);
             if (headerId && headers[headerId.value]) {
               appendAudioChunk(headers[headerId.value], part.data.slice(headerId.offset));
             }
           } else if (part.type === 22) {
-            headerId = readSabrHeaderId(part.data);
+            headerId = readUmpVarint(part.data, 0);
             if (headerId) {
               finalizeSegment(headerId.value);
               delete headers[headerId.value];

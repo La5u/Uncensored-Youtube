@@ -1,0 +1,12 @@
+{
+  "channels": [
+    {
+      "name": "Syndicate",
+      "sources": ["https://www.youtube.com/watch?v=KKZZ3Nch-gU"]
+    },
+    {
+      "name": "jacksepticeye",
+      "sources": ["https://www.youtube.com/watch?v=Eeq3WqCgrek"]
+    }
+  ]
+}

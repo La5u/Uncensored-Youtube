@@ -17,7 +17,6 @@
     "src/rule-data/language.js",
     "src/rule-data/exact.js",
     "src/rule-data/grammar.js",
-    "src/rule-data/priors.js",
     "src/rules-data.js",
     "src/rules.js",
     "src/timedtext.js"
@@ -47,14 +46,6 @@
       script.onerror = resolve;
       (document.documentElement || document.head).appendChild(script);
     });
-  }
-
-  function injectScriptsSequentially(paths) {
-    return paths.reduce(function chain(previous, path) {
-      return previous.then(function injectNext() {
-        return injectScript(path);
-      });
-    }, Promise.resolve());
   }
 
   function dispatchSettings() {
@@ -175,7 +166,11 @@
 
   watchSettings();
   loadSettings().then(function settingsLoaded() {
-    return injectScriptsSequentially(scripts);
+    return scripts.reduce(function chain(previous, path) {
+      return previous.then(function injectNext() {
+        return injectScript(path);
+      });
+    }, Promise.resolve());
   }).then(updateAudioNeeded, dispatchSettings);
 
   window.addEventListener("uncensored-timedtext", function rememberTimedText(event) {

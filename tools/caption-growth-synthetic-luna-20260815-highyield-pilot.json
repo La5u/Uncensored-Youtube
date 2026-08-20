@@ -1,0 +1,7 @@
+{
+  "channels": [
+    {"name":"OfficialNerdCubed","sources":["https://www.youtube.com/@NerdCubed/videos"]},
+    {"name":"vinesauce","sources":["https://www.youtube.com/@vinesauce/videos"]},
+    {"name":"Critical Role","sources":["https://www.youtube.com/@CriticalRole/videos"]}
+  ]
+}

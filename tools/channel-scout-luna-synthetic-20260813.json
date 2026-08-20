@@ -1,0 +1,15 @@
+{
+  "generatedAt": "2026-08-13",
+  "scope": "metadata-only ranked candidates; no downloads",
+  "target": "auto-uncensored-synthetic",
+  "candidates": [
+    {"name":"CaseOh","url":"https://www.youtube.com/@caseoh_/videos","priority":"high","rationale":"High-energy gaming/stream speech and frequent reaction vocabulary; likely dense auto-caption profanity slots."},
+    {"name":"RDCworld1","url":"https://www.youtube.com/@RDCworld1/videos","priority":"high","rationale":"Large recurring comedy/gaming catalogue with multiple speakers and expressive language."},
+    {"name":"Kai Cenat","url":"https://www.youtube.com/@KaiCenat/videos","priority":"high","rationale":"Long stream-derived videos and high-energy dialogue should yield dense automatic-caption slots."},
+    {"name":"IShowSpeed","url":"https://www.youtube.com/@IShowSpeed/videos","priority":"high","rationale":"Frequent long reactions/streams with distinctive yelling and profanity-heavy speech."},
+    {"name":"CoryxKenshin","url":"https://www.youtube.com/@CoryxKenshin/videos","priority":"medium","rationale":"Large gaming catalogue with expressive commentary and broad game vocabulary."},
+    {"name":"AMP","url":"https://www.youtube.com/@AMPEXCLUSIVE/videos","priority":"medium","rationale":"Multi-person challenge videos provide dense, varied conversational audio."},
+    {"name":"Beta Squad","url":"https://www.youtube.com/@BetaSquad/videos","priority":"medium","rationale":"Long multi-speaker entertainment episodes with high-energy unscripted dialogue."},
+    {"name":"Aceu","url":"https://www.youtube.com/@aceu/videos","priority":"low","rationale":"Long gaming sessions and commentary offer a quieter but useful gaming speech domain."}
+  ]
+}

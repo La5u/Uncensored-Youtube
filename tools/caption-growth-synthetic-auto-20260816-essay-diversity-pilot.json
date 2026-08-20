@@ -1,0 +1,12 @@
+{
+  "channels": [
+    {
+      "name": "Inescape",
+      "sources": ["https://www.youtube.com/watch?v=VjuzWDMe9Hk"]
+    },
+    {
+      "name": "Disgruntled Townsperson",
+      "sources": ["https://www.youtube.com/watch?v=R4aCv0jP6p4"]
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "channels": [
+    {
+      "name": "Ryth",
+      "sources": ["https://www.youtube.com/watch?v=75yKrpP1W3Q"]
+    },
+    {
+      "name": "Mista G Dubs",
+      "sources": ["https://www.youtube.com/watch?v=aPP3gUNZ8XE"]
+    },
+    {
+      "name": "Dylan Is In Trouble",
+      "sources": ["https://www.youtube.com/watch?v=mNDEjkquJHs"]
+    }
+  ]
+}

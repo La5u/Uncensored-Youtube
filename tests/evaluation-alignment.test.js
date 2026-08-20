@@ -75,6 +75,35 @@ const ordinaryWord = align([{
 }));
 assert.strictEqual(ordinaryWord.expected.has(12), false);
 
+const visibleSwear = align([{
+  tokenIndex: 17,
+  timeSeconds: 10,
+  context: "all that shit's for [__] engagement"
+}], manualSwearEvents({
+  events: [{
+    tStartMs: 10000,
+    dDurationMs: 1000,
+    segs: [{ utf8: "all that shit's for fucking engagement" }]
+  }]
+}));
+assert.strictEqual(visibleSwear.expected.get(17), "fucking");
+
+const lexicalSteal = align([{
+  tokenIndex: 30,
+  timeSeconds: 5,
+  context: "did you see that [__] beef cake"
+}, {
+  tokenIndex: 31,
+  timeSeconds: 8,
+  context: "beef cake of a [__] human being dude he"
+}], manualSwearEvents({ events: [{
+  tStartMs: 0,
+  dDurationMs: 10000,
+  segs: [{ utf8: "did you see that motherfucking beefcake of a motherfucking human being dude he was a bitch" }]
+}] }));
+assert.strictEqual(lexicalSteal.expected.has(30), false);
+assert.strictEqual(lexicalSteal.expected.get(31), "motherfucking");
+
 const splitCompound = align([{
   tokenIndex: 13,
   timeSeconds: 10,
@@ -87,6 +116,35 @@ const splitCompound = align([{
   }]
 }));
 assert.strictEqual(splitCompound.expected.get(13), "fuckery");
+
+const splitChicken = align([{
+  tokenIndex: 16,
+  timeSeconds: 10,
+  context: "they were chicken [__] about it"
+}], manualSwearEvents({
+  events: [{
+    tStartMs: 10000,
+    dDurationMs: 1000,
+    segs: [{ utf8: "they were chickenshit about it" }]
+  }]
+}, true));
+assert.strictEqual(splitChicken.expected.get(16), "shit");
+
+const compoundLabels = align([
+  { tokenIndex: 18, timeSeconds: 1, context: "middle of [__] nowhere" },
+  { tokenIndex: 19, timeSeconds: 2, context: "you [__] cowards" },
+  { tokenIndex: 20, timeSeconds: 3, context: "being a [__]" },
+  { tokenIndex: 21, timeSeconds: 4, context: "any [__] face" }
+], manualSwearEvents({ events: [
+  { tStartMs: 1000, dDurationMs: 500, segs: [{ utf8: "middle of dickshit nowhere" }] },
+  { tStartMs: 2000, dDurationMs: 500, segs: [{ utf8: "you chickenshit cowards" }] },
+  { tStartMs: 3000, dDurationMs: 500, segs: [{ utf8: "being a dickgirl" }] },
+  { tStartMs: 4000, dDurationMs: 500, segs: [{ utf8: "any fuckface face" }] }
+] }, true));
+assert.strictEqual(compoundLabels.expected.get(18), "dickshit");
+assert.strictEqual(compoundLabels.expected.get(19), "chickenshit");
+assert.strictEqual(compoundLabels.expected.get(20), "dickgirl");
+assert.strictEqual(compoundLabels.expected.get(21), "fuck");
 
 const evaluationOnlyLabel = align([{
   tokenIndex: 14,

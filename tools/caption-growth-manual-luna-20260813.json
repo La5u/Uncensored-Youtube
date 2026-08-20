@@ -1,0 +1,33 @@
+{
+  "channels": [
+    {"name":"Cold Ones","sources":["https://www.youtube.com/@coldones/videos","https://www.youtube.com/playlist?list=PLyzy14k8Iy3iR8gIjxK2eqTnUMnkaWnjQ"]},
+    {"name":"Channel 5 with Andrew Callaghan","sources":["https://www.youtube.com/channel/UC-AQKm7HUNMmxjdS371MSwg/videos"]},
+    {"name":"Are You Garbage?","sources":["https://www.youtube.com/@AreYouGarbage/videos","https://www.youtube.com/playlist?list=PLCJp1IfokN9CITIm-4chFFNhoBmrI6V-V","https://www.youtube.com/playlist?list=PLCJp1IfokN9Cy1Hi79LSGAykCKfRDM_y9"]},
+    {"name":"Aunty Donna","sources":["https://www.youtube.com/@TheAuntyDonnaChannel/videos","ytsearch40:Aunty Donna"]},
+    {"name":"Internet Comment Etiquette","sources":["https://www.youtube.com/@commentiquette/videos"]},
+    {"name":"Kwite","sources":["https://www.youtube.com/@Kwite/videos"]},
+    {"name":"GameGrumps","sources":["https://www.youtube.com/@GameGrumps/videos"]},
+    {"name":"CallMeKevin","sources":["https://www.youtube.com/@CallMeKevin/videos"]},
+    {"name":"Jerma985","sources":["https://www.youtube.com/@Jerma985/videos"]},
+    {"name":"Northernlion","sources":["https://www.youtube.com/@Northernlion/videos"]},
+    {"name":"MandaloreGaming","sources":["https://www.youtube.com/@MandaloreGaming/videos"]},
+    {"name":"NakeyJakey","sources":["https://www.youtube.com/@NakeyJakey/videos"]},
+    {"name":"Markiplier","sources":["https://www.youtube.com/@markiplier/videos"]},
+    {"name":"Jacksepticeye","sources":["https://www.youtube.com/@Jacksepticeye/videos","https://www.youtube.com/playlist?list=PLER_tGgYixxkZodIjYP5cL0HImtkzHt5W"]},
+    {"name":"Count Dankula","sources":["https://www.youtube.com/@CountDankula/videos"]},
+    {"name":"J Aubrey","sources":["https://www.youtube.com/@JAubrey/videos"]},
+    {"name":"MoistCr1TiKaL","sources":["https://www.youtube.com/@penguinz0/videos"]},
+    {"name":"Papa Meat","sources":["https://www.youtube.com/@PapaMeat/videos"]},
+    {"name":"Netflix Is A Joke","sources":["https://www.youtube.com/@NetflixIsAJoke/videos"]},
+    {"name":"Many A True Nerd","sources":["https://www.youtube.com/@ManyATrueNerd/videos"]},
+    {"name":"Oney Plays","sources":["https://www.youtube.com/@OneyPlays/videos"]},
+    {"name":"The Click","sources":["https://www.youtube.com/@TheClick/videos"]},
+    {"name":"Tom Scott","sources":["https://www.youtube.com/@TomScottGo/videos"]},
+    {"name":"Ozzy Man Reviews","sources":["https://www.youtube.com/@OzzyManReviews/videos"]},
+    {"name":"DougDoug","sources":["https://www.youtube.com/@DougDoug/videos"]},
+    {"name":"Nexpo","sources":["https://www.youtube.com/@Nexpo/videos"]},
+    {"name":"LEMMiNO","sources":["https://www.youtube.com/@LEMMiNO/videos"]},
+    {"name":"Folding Ideas","sources":["https://www.youtube.com/@FoldingIdeas/videos"]},
+    {"name":"Accented Cinema","sources":["https://www.youtube.com/@AccentedCinema/videos"]}
+  ]
+}

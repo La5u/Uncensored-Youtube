@@ -21,17 +21,17 @@
     ]),
     PLURAL_INSULT: set("plural insult", [
       "fuckers", "motherfuckers", "shitheads", "bitches", "assholes",
-      "dickheads", "twats", "whores", "cunts", "pussies", "sluts", "asses", "bastards"
+      "dickheads", "dipshits", "twats", "whores", "cunts", "pussies", "sluts", "asses", "bastards"
     ]),
-    MASS_NOUN: set("mass noun", ["shit", "bullshit", "dogshit", "cum", "piss", "crap"]),
-    SINGULAR_BODY_NOUN: set("singular body noun", ["cock", "pussy"]),
+    MASS_NOUN: set("mass noun", ["shit", "bullshit", "cum", "piss", "crap"]),
+    SINGULAR_BODY_NOUN: set("singular body noun", ["cock", "pussy", "clit"]),
     PLURAL_BODY_NOUN: set("plural body noun", ["cocks"]),
     ADJECTIVE: set("adjective swear", ["slutty", "bitchy", "fuckable"]),
-    PLACE_OR_EVENT_NOUN: set("place or event noun", ["shithole", "shitter", "shitshow"]),
-    COMPOUND_NOUN: set("compound noun", ["shitballs", "clusterfuck", "fuckery"]),
+    PLACE_OR_EVENT_NOUN: set("place or event noun", ["shithole", "shitter"]),
+    COMPOUND_NOUN: set("compound noun", ["clusterfuck", "fuckery"]),
     RECOGNITION_ONLY: set("recognition-only word", [
-      "nigger", "niggas", "retarded", "retard", "faggots", "fuckwit", "fucko",
-      "fuckup"
+      "nigger", "niggas", "retarded", "retard", "faggot", "fuckwit", "fucko",
+      "fuckup", "tranny", "cuntskeleton", "blowjob", "midget", "fags"
     ])
   });
 
@@ -46,7 +46,20 @@
     "bitch", "bitches", "moron", "bullshit", "dipshit", "cock", "cocks",
     "cocksucker", "arsehole", "asshole", "assholes", "dicked", "dicking",
     "dickin", "dickhead", "dickheads", "dickwad", "twat", "twats", "whore", "whores",
-    "cunt", "cunts", "pussy", "pussies", "slut", "cum", "cripple"
+    "cunt", "cunts", "pussy", "pussies", "slut", "slutty", "cum", "cripple",
+    "clit", "bitchy", "tranny", "retard", "retarded", "cuntskeleton",
+    "sluts", "fuckable", "clusterfuck", "dipshits", "fuckup", "nigger",
+    "faggot", "blowjob", "fucko", "midget", "fags", "fuckwit"
+  ]);
+
+  // Visible profanity that is not censored by YouTube and is therefore not
+  // eligible for runtime vocabulary discovery. Keep this disjoint from
+  // ALLOWED_WORDS: words that are sometimes both visible and censored belong
+  // only to ALLOWED_WORDS.
+  var NOT_CENSORED_WORDS = set("not-censored discovery word", [
+    "nigga", "piss", "pissing", "cuck", "cucks", "dick", "ass", "niggas",
+    "niggers", "pissed", "crap", "shitty", "hooker", "bastards",
+    "asses", "bastard", "midgets"
   ]);
 
   // Conservative subset that deterministic context rules may emit.
@@ -132,17 +145,6 @@
   var EXPLETIVE_DETERMINER_SUFFIXES = set("expletive-determiner suffix", [
     "okay", "this", "to", "up"
   ]);
-  var MASS_NOUN_PREFIXES = set("mass-noun prefix", [
-    "taking a", "in deep", "smells like",
-    "can't do", "cannot do", "didn't do", "doesn't do", "doesn't know",
-    "didn't say", "not telling you", "some crazy", "or some",
-    "sick of this", "don't need this", "listen to this", "up with this",
-    "you believe that", "seen some", "throw some", "some of this",
-    "been through some", "got so much", "talk some", "act for", "can see",
-    "he's full of", "some of that", "there's too much", "it's good",
-    "seeing this", "some weird", "doing weird",
-    "flaming", "beat the"
-  ]);
   var FORCEFUL_ACTIONS = set("forceful action", [
     "scare", "scaring", "freaks", "irritates", "beating", "kick",
     "kicked", "kicking", "smack", "smacking", "shoot", "push", "pushed",
@@ -150,30 +152,12 @@
   ]);
   var INTERJECTION_SUFFIXES = set("interjection suffix", [
     "uh", "but", "do", "sorry", "did", "look", "don't", "hold",
-    "I forgot", "I should", "I can't", "I was", "I'll", "okay",
-    "and I", "what are", "good"
+    "I forgot", "I should", "I can't", "I was", "I'll",
+    "and I", "what are", "good", "it's"
   ]);
   var SIMILE_PREFIXES = set("simile prefix", [
     "feel", "feels", "sound", "just", "it's"
   ]);
-  var AS_FUCK_ADJECTIVES = set("as-fuck adjective", [
-    "annoying", "awesome", "bad", "beautiful", "big", "bright", "buff",
-    "buggy", "busy", "challenging", "cheap", "cold", "crazy", "cute", "dark",
-    "disrespectful", "dope", "dumb", "dusty", "easy", "elegant",
-    "expensive", "freaky", "funny", "happy", "hard", "high",
-    "huge", "imbalanced", "important", "intimidating", "long", "mean", "nasty",
-    "poor", "quiet", "random", "raw", "real", "rich", "sad",
-    "sexy", "short", "slow", "small", "smooth", "strong", "stupid", "sus", "swole",
-    "thankful", "tough", "unsettling", "wet", "wild", "wise", "young"
-  ]);
-
-  var AS_SHIT_ADJECTIVES = set("as-shit adjective", [
-    "annoyed", "bored", "boring", "broke", "calm", "close", "creepy", "dead", "deep",
-    "drunk", "fast", "fat", "hot", "loud", "low", "mad",
-    "old", "painful", "proud", "scared", "scary", "sure", "thick", "tight", "tired",
-    "weak", "weird"
-  ]);
-
   var SHARED_MODIFIERS = set("shared modifier", [
     "bad", "close", "dead", "easy", "great", "hard", "nuts", "scared"
   ]);
@@ -195,7 +179,7 @@
       "creepy", "damage", "dark", "death", "double", "embarrassing", "fantastic",
        "fly", "freaky", "fun", "genius", "gross", "hair", "hammer",
       "fingers", "help", "hope", "horrible", "horse", "hot", "idiots", "key", "know",
-      "legs", "long", "loud", "love", "map", "mental",
+      "legs", "long", "loud", "map", "mental",
       "morons", "nerve", "nonsense",
       "party", "pay", "power", "reason", "record", "red", "robot",
       "same", "scary", "shark", "shoot", "slow", "sound", "speed", "suck",
@@ -258,17 +242,17 @@ var VALIDATED_INTENSIFIER_SUFFIXES = set("validated intensifier suffix",
   ));
 
   var SAFE_INTENSIFIER_PREFIXES = set("safe intensifier prefix", [
-    "a great", "absolutely", "across the", "by a", "can't even", "didn't even", "don't even", "don't you",
-    "down the", "entire", "even", "every", "feel", "for a", "from the",
+    "a great", "across the", "by a", "can't even", "didn't even", "don't even", "don't you",
+    "down the", "entire", "every", "feel", "for a", "from the",
     "genuinely", "god the", "got some", "had a", "have no",
-    "give me the", "he's", "here we", "I can't", "I need to", "I'm going to", "into a",
-    "into the", "is just", "just a", "just how", "look at the", "many", "million",
+    "give me the", "he's", "here we", "I need to", "into a",
+    "just how", "look at the", "many", "million",
     "is this a", "it's like the", "let's do a", "need the", "not going to", "not gonna",
     "off the", "oh it's", "open the", "outright", "playing a", "put some",
-    "she's", "sheer", "should have", "so", "stop", "straight up",
+    "she's", "sheer", "should have", "straight up",
     "super", "that is", "that's just", "that's pretty", "the first", "there we",
-    "there's no", "they're", "this whole", "through the", "to be",
-    "use your", "very", "what are you", "what's the", "whole", "with a",
+    "there's no", "this whole", "through the",
+    "use your", "what are you", "what's the", "with a",
     "would be", "yeah you"
   ]);
   var EVALUATIVE_NOUN_PREFIXES = set("evaluative-noun prefix", ["seems like", "marketing", "legal", "made up"]);
@@ -278,38 +262,9 @@ var VALIDATED_INTENSIFIER_SUFFIXES = set("validated intensifier suffix",
     "a", "an", "the", "this", "that", "these", "those", "my", "your", "his",
     "her", "our", "their", "every", "no", "same"
   ]);
-  var INTENSIFIED_NOUNS = set("noun", INTENSIFIED_BARE_NOUNS.concat([
-    "animal", "anchor", "ass", "asshole", "audience", "baby", "balls", "bar", "bed", "best", "boat", "bomb",
-    "bitch", "body", "boar", "boss", "brains", "break", "business", "cake", "car",
-    "cat", "chair", "cheater", "chicken", "choice", "checkpoint", "clothes", "clue", "cop", "cops", "coward",
-    "announcer", "arms", "building", "cannonball", "chest", "city", "cross", "date", "deal", "death", "dick", "disaster", "dog", "door", "dragon", "drill", "eggplant",
-    "epipen", "eye", "eyes", "fish",
-    "face", "family", "fault", "finger", "fire", "floor", "game", "grain",
-    "god", "ground", "gun", "guns", "guy", "guys", "hand", "hands", "head", "house",
-    "footage", "hair", "hammer", "human", "idea", "iris", "island", "job", "jobs", "jump", "key", "keys", "kick", "kid", "kids",
-    "kilo", "knife", "leg", "level", "liar", "lie", "life", "lights", "lives", "load", "loser", "lunatic",
-    "legs", "map", "monster", "moon", "moron", "mother", "mouth", "music", "name", "night",
-    "lady", "mouse", "neck", "nerd", "nose", "npc", "pants", "people", "phone", "picture", "piece", "pig", "places", "plane", "planet", "platform", "problem",
-    "point", "psycho", "psychopath", "pulse", "rat", "robbery", "room", "rules", "shit",
-    "rhythm game", "second", "ship", "shock", "sky", "slut", "soul", "space", "sperm", "street", "sun", "sword", "teenager", "teeth", "thing", "things",
-    "stars", "throat", "thumbs", "toes", "tree", "trunk", "truck", "truth", "van", "video", "waste",
-    "water", "way", "weapons", "wife", "window", "wings", "word", "words", "work", "world", "year",
-    "wall", "zoomies", "friends", "jet", "mask", "answer", "law", "restaurant"
-  ]));
   var INTENSIFIER_COPULAS = set("copula", BE_FORMS.concat([
     "am", "are", "be", "been", "being", "you're", "it's", "that's", "are you"
   ]));
-  var INTENSIFIED_PREDICATES = set("predicate", SHARED_STATES.concat(
-    INTENSIFIED_BARE_PREDICATES,
-    [
-      "around", "awful", "awesome", "bullshit", "dead", "exhausting", "freezing",
-      "adorable", "bad", "beautiful", "bored", "complicated", "cool", "creepy", "doing", "drinking", "fine", "gone",
-      "great", "gross", "hard", "her", "hilarious", "incredible", "kidding", "open",
-      "killing", "lying", "mad", "not", "nuts", "ready", "scary", "serious",
-      "reloading", "starving", "talking", "terrible", "terrified", "terrifying", "trying",
-      "ugly", "useless", "wrong"
-    ]
-  ));
   var EMPHATIC_SUBJECTS = set("emphatic subject", SUBJECT_PRONOUNS.concat(
     ["no one", "nobody", "someone", "everybody", "everyone"],
     FUTURE_SUBJECTS,
@@ -317,30 +272,12 @@ var VALIDATED_INTENSIFIER_SUFFIXES = set("validated intensifier suffix",
     "I'm gonna", "you're gonna", "we're gonna", "they're gonna"
     ]
   ));
-  var EMPHATIC_BASE_ACTIONS = set("base action", [
-    "believe", "care", "dare", "die", "do", "get", "go", "kill", "know",
-    "listen", "move", "need", "say", "see", "stop", "tell", "touch",
-    "understand", "want"
-  ]);
-  var EMPHATIC_ACTIONS = set("emphatic action", EMPHATIC_BASE_ACTIONS.concat([
-    "did", "died", "does", "doing", "find", "got", "hate", "hear", "hit", "jump",
-    "kidding", "killed", "kills", "knew", "knows", "left", "let", "lied", "like",
-    "look", "love", "missed", "nailed", "needs", "roll", "shot", "suck", "sucks",
-    "hits", "run", "saying", "show", "start", "think", "told", "wanted", "warned", "worry"
-  ]));
   var EMPHATIC_AUXILIARIES = set("emphatic auxiliary", [
     "can", "can't", "can't even", "cannot", "could", "couldn't", "didn't",
     "do not", "does not", "don't", "don't even", "don't you", "doesn't",
     "haven't even", "better not", "have to", "let's", "must", "should", "shouldn't",
     "gonna", "never", "wanted to", "will", "won't", "would", "wouldn't"
   ]);
-  var EMPHATIC_AUXILIARY_ACTIONS = set("auxiliary action", EMPHATIC_BASE_ACTIONS.concat([
-    "accept", "ask", "attack", "be", "brag", "breathe", "dance", "deal", "defrosted",
-    "end", "fight", "find", "follow", "guess", "have", "help", "hit", "knock", "launch",
-    "lie", "like", "look", "love", "matter", "murder", "party", "prove", "read", "redo",
-    "remember", "scare", "stand", "start", "suck", "take", "talk", "think", "trust", "wait",
-    "work", "worry"
-  ]));
 
   var NUMBER_WORD_PATTERN = "(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion)";
   var NUMBER_PATTERN = "(?:\\d+(?:[,.]\\d+)*|" + NUMBER_WORD_PATTERN +
@@ -376,7 +313,6 @@ var VALIDATED_INTENSIFIER_SUFFIXES = set("validated intensifier suffix",
     VERB_PARTICLES: VERB_PARTICLES,
     PHRASAL_VERB_PREFIXES: PHRASAL_VERB_PREFIXES,
     PHRASAL_SUBJECT_MODALS: PHRASAL_SUBJECT_MODALS,
-    PHRASAL_OBJECT_SUFFIXES: PHRASAL_OBJECT_SUFFIXES,
     PHRASAL_PARTICLE_SUFFIXES: PHRASAL_PARTICLE_SUFFIXES,
     PHRASAL_SUFFIXES: PHRASAL_SUFFIXES,
     PHRASAL_UP_OBJECTS: PHRASAL_UP_OBJECTS,
@@ -388,16 +324,9 @@ var VALIDATED_INTENSIFIER_SUFFIXES = set("validated intensifier suffix",
     PARTICIPLE_FRAME_SUFFIXES: PARTICIPLE_FRAME_SUFFIXES,
     EXPLETIVE_DETERMINER_PREFIXES: EXPLETIVE_DETERMINER_PREFIXES,
     EXPLETIVE_DETERMINER_SUFFIXES: EXPLETIVE_DETERMINER_SUFFIXES,
-    MASS_NOUN_PREFIXES: MASS_NOUN_PREFIXES,
     FORCEFUL_ACTIONS: FORCEFUL_ACTIONS,
     INTERJECTION_SUFFIXES: INTERJECTION_SUFFIXES,
     SIMILE_PREFIXES: SIMILE_PREFIXES,
-    AS_FUCK_ADJECTIVES: AS_FUCK_ADJECTIVES,
-    AS_SHIT_ADJECTIVES: AS_SHIT_ADJECTIVES,
-    SHARED_MODIFIERS: SHARED_MODIFIERS,
-    SHARED_STATES: SHARED_STATES,
-    INTENSIFIED_BARE_NOUNS: INTENSIFIED_BARE_NOUNS,
-    INTENSIFIED_BARE_PREDICATES: INTENSIFIED_BARE_PREDICATES,
     INTENSIFIED_TRAILING_WORDS: INTENSIFIED_TRAILING_WORDS,
     VALIDATED_INTENSIFIER_SUFFIXES: VALIDATED_INTENSIFIER_SUFFIXES,
     RARE_INTENSIFIER_SUFFIXES: RARE_INTENSIFIER_SUFFIXES,
@@ -407,23 +336,13 @@ var VALIDATED_INTENSIFIER_SUFFIXES = set("validated intensifier suffix",
     SAFE_INTENSIFIER_PREFIXES: SAFE_INTENSIFIER_PREFIXES,
     EVALUATIVE_NOUN_PREFIXES: EVALUATIVE_NOUN_PREFIXES,
     EVALUATIVE_NOUN_SUFFIXES: EVALUATIVE_NOUN_SUFFIXES,
-    INTENSIFIER_DETERMINERS: INTENSIFIER_DETERMINERS,
-    INTENSIFIED_NOUNS: INTENSIFIED_NOUNS,
-    INTENSIFIER_COPULAS: INTENSIFIER_COPULAS,
-    INTENSIFIED_PREDICATES: INTENSIFIED_PREDICATES,
-    EMPHATIC_SUBJECTS: EMPHATIC_SUBJECTS,
-    EMPHATIC_BASE_ACTIONS: EMPHATIC_BASE_ACTIONS,
-    EMPHATIC_ACTIONS: EMPHATIC_ACTIONS,
-    EMPHATIC_AUXILIARIES: EMPHATIC_AUXILIARIES,
-    EMPHATIC_AUXILIARY_ACTIONS: EMPHATIC_AUXILIARY_ACTIONS,
-    NUMBER_WORD_PATTERN: NUMBER_WORD_PATTERN,
-    NUMBER_PATTERN: NUMBER_PATTERN,
     NUMBER: NUMBER,
     COUNT_UNIT: COUNT_UNIT,
     CONTINUING_PREFIX_SETS: CONTINUING_PREFIX_SETS
   });
   var exports = Object.freeze(Object.assign({
     ALLOWED_WORDS: ALLOWED_WORDS,
+    NOT_CENSORED_WORDS: NOT_CENSORED_WORDS,
     RULE_WORDS: RULE_WORDS,
     WORD_ROLES: WORD_ROLES
   }, vocabulary));

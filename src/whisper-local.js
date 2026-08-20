@@ -251,7 +251,7 @@
     });
   }
 
-  function repairTranscriptForCandidates(transcript, candidates, allowWithExisting) {
+  function repairTranscriptForCandidates(transcript, candidates, allowWithExisting, context) {
     var candidateSet = new Set(candidates || []);
     var normalized = normalizeTranscriptText(transcript);
     var hasExisting = transcriptEntries(normalized, candidates, []).some(function hasCandidate(entry) {
@@ -263,6 +263,7 @@
       [/\bmorrow\b/giu, "moron"],
       [/\bshed\s*hole\b/giu, "shithole"],
       [/\bass\s+hole\b/giu, "asshole"],
+      [/\bcocksy\b/giu, "cock"],
       [/\b(?:forkin|forking|fakin|fakins|fackin|fackins)\b/giu, "fucking"],
       [/\b(?:shh|shis|shiz)\b/giu, "shit"],
       [/\bbetch\b/giu, "bitch"],
@@ -273,6 +274,19 @@
       value = value.replace(/\bbits\b/giu, " bitch ");
     }
     if (!allowWithExisting && hasExisting) return transcript;
+    var normalizedContext = String(context || "").toLowerCase();
+    if (candidateSet.has("cock") && (((normalizedContext.match(/\[\s*__\s*\]/gu) || []).length > 1) ||
+        /(?:my|your|his|her|big|suck(?:ing)?)\s+\[\s*__\s*\]|\[\s*__\s*\]\s+push-ups\b/u.test(normalizedContext))) {
+      value = value.replace(/\bcook\b/giu, " cock ");
+    }
+    if (candidateSet.has("shit") &&
+        !/(?:night|day|work|gear)\s+\[\s*__\s*\]|\[\s*__\s*\]\s+(?:changed?|work|night|day|key|gear|schedule)\b/u.test(normalizedContext)) {
+      value = value.replace(/\bshift\b/giu, " shit ");
+    }
+    if (candidateSet.has("shitting") &&
+        /\[\s*__\s*\]\s+(?:myself|yourself|herself|himself|me|you|on)\b/u.test(normalizedContext)) {
+      value = value.replace(/\bshedding\b/giu, " shitting ");
+    }
 
     return aliases.reduce(function repair(repaired, alias) {
       return candidateSet.has(alias[1]) ? repaired.replace(alias[0], " " + alias[1] + " ") : repaired;
@@ -355,14 +369,56 @@
 
     if (["fuck", "fucks", "fuck's"].indexOf(word) !== -1 &&
         /\[\s*__\s*\]\s+sake\b/u.test(normalizedContext)) return "fuck's";
-    if (word === "shitballs" && /\[\s*__\s*\]\s+balls\b/u.test(normalizedContext)) return "shit";
-    if (word === "shitshow" && /\[\s*__\s*\]\s+show\b/u.test(normalizedContext)) return "shit";
-    if (word === "dogshit" && /\bdog\s+\[\s*__\s*\]/u.test(normalizedContext)) return "shit";
     if (word === "clusterfuck" && /\bcluster\s+\[\s*__\s*\]/u.test(normalizedContext)) return "fuck";
     return word;
   }
 
+  function candidateBeforeContextTail(candidates, context, transcript) {
+    var marker = /\[\s*__\s*\]/u.exec(String(context || ""));
+    var tail;
+    var transcriptWords;
+    var candidateSet;
+    var matches = [];
+    var index;
+
+    if (!marker) return "";
+    tail = normalizeText(String(context || "").slice(marker.index + marker[0].length))
+      .split(" ").filter(Boolean);
+    // An ellipsis means another hidden slot sits between this slot and the tail.
+    if (!tail.length || /^\s*(?:…|\.\.\.)/u.test(String(context || "").slice(marker.index + marker[0].length))) {
+      return "";
+    }
+    transcriptWords = normalizeText(transcript).split(" ").filter(Boolean);
+    candidateSet = new Set(candidates || []);
+    for (index = 0; index + tail.length <= transcriptWords.length; index += 1) {
+      if (!tail.every(function matchesTail(word, offset) {
+        return transcriptWords[index + offset] === word;
+      }) || index === 0) {
+        continue;
+      }
+      // Use the raw normalized transcript here. This deliberately excludes
+      // approximate aliases such as "shh" -> "shit" from reanchoring.
+      if (candidateSet.has(transcriptWords[index - 1])) matches.push(transcriptWords[index - 1]);
+    }
+    return matches.length && matches.every(function sameCandidate(word) {
+      return word === matches[0];
+    }) ? matches[0] : "";
+  }
+
+  function candidateAtTranscriptTail(candidates, context, transcript) {
+    var marker = /\[\s*__\s*\]/u.exec(String(context || ""));
+    var after;
+    var entries;
+
+    if (!marker) return "";
+    after = String(context || "").slice(marker.index + marker[0].length).trim();
+    if (/(?:…|\.\.)/u.test(after) || !/^[.,!?;:'"’\])]*$/u.test(after)) return "";
+    entries = transcriptEntries(transcript, candidates, []);
+    return entries.length && entries[entries.length - 1].candidate || "";
+  }
+
   function decisionFromTranscript(transcript, candidates, context, options) {
+    var originalTranscript = String(transcript || "");
     var fCandidates = options && options.fCandidates || [];
     var normalizedContext = String(context || "").toLowerCase();
     if (/(?:what|why)\s+the\s+\[\s*__\s*\]/u.test(normalizedContext)) {
@@ -394,17 +450,22 @@
     }
     transcript = repairTranscriptForContext(transcript, candidates, context);
     transcript = repairTranscriptForCandidates(transcript, candidates,
-      Boolean(options && (options.previousWord || options.previousWords || options.slotCount > 1)));
+      Boolean(options && (options.previousWord || options.previousWords || options.slotCount > 1)), context);
     var entries = transcriptEntries(transcript, candidates,
       options && options.fCandidatesBySlot || [fCandidates]);
     var words = entries.map(function candidateWord(entry) {
       return entry.candidate;
     }).filter(Boolean);
+    var distinctWords = words.filter(function uniqueWord(candidate, index) {
+      return words.indexOf(candidate) === index;
+    });
     var slots = alignedSlots(entries, options);
     var slotWords = slots.map(function slotWord(slot) { return slot.word; });
     if (options && Array.isArray(options.contexts)) {
       slotWords = slotWords.map(function refineSlotWord(slotWord, slotIndex) {
         var slotContext = options.contexts[slotIndex];
+        slotWord = (!MASKED_F_TEST_REGEX.test(String(transcript || "")) &&
+          candidateBeforeContextTail(candidates, slotContext, originalTranscript)) || slotWord;
         slotWord = contextFWord(slotWord, slotContext);
         return articleAllowsWord(slotWord, slotContext) ? slotWord : "";
       });
@@ -414,11 +475,19 @@
     var anchoredWord = anchoredIndex < 0 ? "" : entries[anchoredIndex].candidate;
     var decisionContext = options && Array.isArray(options.contexts)
       ? options.contexts[options.slotOrdinal || 0] : context;
+    var tailWord = MASKED_F_TEST_REGEX.test(String(transcript || ""))
+      ? "" : candidateBeforeContextTail(candidates, decisionContext, originalTranscript);
+    if (!tailWord && !anchoredWord) {
+      tailWord = candidateAtTranscriptTail(candidates, decisionContext, originalTranscript);
+    }
     var word;
     var evidence = "none";
 
     if (options && options.slotCount > 1) {
       word = slotWords[options.slotOrdinal || 0] || words[options.slotOrdinal || 0] || "";
+    } else if (tailWord && tailWord !== anchoredWord) {
+      word = tailWord;
+      evidence = "transcript-tail";
     } else if (anchoredWord) {
       word = anchoredWord;
       evidence = "transcript-anchor";
@@ -430,7 +499,7 @@
         return words.indexOf(candidate) !== -1;
       }) || words[0] || "";
     } else {
-      word = words[0] || "";
+      word = distinctWords.length === 1 ? distinctWords[0] : "";
     }
     word = hiddenCompoundPart(word, context);
     var refinedWord = contextFWord(word, context);

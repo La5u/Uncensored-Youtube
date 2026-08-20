@@ -57,7 +57,6 @@
   // ── Whisper worker relay ──
 
   var whisperWorker = null;
-  var whisperReady = null;
   var whisperNextId = 1;
   var whisperPending = new Map();
 
@@ -90,7 +89,6 @@
     var worker = whisperWorker;
 
     whisperWorker = null;
-    whisperReady = null;
     if (worker) {
       worker.terminate();
     }
@@ -101,7 +99,7 @@
   }
 
   function startWhisperWorker() {
-    if (whisperReady) return whisperReady;
+    if (whisperWorker) return Promise.resolve(whisperWorker);
     try {
       whisperWorker = new Worker(runtime.runtime.getURL("src/whisper-module-worker.js"), { type: "module" });
     } catch (error) {
@@ -119,8 +117,7 @@
     worker.onerror = function onWorkerError() {
       if (whisperWorker === worker) resetWhisperWorker("Worker error");
     };
-    whisperReady = Promise.resolve(worker);
-    return whisperReady;
+    return Promise.resolve(worker);
   }
 
   function postToWorker(type, data, transfer, timeoutMs) {

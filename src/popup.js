@@ -8,9 +8,9 @@
     whisperEnabled: true
   };
   var metrics = {
-    hybrid: { precision: "92.6", coverage: "91.2" },
-    rules: { precision: "89.2", coverage: "50.1" },
-    whisper: { precision: "93.4", coverage: "89.1" },
+    hybrid: { precision: "92.1", coverage: "90.9" },
+    rules: { precision: "89.9", coverage: "40.2" },
+    whisper: { precision: "94.5", coverage: "91.2" },
     disabled: { precision: "", coverage: "0.0" }
   };
 

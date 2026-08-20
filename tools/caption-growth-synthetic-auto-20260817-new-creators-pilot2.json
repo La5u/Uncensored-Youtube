@@ -1,0 +1,28 @@
+{
+  "channels": [
+    {
+      "name": "Funhaus",
+      "sources": [
+        "https://www.youtube.com/watch?v=nKZ64pF1Nmo",
+        "https://www.youtube.com/watch?v=VRiikoWfbnw",
+        "https://www.youtube.com/watch?v=J9ABYUHIq4g"
+      ]
+    },
+    {
+      "name": "Achievement Hunter",
+      "sources": [
+        "https://www.youtube.com/watch?v=zgJcwzFwySE",
+        "https://www.youtube.com/watch?v=wPuALModpQ8",
+        "https://www.youtube.com/watch?v=tMZr4Z4xSF0"
+      ]
+    },
+    {
+      "name": "Trash Taste",
+      "sources": [
+        "https://www.youtube.com/watch?v=B-MzFSASsto",
+        "https://www.youtube.com/watch?v=WuFIOptr5zA",
+        "https://www.youtube.com/watch?v=pcNan-8bsLM"
+      ]
+    }
+  ]
+}

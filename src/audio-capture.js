@@ -423,11 +423,11 @@
   function candidatesForToken(token) {
     var seen = Object.create(null);
     var candidates = [];
-    var tokenCandidates = options.rulesEnabled && token.candidates && token.candidates.length ? token.candidates : [];
+    var tokenCandidates = options.rulesEnabled && token.candidates.length ? token.candidates : [];
 
     // Audio may recognize broad allowed words that deterministic rules cannot emit.
     tokenCandidates.concat(rules.ALLOWED_WORDS).forEach(function addCandidate(candidate) {
-      if (candidate && !seen[candidate]) {
+      if (!seen[candidate]) {
         seen[candidate] = true;
         candidates.push(candidate);
       }
@@ -437,7 +437,7 @@
   }
 
   function normalizeContext(text) {
-    return String(text || "")
+    return text
       .toLowerCase()
       .replace(/\[\s*__\s*\]/gu, rules.CENSORED_TOKEN)
       .replace(/[^a-z0-9_\[\]\s']+/g, " ")
@@ -446,7 +446,7 @@
   }
 
   function tokenCacheKey(token) {
-    return token.tokenIndex + "\n" + Math.round((token.timeSeconds || 0) * 10) +
+    return token.tokenIndex + "\n" + Math.round(token.timeSeconds * 10) +
       "\n" + normalizeContext(token.context);
   }
 
@@ -464,7 +464,6 @@
   }
 
   function resolutionPriority(resolution) {
-    if (!resolution) return 0;
     if (resolution.source === "media") {
       return resolution.evidence === "transcript-anchor" ? 3 : 1;
     }
@@ -472,13 +471,13 @@
   }
 
   function resolutionEnabled(resolution) {
-    return resolution && (resolution.source === "media" ? options.whisperEnabled : options.rulesEnabled);
+    return resolution.source === "media" ? options.whisperEnabled : options.rulesEnabled;
   }
 
   function notifyTimedTextResolution(token, word, source, evidence) {
     var detail;
 
-    if (!token || typeof token.tokenIndex !== "number" || token.tokenIndex < 0 ||
+    if (typeof token.tokenIndex !== "number" || token.tokenIndex < 0 ||
         !word || source === "deterministic") {
       return;
     }
@@ -487,8 +486,8 @@
       detail = JSON.stringify({
         tokenIndex: token.tokenIndex,
         word: word,
-        source: source || "unknown",
-        evidence: evidence || "none",
+        source: source,
+        evidence: evidence,
         videoId: mediaAudio.videoId || currentVideoId(),
         trackId: captionTrackId
       });
@@ -506,6 +505,8 @@
       return;
     }
 
+    source = source || "unknown";
+    evidence = evidence || "none";
     word = rules.formatWordCase(word, token.context);
     key = tokenCacheKey(token);
     existing = resolvedTokens.get(key);
@@ -516,9 +517,9 @@
       }
 
       existing.word = word;
-      existing.source = source || "unknown";
-      existing.evidence = evidence || "none";
-      notifyTimedTextResolution(token, word, source || "unknown", evidence);
+      existing.source = source;
+      existing.evidence = evidence;
+      notifyTimedTextResolution(token, word, source, evidence);
       watchCaptionMutations();
       scheduleVisibleCaptionResolution();
       return existing;
@@ -527,24 +528,24 @@
     existing = {
       tokenIndex: token.tokenIndex,
       word: word,
-      source: source || "unknown",
-      evidence: evidence || "none"
+      source: source,
+      evidence: evidence
     };
     resolvedTokens.set(key, existing);
 
-    notifyTimedTextResolution(token, word, source || "unknown", evidence);
+    notifyTimedTextResolution(token, word, source, evidence);
     watchCaptionMutations();
     scheduleVisibleCaptionResolution();
     return existing;
   }
 
   function tokenIsCurrent(token) {
-    return token && token.navigationGeneration === navigationGeneration &&
+    return token.navigationGeneration === navigationGeneration &&
       token.captionGeneration === captionGeneration;
   }
 
   function shouldResolveWithWhisper(token) {
-    if (!options.whisperEnabled || !token || failedTokens.has(token.tokenIndex)) return false;
+    if (!options.whisperEnabled || failedTokens.has(token.tokenIndex)) return false;
     return !options.rulesEnabled || !token.deterministicWord || token.deterministicAmbiguous;
   }
 
@@ -562,18 +563,18 @@
     });
 
     return whisperTranscribe(pcm16, candidatesForToken(token), token.context, {
-      fCandidates: token.fCandidates || [],
-      previousWord: token.previousWord || "",
-      previousWordOffset: token.previousWordOffset || 0,
-      slotOrdinal: token.adjacentTokenIndex || 0,
-      slotCount: token.adjacentTokenCount || 1
+      fCandidates: token.fCandidates,
+      previousWord: token.previousWord,
+      previousWordOffset: token.previousWordOffset,
+      slotOrdinal: token.adjacentTokenIndex,
+      slotCount: token.adjacentTokenCount
     }).then(function resolvedDecision(decision) {
       var rejectionReason = decision && decision.word ? "" : decision ? "no word" : "missing decision";
 
       debugLog("whisper decision", {
         token: token.tokenIndex,
         word: decision && decision.word || "",
-        evidence: decision && decision.evidence || "none",
+        evidence: decision && decision.evidence,
         transcript: decision && decision.transcript || "",
         rejected: rejectionReason || undefined
       });
@@ -617,14 +618,14 @@
       var candidates = [];
       var seen = Object.create(null);
       var context = group.map(function groupContext(token) {
-        return token.context || "";
+        return token.context;
       }).join(" ");
 
       if (!pcm16) throw new Error("Incomplete decoded media audio");
 
       group.forEach(function mergeCandidates(token) {
         candidatesForToken(token).forEach(function addCandidate(candidate) {
-          if (candidate && !seen[candidate]) {
+          if (!seen[candidate]) {
             seen[candidate] = true;
             candidates.push(candidate);
           }
@@ -637,10 +638,10 @@
       });
 
       return whisperTranscribe(pcm16, candidates, context, {
-        contexts: group.map(function groupContext(token) { return token.context || ""; }),
-        fCandidatesBySlot: group.map(function groupFCandidates(token) { return token.fCandidates || []; }),
-        previousWords: group.map(function groupPreviousWord(token) { return token.previousWord || ""; }),
-        previousWordOffsets: group.map(function groupPreviousWordOffset(token) { return token.previousWordOffset || 0; }),
+        contexts: group.map(function groupContext(token) { return token.context; }),
+        fCandidatesBySlot: group.map(function groupFCandidates(token) { return token.fCandidates; }),
+        previousWords: group.map(function groupPreviousWord(token) { return token.previousWord; }),
+        previousWordOffsets: group.map(function groupPreviousWordOffset(token) { return token.previousWordOffset; }),
         slotOrdinal: 0,
         slotCount: group.length
       }).then(function applyGroupDecision(decision) {
@@ -703,7 +704,7 @@
 
     if (token.deterministicWord) return "";
 
-    result = rules.applyDeterministicRules(token.context || "");
+    result = rules.applyDeterministicRules(token.context);
     return result.replacements && result.replacements.length === 1
       ? result.replacements[0].word
       : "";

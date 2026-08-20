@@ -1,0 +1,7 @@
+{
+  "channels": [
+    {"name":"LetsGameItOut","sources":["https://www.youtube.com/@LetsGameItOut/videos"]},
+    {"name":"GrayStillPlays","sources":["https://www.youtube.com/@GrayStillPlays/videos"]},
+    {"name":"Northernlion","sources":["https://www.youtube.com/@Northernlion/videos"]}
+  ]
+}

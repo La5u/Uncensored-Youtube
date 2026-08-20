@@ -1,0 +1,15 @@
+{
+  "channels": [
+    {
+      "name": "OneyPlays",
+      "sources": [
+        "https://www.youtube.com/watch?v=bOlO9nT0Zbk",
+        "https://www.youtube.com/watch?v=fu3pumUTZJM"
+      ]
+    },
+    {
+      "name": "Joe Bart VODs",
+      "sources": ["https://www.youtube.com/watch?v=An7QY-uivt0"]
+    }
+  ]
+}

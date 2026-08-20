@@ -1,0 +1,15 @@
+{
+  "channels": [
+    {
+      "name": "Stuff Island",
+      "sources": [
+        "https://www.youtube.com/watch?v=7WALj04h-AE",
+        "https://www.youtube.com/watch?v=wS0opM4ghT0"
+      ]
+    },
+    {
+      "name": "The Regz",
+      "sources": ["https://www.youtube.com/watch?v=gHl_LcXy3t4"]
+    }
+  ]
+}

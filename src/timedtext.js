@@ -58,9 +58,24 @@
   }
 
   function spokenUnitCount(text) {
-    var units = String(text || "").match(/[a-z0-9]+(?:['’][a-z0-9]+)*|\[\s*__\s*\]/giu);
+    var units = text.match(/[a-z0-9]+(?:['’][a-z0-9]+)*|\[\s*__\s*\]/giu);
 
     return units ? units.length : 0;
+  }
+
+  function eventDurationMs(payload, event, eventIndex) {
+    var startMs = typeof event.tStartMs === "number" ? event.tStartMs : 0;
+    var durationMs = typeof event.dDurationMs === "number" ? event.dDurationMs : 0;
+    var nextEvent = payload.events.slice(eventIndex + 1).find(function findNextTimedEvent(candidate) {
+      return candidate && typeof candidate.tStartMs === "number" && candidate.tStartMs > startMs;
+    });
+    // Temporary: this identifies YouTube's fixed two-line caption experiment.
+    var fixedPage = payload.wpWinPositions && payload.wpWinPositions.some(function twoRows(position) {
+      return position && position.rcRows === 2;
+    }) && event.segs.every(function untimed(seg) { return typeof seg.tOffsetMs !== "number"; }) &&
+      event.segs.some(function lineBreak(seg) { return String(seg.utf8 || "").indexOf("\n") !== -1; });
+
+    return nextEvent && (fixedPage || durationMs <= 0) ? nextEvent.tStartMs - startMs : durationMs;
   }
 
   function tokenTimeSeconds(payload, event, eventIndex, seg, segIndex, tokenOffset) {
@@ -70,17 +85,11 @@
     var eventText;
     var units;
 
-    if (seg && typeof seg.tOffsetMs === "number") {
+    if (typeof seg.tOffsetMs === "number") {
       return (startMs + seg.tOffsetMs) / 1000;
     }
 
-    durationMs = typeof event.dDurationMs === "number" ? event.dDurationMs : 0;
-    if (durationMs <= 0) {
-      var nextEvent = payload.events.slice(eventIndex + 1).find(function findNextTimedEvent(candidate) {
-        return candidate && typeof candidate.tStartMs === "number" && candidate.tStartMs > startMs;
-      });
-      durationMs = nextEvent ? nextEvent.tStartMs - startMs : 0;
-    }
+    durationMs = eventDurationMs(payload, event, eventIndex);
 
     eventText = getEventText(event);
     units = spokenUnitCount(eventText);
@@ -100,11 +109,11 @@
   function deterministicCandidatePieces(replacement, pieceIndex) {
     var span = replacement.tokenSpan || 1;
     var candidates = replacement.rule.candidates.map(function candidatePiece(candidate) {
-      var pieces = String(candidate).split(/\s+/);
+      var pieces = candidate.split(/\s+/);
 
       return pieces.length === span ? pieces[pieceIndex] : candidate;
     });
-    var pieces = String(replacement.word).split(/\s+/);
+    var pieces = replacement.word.split(/\s+/);
 
     return Array.from(new Set(candidates.concat(pieces[pieceIndex] || replacement.word))).filter(Boolean);
   }
@@ -114,7 +123,7 @@
 
     replacements.forEach(function indexReplacement(replacement) {
       var span = replacement.tokenSpan || 1;
-      var pieces = String(replacement.word).split(/\s+/);
+      var pieces = replacement.word.split(/\s+/);
       var index;
 
       for (index = 0; index < span; index += 1) {
@@ -155,7 +164,7 @@
       if (index === position) {
         parts.push(currentContext);
       } else {
-        parts.push(String(visibleEvents[index] || "").replace(CENSORED_TOKEN_REGEX, "…"));
+        parts.push(visibleEvents[index].replace(CENSORED_TOKEN_REGEX, "…"));
       }
     }
 
@@ -186,7 +195,7 @@
   }
 
   function lastWord(text) {
-    var words = String(text || "").match(/[a-z0-9]+(?:['’][a-z0-9]+)*/giu);
+    var words = text.match(/[a-z0-9]+(?:['’][a-z0-9]+)*/giu);
     return words && words.length ? words[words.length - 1] : "";
   }
 
@@ -254,9 +263,12 @@
             deterministicCandidates: deterministic ? deterministic.candidates : [],
             deterministicAmbiguous: deterministic ? deterministic.ambiguous : false,
             deterministicRuleTemplate: deterministic ? deterministic.replacement.rule.template : "",
+            deterministicRuleId: deterministic
+              ? deterministic.replacement.rule.groupId + ":" + deterministic.replacement.rule.priority
+              : "",
             deterministicTier: deterministic ? deterministic.replacement.tier : "",
             fCandidates: fRule ? fRule.candidates.filter(function fWord(candidate) {
-              return String(candidate).toLowerCase().indexOf("fuck") !== -1;
+              return candidate.toLowerCase().indexOf("fuck") !== -1;
             }) : [],
             candidates: deterministic && deterministic.candidates.length
               ? deterministic.candidates
@@ -294,7 +306,7 @@
         events.push({
           eventIndex: eventIndex,
           startTime: startTime,
-          endTime: startTime + (typeof event.dDurationMs === "number" ? event.dDurationMs / 1000 : 0),
+          endTime: startTime + eventDurationMs(payload, event, eventIndex) / 1000,
           text: text,
           firstTokenIndex: tokenIndex,
           tokenCount: tokenCount
@@ -314,7 +326,7 @@
   }
 
   function deterministicAnalysis(payload, body, useDeterministic) {
-    var deterministic = useDeterministic === true;
+    var deterministic = useDeterministic;
     var eventTexts;
     var result;
 
@@ -346,10 +358,6 @@
     };
   }
 
-  function patchTimedTextJson(payload) {
-    return patchTimedTextJsonWithOverrides(payload, [], true);
-  }
-
   function patchTimedTextJsonWithOverrides(payload, overrides, useDeterministic, body, resolveAmbiguous) {
     if (!payload || !Array.isArray(payload.events)) {
       return {
@@ -358,7 +366,7 @@
       };
     }
 
-    var analysis = deterministicAnalysis(payload, body, useDeterministic === true);
+    var analysis = deterministicAnalysis(payload, body, useDeterministic);
     var eventTexts = analysis.eventTexts;
     var result = analysis.result;
     var replacementByTokenIndex = new Map();
@@ -416,15 +424,6 @@
     };
   }
 
-  function patchTimedTextBody(body) {
-    try {
-      var result = patchTimedTextJson(JSON.parse(body));
-      return result.patchCount > 0 ? JSON.stringify(result.payload) : body;
-    } catch (error) {
-      return body;
-    }
-  }
-
   function patchTimedTextBodyWithOverrides(body, overrides, useDeterministic, resolveAmbiguous) {
     try {
       var result = patchTimedTextJsonWithOverrides(JSON.parse(body), overrides, useDeterministic !== false, body, resolveAmbiguous);
@@ -461,8 +460,6 @@
   }
 
   var exports = Object.freeze({
-    patchTimedTextJson: patchTimedTextJson,
-    patchTimedTextBody: patchTimedTextBody,
     patchTimedTextBodyWithOverrides: patchTimedTextBodyWithOverrides,
     collectTimedTextData: collectTimedTextData,
     collectTimedTextTokens: collectTimedTextTokens

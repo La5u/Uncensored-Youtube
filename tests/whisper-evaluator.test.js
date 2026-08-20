@@ -12,11 +12,19 @@ assert.strictEqual(args.allowUnscored, false);
 assert.strictEqual(args.skipMissing, false);
 assert.strictEqual(args.discoverPaired, false);
 assert.strictEqual(args.discoverUnpaired, false);
+assert.strictEqual(args.pairClass, "all");
+assert.strictEqual(args.creatorSplit, "all");
 assert.strictEqual(args.contextEvents, 4);
 assert.strictEqual(args.rulesScoring, "strict");
 assert.strictEqual(args.unpairedMinBlanks, 0);
 assert.strictEqual(evaluator.parseArgs(["--discoverPaired", "true"]).discoverPaired, true);
 assert.strictEqual(evaluator.parseArgs(["--discoverUnpaired", "true"]).discoverUnpaired, true);
+assert.strictEqual(evaluator.parseArgs(["--pairClass", "auto-auto"]).pairClass, "auto-auto");
+assert.throws(() => evaluator.parseArgs(["--pairClass", "invalid"]), /--pairClass/);
+assert.strictEqual(evaluator.parseArgs([
+  "--creatorManifest", "split.json", "--creatorSplit", "test"
+]).creatorSplit, "test");
+assert.throws(() => evaluator.parseArgs(["--creatorSplit", "test"]), /requires --creatorManifest/u);
 assert.strictEqual(evaluator.parseArgs(["--unpairedMinBlanks", "10"]).unpairedMinBlanks, 10);
 assert.strictEqual(evaluator.parseArgs(["--mode", "rules-only"]).mode, "rules-only");
 assert.strictEqual(
@@ -33,6 +41,37 @@ assert.throws(() => evaluator.parseArgs(["--unknown", "value"]), /Unknown option
 assert.strictEqual(evaluator.parseArgs(["--retryAfter", "0"]).retryAfter, 0);
 assert.strictEqual(evaluator.transcriptContainsWord("Boom, and then", "boom"), true);
 assert.strictEqual(evaluator.transcriptContainsWord("Nothing useful", "boom"), false);
+assert.strictEqual(evaluator.ruleQualityGate({
+  template: "literal [__] rule", matchedCount: 4, precision: 1, candidateCount: 1, creatorCount: 2
+}).passed, true);
+assert.strictEqual(evaluator.ruleQualityGate({
+  template: "literal [__] rule", matchedCount: 50, precision: 0.84, candidateCount: 1, creatorCount: 2
+}).passed, false);
+const longLiteralGate = evaluator.ruleQualityGate({
+  template: "literal [__] rule", matchedCount: 6, precision: 0.85, candidateCount: 1, creatorCount: 2
+});
+assert.strictEqual(longLiteralGate.minimumSupport, 6);
+assert.strictEqual(longLiteralGate.passed, true);
+assert.strictEqual(evaluator.ruleQualityGate({
+  template: "literal * [__] rule", matchedCount: 10, precision: 0.91, candidateCount: 1, creatorCount: 2
+}).passed, false);
+const twoCandidateGate = evaluator.ruleQualityGate({
+  template: "literal [__] rule", matchedCount: 6, candidateCount: 2,
+  candidatePrecision: 0.92, precision: 0.89, creatorCount: 2
+});
+assert.strictEqual(twoCandidateGate.passed, true);
+assert.strictEqual(twoCandidateGate.deterministicPassed, false);
+assert.strictEqual(evaluator.ruleQualityGate({
+  template: "literal [__] rule", matchedCount: 9, candidateCount: 3,
+  candidatePrecision: 1, creatorCount: 2
+}).passed, false);
+assert.strictEqual(evaluator.ruleQualityGate({
+  template: "frame <verb> [__]", matchedCount: 6, candidateCount: 2,
+  candidatePrecision: 1, creatorCount: 2
+}).minimumSupport, 10);
+assert.strictEqual(evaluator.ruleQualityGate({
+  template: "literal [__] rule", matchedCount: 20, precision: 1, candidateCount: 1, creatorCount: 1
+}).passed, false);
 
 const rules = require("../src/rules");
 assert.strictEqual(rules.templatesMatch(["what the [__]"], "oh my god what the [__] was that"), true);
@@ -108,11 +147,15 @@ assert.deepStrictEqual(
 const summary = evaluator.summarize([
   {
     results: [
-      { expected: ["fuck"], word: "fuck", correct: true, classification: "correct-exact" },
-      { expected: ["shit"], word: "fuck", correct: false, classification: "different-swear" },
+      { expected: ["fuck"], word: "fuck", candidates: ["fuck"], attempted: true, correct: true,
+        classification: "correct-exact", ruleId: "exact:test", ruleTemplate: "what [__]",
+        ruleTier: "exact" },
+      { expected: ["shit"], word: "fuck", candidates: ["fuck"], attempted: true, correct: false,
+        classification: "different-swear", ruleId: "exact:test", ruleTemplate: "what [__]",
+        ruleTier: "exact" },
       { expected: ["bitch"], word: "", correct: false, classification: "missed" },
       { expected: [], word: "fuck", correct: false, classification: "unscored" }
-    ]
+    ], creator: "Test Creator"
   },
   { skipped: true, manualCensoredCount: 2 }
 ]);
@@ -130,6 +173,41 @@ assert.strictEqual(summary.correctCount, 1);
 assert.strictEqual(summary.precision, 0.5);
 assert.strictEqual(summary.coverage, 1 / 3);
 assert.strictEqual(summary.accuracy, summary.coverage);
+assert.deepStrictEqual(summary.pairClasses.unknown, {
+  fixtureCount: 1,
+  evaluatedCount: 4,
+  scoredCount: 3,
+  attemptedCount: 2,
+  correctCount: 1,
+  precision: 0.5,
+  coverage: 1 / 3
+});
+assert.deepStrictEqual(summary.ruleMetrics, [{
+  ruleId: "exact:test",
+  template: "what [__]",
+  tier: "exact",
+  matchedCount: 2,
+  attemptedCount: 2,
+  correctCount: 1,
+  candidateCorrectCount: 1,
+  pairClasses: {
+    unknown: { matchedCount: 2, attemptedCount: 2, correctCount: 1, precision: 0.5 }
+  },
+  precision: 0.5,
+  candidateCount: 1,
+  candidatePrecision: 0.5,
+  creatorCount: 1,
+  qualityGate: {
+    passed: false,
+    deterministicPassed: false,
+    score: 0.5,
+    minimumSupport: 4,
+    minimumPrecision: 0.9,
+    deterministicMinimumPrecision: 0.9,
+    minimumCreators: 2,
+    generalized: false
+  }
+}]);
 assert.deepStrictEqual(summary.topConfusions, [
   { pair: "bitch <- (none)", count: 1 },
   { pair: "shit <- fuck", count: 1 }
@@ -157,5 +235,22 @@ assert.deepStrictEqual(candidateSummary.topConfusions, [
   { pair: "bitch <- shit|fuck", count: 1 },
   { pair: "fuck <- (none)", count: 1 }
 ]);
+
+const multiTokenSummary = evaluator.summarize([
+  { creator: "one", results: [
+    { expected: ["fucking"], candidates: ["fucking"], attempted: true, correct: true,
+      ruleId: "exact:multi", ruleTemplate: "piece of [__] [__]", ruleTier: "exact" },
+    { expected: ["shit"], candidates: ["shit"], attempted: true, correct: true,
+      ruleId: "exact:multi", ruleTemplate: "piece of [__] [__]", ruleTier: "exact" }
+  ] },
+  { creator: "two", results: [
+    { expected: ["fucking"], candidates: ["fucking"], attempted: true, correct: true,
+      ruleId: "exact:multi", ruleTemplate: "piece of [__] [__]", ruleTier: "exact" },
+    { expected: ["shit"], candidates: ["shit"], attempted: true, correct: true,
+      ruleId: "exact:multi", ruleTemplate: "piece of [__] [__]", ruleTier: "exact" }
+  ] }
+]).ruleMetrics[0];
+assert.strictEqual(multiTokenSummary.candidateCount, 1);
+assert.strictEqual(multiTokenSummary.qualityGate.minimumSupport, 4);
 
 console.log("whisper-evaluator.test.js passed");

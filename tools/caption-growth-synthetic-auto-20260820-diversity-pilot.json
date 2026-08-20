@@ -1,0 +1,19 @@
+{
+  "channels": [
+    {
+      "name": "Papa Meat",
+      "sources": [
+        "https://www.youtube.com/watch?v=6ypMSi1y1kU",
+        "https://www.youtube.com/watch?v=DutQxQuVyhY",
+        "https://www.youtube.com/watch?v=C9jf-F2cAK0"
+      ]
+    },
+    {
+      "name": "Wendigoon",
+      "sources": [
+        "https://www.youtube.com/watch?v=_qEG4mXS9JA",
+        "https://www.youtube.com/watch?v=qAHz7FJZfpA"
+      ]
+    }
+  ]
+}

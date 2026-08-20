@@ -1,0 +1,13 @@
+{
+  "generatedAt": "2026-08-13",
+  "scope": "metadata-only ranked candidates; no downloads",
+  "target": "manual-auto",
+  "candidates": [
+    {"name":"Rhett & Link","url":"https://www.youtube.com/@GoodMythicalMorning/videos","priority":"high","rationale":"Very large catalogue and multi-speaker dialogue; strong chance of reusable caption pairs."},
+    {"name":"The Try Guys","url":"https://www.youtube.com/@tryguys/videos","priority":"high","rationale":"Multi-host unscripted speech and long episodes provide speaker/style diversity."},
+    {"name":"Watcher","url":"https://www.youtube.com/@Watcher/videos","priority":"high","rationale":"Long multi-host shows with conversational language, complementary to gaming-heavy corpus."},
+    {"name":"Ryan Trahan","url":"https://www.youtube.com/@RyanTrahan/videos","priority":"medium","rationale":"Long scripted/unscripted challenge videos with dense narration and dialogue."},
+    {"name":"Scott Cramer","url":"https://www.youtube.com/@ScottCramer/videos","priority":"medium","rationale":"Long-form comedy commentary with clear speech and varied colloquial vocabulary."},
+    {"name":"Swell Entertainment","url":"https://www.youtube.com/@SwellEntertainment/videos","priority":"low","rationale":"Long commentary/review episodes add a distinct creator voice and topic domain."}
+  ]
+}

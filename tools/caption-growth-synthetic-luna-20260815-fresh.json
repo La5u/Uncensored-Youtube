@@ -1,0 +1,9 @@
+{
+  "channels": [
+    {"name":"CaseOh","sources":["https://www.youtube.com/@caseoh_/videos"]},
+    {"name":"RDCworld1","sources":["https://www.youtube.com/@RDCworld1/videos"]},
+    {"name":"AMP","sources":["https://www.youtube.com/@AMPEXCLUSIVE/videos"]},
+    {"name":"Beta Squad","sources":["https://www.youtube.com/@BetaSquad/videos"]},
+    {"name":"Aceu","sources":["https://www.youtube.com/@aceu/videos"]}
+  ]
+}

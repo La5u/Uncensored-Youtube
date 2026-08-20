@@ -18,29 +18,6 @@
   var navigationPending = false;
   var navigationWaiters = [];
 
-  function timedTextApi() {
-    return globalThis.UncensoredTimedText;
-  }
-
-  function allowedResolutionWord(word) {
-    var rules = globalThis.UncensoredRules;
-    var normalized;
-    var collapsed;
-
-    if (!rules || !Array.isArray(rules.ALLOWED_WORDS) || typeof word !== "string" || !word) {
-      return false;
-    }
-
-    normalized = word.toLowerCase();
-    if (rules.ALLOWED_WORDS.indexOf(normalized) !== -1) return true;
-    if (!/^[a-z0-9']+$/.test(normalized) || !/([a-z0-9'])\1{2,}/.test(normalized)) return false;
-
-    collapsed = normalized.replace(/([a-z0-9'])\1+/g, "$1");
-    return rules.ALLOWED_WORDS.some(function allowedStretchedWord(candidate) {
-      return candidate.replace(/([a-z0-9'])\1+/g, "$1") === collapsed;
-    });
-  }
-
   function currentVideoId() {
     try {
       var url = new URL(location.href);
@@ -95,8 +72,11 @@
 
   function rememberResolution(detail) {
     detail = safeJson(detail);
-    if (!detail || !Number.isInteger(detail.tokenIndex) || detail.tokenIndex < 0 ||
-        !allowedResolutionWord(detail.word)) return;
+    if (!detail || !Number.isInteger(detail.tokenIndex) || detail.tokenIndex < 0) return;
+
+    var allowed = globalThis.UncensoredRules && globalThis.UncensoredRules.ALLOWED_WORDS;
+    if (!Array.isArray(allowed) || typeof detail.word !== "string" ||
+        allowed.indexOf(detail.word.toLowerCase()) === -1) return;
 
     var videoId = detail.videoId || currentVideoId();
     var trackId = detail.trackId || "";
@@ -156,7 +136,7 @@
       response = player && player.getPlayerResponse && player.getPlayerResponse();
     } catch (error) {}
     var videoId = response && response.videoDetails && response.videoDetails.videoId;
-    if ((!videoId || videoId !== currentVideoId() || !response || !response.captions) &&
+    if ((!videoId || videoId !== currentVideoId() || !response.captions) &&
         attempt < 8) {
       globalThis.setTimeout(function retryCaptionCheck() {
         notifyMissingCaptions(attempt + 1);
@@ -164,7 +144,7 @@
       return;
     }
     if (!videoId || videoId !== currentVideoId()) return;
-    if (response && response.captions) return;
+    if (response.captions) return;
     debugLog("no captions fallback", { videoId: videoId });
     globalThis.dispatchEvent(new CustomEvent("uncensored-no-captions", {
       detail: JSON.stringify({ videoId: videoId })
@@ -244,19 +224,15 @@
   }
 
   function isGoogleVideoPlaybackUrl(input) {
-    try {
-      var url = new URL(input, location.href);
-      var mime;
+    var url = new URL(input, location.href);
+    var mime;
 
-      if (!/(^|\.)googlevideo\.com$/.test(url.hostname) || url.pathname.indexOf("/videoplayback") === -1) {
-        return false;
-      }
-
-      mime = url.searchParams.get("mime") || "";
-      return url.searchParams.get("sabr") === "1" || !mime || mime.indexOf("video/") !== 0;
-    } catch (error) {
+    if (!/(^|\.)googlevideo\.com$/.test(url.hostname) || url.pathname.indexOf("/videoplayback") === -1) {
       return false;
     }
+
+    mime = url.searchParams.get("mime") || "";
+    return url.searchParams.get("sabr") === "1" || !mime || mime.indexOf("video/") !== 0;
   }
 
   function shouldCaptureAudio(videoId) {
@@ -264,13 +240,8 @@
       (!videoId || videoId === currentVideoId());
   }
 
-  function shouldObserveAudio() {
-    return settings.whisperEnabled && (navigationPending ||
-      settings.audioEnabled !== false && currentVideoId());
-  }
-
-  function waitForAudioDecision(videoId) {
-    if (settings.audioEnabled !== null) return Promise.resolve(shouldCaptureAudio(videoId));
+  function waitForAudioDecision() {
+    if (settings.audioEnabled !== null) return Promise.resolve(shouldCaptureAudio());
     return new Promise(function wait(resolve) {
       var timer;
       function finish(needed) {
@@ -363,17 +334,6 @@
     return replacements;
   }
 
-  function patchTimedTextBody(body) {
-    var api = timedTextApi();
-
-    return !api || typeof body !== "string" ? body : api.patchTimedTextBodyWithOverrides(
-      body,
-      replacementsForCurrentVideo(),
-      settings.rulesEnabled,
-      !settings.whisperEnabled
-    );
-  }
-
   // Chromium + Firefox: observe Fetch only for multiplexed SABR media.
   function uncensoredFetch() {
     var requestVideoId = currentVideoId();
@@ -381,7 +341,9 @@
 
     return originalFetch.apply(this, arguments).then(function observeAudio(response) {
       try {
-        if (shouldObserveAudio() && isGoogleVideoPlaybackUrl(response.url)) {
+        if (settings.whisperEnabled && (navigationPending ||
+            settings.audioEnabled !== false && currentVideoId()) &&
+            isGoogleVideoPlaybackUrl(response.url)) {
           processSabrResponse(response, requestVideoId, requestDuringNavigation);
         }
       } catch (error) {
@@ -405,7 +367,15 @@
             typeof this.responseText !== "string" || videoId !== currentVideoId()) return;
 
         notifyTimedText(this.responseText, url, videoId);
-        var patchedBody = patchTimedTextBody(this.responseText);
+        var api = globalThis.UncensoredTimedText;
+        var patchedBody = !api
+          ? this.responseText
+          : api.patchTimedTextBodyWithOverrides(
+            this.responseText,
+            replacementsForCurrentVideo(),
+            settings.rulesEnabled,
+            !settings.whisperEnabled
+          );
         if (patchedBody === this.responseText) return;
 
         try {

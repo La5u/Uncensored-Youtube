@@ -5,18 +5,23 @@ Runtime rule data is static JavaScript under `src/rule-data/`:
 - `language.js`: broad `ALLOWED_WORDS`, conservative `RULE_WORDS`, semantic roles, and reusable vocabulary
 - `exact.js`: phrase-specific rules grouped by language behavior
 - `grammar.js`: productive expressions, role frames, and broad fallbacks
-- `priors.js`: compact candidate-scoring parameters
-- `../rules-data.js`: public-data assembly only
+- `../rules-data.js`: compact candidate-scoring parameters and public-data assembly
 
 `ALLOWED_WORDS` is the broad vocabulary accepted from censored captions and local
 Whisper. `RULE_WORDS` is its conservative subset permitted as deterministic rule
 output. `WORD_ROLES` may be broader than both because it describes grammar rather
 than output permission.
 
-Add a supported censored word to `ALLOWED_WORDS`. Add it to `RULE_WORDS` only
-with a validated exact rule or grammatical frame. Context-ambiguous words can
-therefore remain available to audio inference without enabling context guesses.
-Keep `ALLOWED_WORDS` order stable because Whisper uses it for tie-breaking.
+Add a newly supported censored word to `ALLOWED_WORDS` only after the
+manual-auto audit shows it is absent from visible automatic captions and gives
+repeated whole-word evidence; a split form such as `chicken [__]` does not
+validate `chickenshit`. `NOT_CENSORED_WORDS` is the discovery-only negative
+inventory: skip those visible labels when inferring the word hidden by a nearby
+blank. Keep `NOT_CENSORED_WORDS` disjoint from `ALLOWED_WORDS`. Add a word to
+`RULE_WORDS` only with a validated exact rule or grammatical frame. Context-
+ambiguous words can therefore remain available to audio inference without
+enabling context guesses. Keep `ALLOWED_WORDS` order stable because Whisper uses
+it for tie-breaking.
 
 Groups have explicit priorities. Compiled rules derive a stable priority from their
 group, authored position, and expansion position. Source groups may therefore be

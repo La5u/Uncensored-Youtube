@@ -6,6 +6,7 @@ const ruleData = require("../src/rules-data");
 const timedText = require("../src/timedtext");
 const decision = require("../src/whisper-local");
 const { align, manualSwearEvents } = require("./evaluation-alignment");
+const { buildProvenanceIndex, defaultReports } = require("./audit-caption-corpus");
 
 const root = path.join(__dirname, "..");
 const resolvePath = (value) => path.resolve(root, value);
@@ -35,7 +36,11 @@ function parseArgs(argv) {
     unpairedMinBlanks: "0",
     contextWindow: "1,0",
     checkpointEvery: "25",
-    reuse: ""
+    reuse: "",
+    pairClass: "all",
+    creatorManifest: "",
+    creatorSplit: "all",
+    provenanceReports: ""
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -79,6 +84,15 @@ function parseArgs(argv) {
   }
   if (!["strict", "any-candidate"].includes(args.rulesScoring)) {
     throw new Error("--rulesScoring must be strict or any-candidate.");
+  }
+  if (!["all", "manual-auto", "auto-auto", "synthetic", "unknown", "conflict"].includes(args.pairClass)) {
+    throw new Error("--pairClass must be all, manual-auto, auto-auto, synthetic, unknown, or conflict.");
+  }
+  if (!["all", "discovery", "validation", "test"].includes(args.creatorSplit)) {
+    throw new Error("--creatorSplit must be all, discovery, validation, or test.");
+  }
+  if (args.creatorSplit !== "all" && !args.creatorManifest) {
+    throw new Error("--creatorSplit requires --creatorManifest.");
   }
   if (args.rulesScoring !== "strict" && args.mode !== "rules-only") {
     throw new Error("--rulesScoring any-candidate requires --mode rules-only.");
@@ -137,6 +151,41 @@ function transcriptContainsWord(transcript, word) {
   const words = decision.normalizeText(transcript).split(" ");
   const normalized = decision.normalizeText(word).split(" ").pop();
   return Boolean(normalized && words.includes(normalized));
+}
+
+function ruleQualityGate(metric) {
+  const support = metric.matchedCount || 0;
+  const candidateCount = metric.candidateCount || 1;
+  const generalized = /[*…]|<[^>]+>/u.test(metric.template || "");
+  let minimumSupport = generalized ? 10 : 4;
+  let minimumPrecision = generalized ? 0.92 : support >= 6 ? 0.85 : 0.90;
+  const score = candidateCount > 1 ? metric.candidatePrecision : metric.precision;
+
+  if (!generalized && candidateCount === 1 && support >= 6) minimumSupport = 6;
+
+  if (candidateCount >= 4) {
+    minimumSupport = Math.max(minimumSupport, 20);
+    minimumPrecision = Math.max(minimumPrecision, 0.97);
+  } else if (candidateCount === 3) {
+    minimumSupport = Math.max(minimumSupport, 10);
+    minimumPrecision = Math.max(minimumPrecision, 0.95);
+  } else if (candidateCount === 2) {
+    minimumSupport = Math.max(minimumSupport, 6);
+    minimumPrecision = Math.max(minimumPrecision, 0.92);
+  }
+  const evidencePassed = support >= minimumSupport && metric.creatorCount >= 2;
+  const deterministicMinimumPrecision = candidateCount === 1
+    ? minimumPrecision : candidateCount === 2 ? 0.90 : candidateCount === 3 ? 0.95 : 0.97;
+  return {
+    passed: evidencePassed && score >= minimumPrecision,
+    deterministicPassed: evidencePassed && metric.precision >= deterministicMinimumPrecision,
+    score,
+    minimumSupport,
+    minimumPrecision,
+    deterministicMinimumPrecision,
+    minimumCreators: 2,
+    generalized
+  };
 }
 
 function expectedWords(events, timeSeconds, windowSeconds) {
@@ -371,6 +420,7 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults, reu
     if (args.mode === "rules-only" && reusable && reusable.context === token.context &&
         reusable.reviewContext === reviewContext && reusable.word === token.deterministicWord &&
         reusable.ruleTemplate === (token.deterministicRuleTemplate || "") &&
+        (reusable.ruleId || "") === (token.deterministicRuleId || "") &&
         reusable.ruleTier === (token.deterministicTier || "") &&
         reusable.candidateScoring === anyCandidate &&
         JSON.stringify(reusable.candidates || []) === JSON.stringify(candidateWords)) {
@@ -444,6 +494,7 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults, reu
       attempted,
       candidateScoring: anyCandidate,
       ruleTemplate: token.deterministicRuleTemplate || "",
+      ruleId: token.deterministicRuleId || "",
       ruleTier: token.deterministicTier || "",
       source: chosen.evidence,
       recognizedWords: chosen.words || (chosen.word ? [chosen.word] : []),
@@ -603,6 +654,88 @@ function summarize(fixtures) {
       confusions[key] = (confusions[key] || 0) + 1;
     }
   });
+  const pairClasses = {};
+  fixtures.forEach((fixture) => {
+    const name = fixture.pairClass || "unknown";
+    const bucket = pairClasses[name] || {
+      fixtureCount: 0, evaluatedCount: 0, scoredCount: 0,
+      attemptedCount: 0, correctCount: 0
+    };
+    const fixtureResults = fixture.results || [];
+    const fixtureScored = fixtureResults.filter((result) => result.expected.length);
+    bucket.fixtureCount += fixture.skipped ? 0 : 1;
+    bucket.evaluatedCount += fixtureResults.length;
+    bucket.scoredCount += fixtureScored.length;
+    bucket.attemptedCount += fixtureScored.filter((result) => result.attempted ?? Boolean(result.word)).length;
+    bucket.correctCount += fixtureScored.filter((result) => result.correct).length;
+    pairClasses[name] = bucket;
+  });
+  Object.values(pairClasses).forEach((bucket) => {
+    bucket.precision = bucket.attemptedCount ? bucket.correctCount / bucket.attemptedCount : 0;
+    bucket.coverage = bucket.scoredCount ? bucket.correctCount / bucket.scoredCount : 0;
+  });
+  const creators = {};
+  fixtures.forEach((fixture) => {
+    const name = fixture.creator || "unknown";
+    const rows = (fixture.results || []).filter((result) => result.expected.length);
+    const bucket = creators[name] || { fixtureCount: 0, scoredCount: 0,
+      attemptedCount: 0, correctCount: 0 };
+    bucket.fixtureCount += fixture.skipped ? 0 : 1;
+    bucket.scoredCount += rows.length;
+    bucket.attemptedCount += rows.filter((result) => result.attempted ?? Boolean(result.word)).length;
+    bucket.correctCount += rows.filter((result) => result.correct).length;
+    creators[name] = bucket;
+  });
+  Object.values(creators).forEach((bucket) => {
+    bucket.precision = bucket.attemptedCount ? bucket.correctCount / bucket.attemptedCount : 0;
+    bucket.coverage = bucket.scoredCount ? bucket.correctCount / bucket.scoredCount : 0;
+  });
+  const ruleMetrics = {};
+  fixtures.forEach((fixture) => {
+    (fixture.results || []).forEach((result) => {
+      if (!result.ruleId || !result.expected.length) return;
+      const attempted = result.attempted ?? Boolean(result.word);
+      const bucket = ruleMetrics[result.ruleId] || {
+        ruleId: result.ruleId, template: result.ruleTemplate,
+        tier: result.ruleTier, matchedCount: 0, attemptedCount: 0, correctCount: 0,
+        candidateCorrectCount: 0, candidateCount: 0, creators: new Set(), pairClasses: {}
+      };
+      const pairClass = fixture.pairClass || "unknown";
+      const pairBucket = bucket.pairClasses[pairClass] || {
+        matchedCount: 0, attemptedCount: 0, correctCount: 0
+      };
+      bucket.matchedCount += 1;
+      bucket.candidateCount = Math.max(bucket.candidateCount, (result.candidates || []).length);
+      if (fixture.creator && fixture.creator !== "unknown") bucket.creators.add(fixture.creator);
+      if ((result.candidates || []).some((candidate) => (
+        isCorrect(candidate, result.expected, result.context)
+      ))) bucket.candidateCorrectCount += 1;
+      pairBucket.matchedCount += 1;
+      if (attempted) {
+        bucket.attemptedCount += 1;
+        pairBucket.attemptedCount += 1;
+      }
+      if (result.correct) {
+        bucket.correctCount += 1;
+        pairBucket.correctCount += 1;
+      }
+      bucket.pairClasses[pairClass] = pairBucket;
+      ruleMetrics[result.ruleId] = bucket;
+    });
+  });
+  Object.values(ruleMetrics).forEach((bucket) => {
+    bucket.precision = bucket.attemptedCount ? bucket.correctCount / bucket.attemptedCount : 0;
+    bucket.candidateCount = bucket.candidateCount || 1;
+    bucket.candidatePrecision = bucket.matchedCount
+      ? bucket.candidateCorrectCount / bucket.matchedCount : 0;
+    bucket.creatorCount = bucket.creators.size;
+    bucket.qualityGate = ruleQualityGate(bucket);
+    delete bucket.creators;
+    Object.values(bucket.pairClasses).forEach((pairBucket) => {
+      pairBucket.precision = pairBucket.attemptedCount
+        ? pairBucket.correctCount / pairBucket.attemptedCount : 0;
+    });
+  });
   return {
     fixtureCount: fixtures.filter((fixture) => !fixture.skipped).length,
     contributingFixtureCount: fixtures.filter((fixture) => (fixture.results || []).length).length,
@@ -627,6 +760,11 @@ function summarize(fixtures) {
     precision: attempted.length ? correct.length / attempted.length : 0,
     coverage: scored.length ? correct.length / scored.length : 0,
     accuracy: scored.length ? correct.length / scored.length : 0,
+    pairClasses,
+    creators,
+    ruleMetrics: Object.values(ruleMetrics)
+      .sort((left, right) => right.attemptedCount - left.attemptedCount ||
+        left.ruleId.localeCompare(right.ruleId)),
     classifications,
     topConfusions: Object.entries(confusions)
       .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
@@ -639,7 +777,22 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const fixturesPath = resolvePath(args.fixtures);
   const configured = JSON.parse(fs.readFileSync(resolvePath(args.manifest), "utf8"));
-  const byName = new Map(configured.map((fixture) => [fixture.name, fixture]));
+  const reportPaths = args.provenanceReports
+    ? args.provenanceReports.split(",").filter(Boolean).map(resolvePath)
+    : defaultReports(root);
+  const provenance = buildProvenanceIndex(reportPaths);
+  const splitCreators = args.creatorManifest
+    ? JSON.parse(fs.readFileSync(resolvePath(args.creatorManifest), "utf8")).creators : [];
+  const creatorSplits = new Map(splitCreators.map((creator) => [creator.name, creator.split]));
+  const creatorIdSplits = new Map(splitCreators
+    .filter((creator) => creator.channelId).map((creator) => [creator.channelId, creator.split]));
+  const withPairClass = (fixture) => {
+    const record = provenance.get(fixture.videoId || fixture.name.slice(0, 11)) || {};
+    return { ...fixture, pairClass: record.pairClass || "unknown",
+      creator: record.creator || "", creatorSplit: creatorIdSplits.get(record.creatorId) ||
+        creatorSplits.get(record.creator) || "unknown" };
+  };
+  const byName = new Map(configured.map(withPairClass).map((fixture) => [fixture.name, fixture]));
   if (args.discoverPaired) {
     fs.readdirSync(fixturesPath)
       .filter((name) => name.endsWith("_auto.en.json3"))
@@ -648,19 +801,23 @@ async function main() {
         const name = basename.slice(0, 11);
         const uncensored = `${basename}_manual.en.json3`;
         if (!byName.has(name) && fs.existsSync(path.join(fixturesPath, uncensored))) {
-          byName.set(name, { name, videoId: name, censored, uncensored });
+          const fixture = withPairClass({ name, videoId: name, censored, uncensored });
+          byName.set(name, fixture);
         }
       });
   }
   const allFixtures = args.discoverUnpaired
     ? discoverUnpaired(fixturesPath, args.unpairedMinBlanks)
+      .map((fixture) => ({ ...fixture, pairClass: "unpaired" }))
     : [...byName.values()];
-  const manifest = args.names.size
-    ? allFixtures.filter((fixture) => args.names.has(fixture.name))
-    : allFixtures;
+  const manifest = allFixtures.filter((fixture) => (
+    (!args.names.size || args.names.has(fixture.name)) &&
+    (args.pairClass === "all" || fixture.pairClass === args.pairClass) &&
+    (args.creatorSplit === "all" || fixture.creatorSplit === args.creatorSplit)
+  ));
 
   if (!manifest.length) {
-    throw new Error("No fixtures matched --names.");
+    throw new Error("No fixtures matched the selection.");
   }
 
   const missing = manifest.filter((fixture) => (
@@ -704,6 +861,9 @@ async function main() {
     reuseReport.limit === args.limit && reuseReport.allowUnscored === args.allowUnscored &&
     reuseReport.discoverPaired === args.discoverPaired &&
     reuseReport.discoverUnpaired === args.discoverUnpaired &&
+    reuseReport.pairClass === args.pairClass &&
+    reuseReport.creatorManifest === args.creatorManifest &&
+    reuseReport.creatorSplit === args.creatorSplit &&
     reuseReport.unpairedMinBlanks === args.unpairedMinBlanks;
   const reusedByName = new Map((reuseCompatible && reuseReport.fixtures || [])
     .map((fixture) => [fixture.name, fixture]));
@@ -760,7 +920,8 @@ async function main() {
     if (reusable) {
       reusedCount += 1;
       reusedSlotCount += cached.results.length;
-      fixtures.push({ ...cached, rulesFingerprint: fingerprint,
+      fixtures.push({ ...cached, pairClass: fixture.pairClass, creator: fixture.creator,
+        creatorSplit: fixture.creatorSplit, rulesFingerprint: fingerprint,
         reusedSlotCount: cached.results.length });
     } else {
       if (fixtureIndex % 50 === 0) {
@@ -769,6 +930,9 @@ async function main() {
       const evaluated = await evaluateFixture(
         args, fixture, getTranscriber, cachedByFixture.get(fixture.name), cachedResults
       );
+      evaluated.pairClass = fixture.pairClass;
+      evaluated.creator = fixture.creator;
+      evaluated.creatorSplit = fixture.creatorSplit;
       reusedSlotCount += evaluated.reusedSlotCount || 0;
       fixtures.push(evaluated);
     }
@@ -787,6 +951,10 @@ async function main() {
         allowUnscored: args.allowUnscored,
         discoverPaired: args.discoverPaired,
         discoverUnpaired: args.discoverUnpaired,
+        pairClass: args.pairClass,
+        creatorManifest: args.creatorManifest,
+        creatorSplit: args.creatorSplit,
+        provenanceReports: reportPaths.map((file) => path.relative(root, file)),
         unpairedMinBlanks: args.unpairedMinBlanks,
         rulesFingerprint: fingerprint,
         rulesAuxFingerprint: auxiliaryFingerprint,
@@ -817,6 +985,10 @@ async function main() {
     allowUnscored: args.allowUnscored,
     discoverPaired: args.discoverPaired,
     discoverUnpaired: args.discoverUnpaired,
+    pairClass: args.pairClass,
+    creatorManifest: args.creatorManifest,
+    creatorSplit: args.creatorSplit,
+    provenanceReports: reportPaths.map((file) => path.relative(root, file)),
     unpairedMinBlanks: args.unpairedMinBlanks,
     complete: true,
     rulesFingerprint: fingerprint,
@@ -831,11 +1003,13 @@ async function main() {
 
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`);
+  const { ruleMetrics, ...consoleSummary } = report.summary;
   console.log(JSON.stringify({
     output: args.output,
     reusedFixtures: reusedCount,
     reusedSlots: reusedSlotCount,
-    summary: report.summary
+    summary: consoleSummary,
+    ruleMetricCount: ruleMetrics.length
   }, null, 2));
 }
 
@@ -861,6 +1035,7 @@ module.exports = {
   contentFingerprint,
   auxiliaryRulesFingerprint,
   reviewContextForToken,
+  ruleQualityGate,
   rulesEngineFingerprint,
   rulesFingerprint
 };

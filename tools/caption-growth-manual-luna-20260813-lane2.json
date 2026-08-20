@@ -1,0 +1,16 @@
+{
+  "channels": [
+    {"name":"MoreSidemen","sources":["https://www.youtube.com/@MoreSidemen/videos"]},
+    {"name":"InternetCity","sources":["https://www.youtube.com/@InternetCity/videos"]},
+    {"name":"Mike Matei","sources":["https://www.youtube.com/@mikematei/videos"]},
+    {"name":"Podcast Highlights Hub","sources":["https://www.youtube.com/@PodcastsHub/videos"]},
+    {"name":"Comedy Burst","sources":["https://www.youtube.com/@ComedianBurst/videos"]},
+    {"name":"Jimmy Carr","sources":["https://www.youtube.com/@jimmycarr/videos"]},
+    {"name":"Podcast Cringe","sources":["https://www.youtube.com/@PodcastCringe/videos"]},
+    {"name":"American Redact","sources":["https://www.youtube.com/@americanredact/videos"]},
+    {"name":"Unsubscribe Clips","sources":["https://www.youtube.com/@Unsubscribe_Clips/videos"]},
+    {"name":"Two Hot Takes","sources":["https://www.youtube.com/@TwoHotTakes/videos"]},
+    {"name":"Comedy Enforcement","sources":["https://www.youtube.com/@comedyenforcement/videos"]},
+    {"name":"Comedy Dynamics","sources":["https://www.youtube.com/@comedydynamics/videos"]}
+  ]
+}

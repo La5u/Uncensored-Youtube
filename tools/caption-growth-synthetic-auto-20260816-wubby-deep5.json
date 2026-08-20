@@ -1,0 +1,10 @@
+{
+  "channels": [
+    {
+      "name": "Wubby Stream Archive",
+      "sources": [
+        "https://www.youtube.com/channel/UC3TgtPadSTaegI9KMwM4tCw/videos"
+      ]
+    }
+  ]
+}

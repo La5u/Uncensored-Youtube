@@ -1,0 +1,7 @@
+{
+  "channels": [
+    {"name":"Kai Cenat","sources":["https://www.youtube.com/@KaiCenat/videos"]},
+    {"name":"IShowSpeed","sources":["https://www.youtube.com/@IShowSpeed/videos"]},
+    {"name":"CoryxKenshin","sources":["https://www.youtube.com/@CoryxKenshin/videos"]}
+  ]
+}

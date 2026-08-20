@@ -6,7 +6,6 @@
   var set = compiler.set;
   var slot = compiler.slot;
   var pattern = compiler.pattern;
-  var patterns = compiler.patterns;
   var frame = compiler.frame;
   var group = compiler.group;
   var parts = root.UncensoredRuleDataParts;
@@ -146,7 +145,7 @@
     group("productive/syntax", 2020, [
       pattern`${["what", "how", "who", "why", "when", "whatever"]} the [fuck]`,
       pattern`the [fuck] ${FUCK_THE_SUFFIXES}`,
-      pattern`the [fuck|shit] ${["is", "you", "outta"]}`,
+      pattern`the [fuck|shit] ${["you", "outta"]}`,
       pattern`come the [fuck] on`,
       pattern`buckle the [fuck]`,
       pattern`the [fuck's] going on`,
@@ -166,10 +165,10 @@
       pattern`said [fuck] you`,
       pattern`[fuck] a duck`,
       pattern`to [fuck] the …`,
-      pattern`[fuck] yeah.`,
+      pattern`[fuck|shit] yeah.`,
       pattern`${["took a", "took a huge", "done a huge"]} [shit] in`,
       pattern`cheap [shit|pussy|motherfucker]`,
-      pattern`${["fucking", "dog"]} [shit]`,
+      pattern`${["fucking"]} [shit]`,
       pattern`${["absolute", "complete"]} [shit] show`,
       pattern`don't give me [shit] about`,
       pattern`${["give", "gives"]} a [fuck|shit]`,
@@ -224,7 +223,7 @@
       pattern`god [fucking] ${["damn it", "dammit", "damn"]}`,
       pattern`swear to [fucking] god`,
       pattern`[fucking] pieces of`,
-      pattern`[fucking] ${["meeting", "text", "naked", "attack", "album"]}`,
+      pattern`[fucking] ${["meeting", "text", "naked", "album"]}`,
       pattern`${PLAIN_VERB_SUBJECTS.concat(["be like", "going", "gonna"])} [fucking] need`,
       pattern`${["there is no", "."]} [fucking] need`,
       pattern`should be [fucking]`,
@@ -233,7 +232,7 @@
       pattern`magical [bullshit]`,
       pattern`[shit] I can`,
       pattern`oh [shit] yeah it's`,
-      pattern`[fucking] ${["hit", "win", "loves", "try", "running"]}`,
+      pattern`[fucking] ${["hit", "win", "try", "running"]}`,
       pattern`like [fuck] that`,
       pattern`let's go [fuck]`,
       pattern`[fuck] if I know`,
@@ -253,7 +252,6 @@
       pattern`${THIRD_PERSON_SUBJECTS} doesn't have [fucking] time`,
       pattern`${["that", "this", "it"]} [fucking] kills`,
       pattern`[fucking] ${["unsubscribe", "cancerous"]}`,
-      pattern`${["that", "this"]} was [fucking] …`,
       pattern`${NEGATED_SUBJECT_PREFIXES} [fucking|fuck] …`,
       pattern`${["he was", "that is a", "out of the", "back to the"]} [fucking] …`,
       pattern`[fucking] ${["do it", "did it"]}`,
@@ -280,7 +278,7 @@
       pattern`smallest [fucking] mouse`,
       pattern`[fucking|bitch] speedrun`,
       pattern`[fucking] ${["tail", "ripper", "speedun", "piece of"]}`,
-      pattern`[fucking] ${["cool", "quit", "movies", "ar"]} *`,
+      pattern`[fucking] ${["quit", "movies", "ar"]} *`,
       pattern`[fucking] * ${["year old", "million", "and shit", "it out"]}`
     ])
   ]);
@@ -301,36 +299,31 @@
   var PARTICIPLE_FRAME_SUFFIXES = vocabulary.PARTICIPLE_FRAME_SUFFIXES;
   var EXPLETIVE_DETERMINER_PREFIXES = vocabulary.EXPLETIVE_DETERMINER_PREFIXES;
   var EXPLETIVE_DETERMINER_SUFFIXES = vocabulary.EXPLETIVE_DETERMINER_SUFFIXES;
-  var MASS_NOUN_PREFIXES = vocabulary.MASS_NOUN_PREFIXES;
-  var AS_FUCK_ADJECTIVES = vocabulary.AS_FUCK_ADJECTIVES;
-  var AS_SHIT_ADJECTIVES = vocabulary.AS_SHIT_ADJECTIVES;
   var INTENSIFIER_MODIFIERS = vocabulary.INTENSIFIER_MODIFIERS;
   var NEGATED_DO_PREFIXES = vocabulary.NEGATED_DO_PREFIXES;
   var INTENSIFIED_ADJECTIVES = vocabulary.INTENSIFIED_ADJECTIVES;
-  var INTENSIFIER_DETERMINERS = vocabulary.INTENSIFIER_DETERMINERS;
-  var INTENSIFIED_NOUNS = vocabulary.INTENSIFIED_NOUNS;
-  var INTENSIFIER_COPULAS = vocabulary.INTENSIFIER_COPULAS;
-  var INTENSIFIED_PREDICATES = vocabulary.INTENSIFIED_PREDICATES;
-  var EMPHATIC_SUBJECTS = vocabulary.EMPHATIC_SUBJECTS;
-  var EMPHATIC_ACTIONS = vocabulary.EMPHATIC_ACTIONS;
-  var EMPHATIC_AUXILIARIES = vocabulary.EMPHATIC_AUXILIARIES;
-  var EMPHATIC_AUXILIARY_ACTIONS = vocabulary.EMPHATIC_AUXILIARY_ACTIONS;
+  var INTENSIFIED_TRAILING_WORDS = vocabulary.INTENSIFIED_TRAILING_WORDS;
+  var VALIDATED_INTENSIFIER_SUFFIXES = vocabulary.VALIDATED_INTENSIFIER_SUFFIXES;
+  var RARE_INTENSIFIER_SUFFIXES = vocabulary.RARE_INTENSIFIER_SUFFIXES;
   var NUMBER = vocabulary.NUMBER;
   var COUNT_UNIT = vocabulary.COUNT_UNIT;
   var BASE_VERB = slot(WORD_ROLES.BASE_VERB);
   var EXPLETIVE = slot(WORD_ROLES.EXPLETIVE);
   var INTENSIFIER = slot(WORD_ROLES.INTENSIFIER);
   var PARTICIPLE = slot(WORD_ROLES.PARTICIPLE);
-  var MASS_NOUN = slot(WORD_ROLES.MASS_NOUN);
-  var SIMILE_FUCK = slot(set("simile fuck", ["fuck"]));
-  var SIMILE_SHIT = slot(set("simile shit", ["shit"]));
+  var SINGLE_INTENSIFIER = slot(set("single intensifier", ["fucking"]));
+  var SINGLE_INTENSIFIER_SUFFIXES = set("single intensifier suffix", INTENSIFIED_TRAILING_WORDS.concat(
+    VALIDATED_INTENSIFIER_SUFFIXES,
+    RARE_INTENSIFIER_SUFFIXES
+  ).filter(function excludeBadSuffix(value) {
+    return !["rocked", "walk", "suck", "mario"].includes(value);
+  }));
 
   var ROLE_FRAMES = Object.freeze([
     group("frames/verb-intensifiers", 3000, [
       frame`${NEGATED_DO_PREFIXES} ${INTENSIFIER} ${VERB_OBJECTS}`
     ]),
     group("frames/base-verbs", 3010, [
-      frame`${BASE_VERB_PREFIXES} ${BASE_VERB} ${VERB_OBJECTS}`,
       frame`${BASE_VERB_PREFIXES} ${BASE_VERB} ${VERB_PARTICLES}`,
       frame`${BASE_VERB_QUESTION_PREFIXES} ${BASE_VERB} ${VERB_PARTICLES}`
     ]),
@@ -341,32 +334,21 @@
       frame`${PARTICIPLE_FRAME_PREFIXES} ${PARTICIPLE} ${PARTICIPLE_FRAME_SUFFIXES}`
     ]),
     group("frames/intensifiers", 3040, [
-      frame`${INTENSIFIER_DETERMINERS} ${INTENSIFIER} ${INTENSIFIED_NOUNS}`,
-      frame`${INTENSIFIER_COPULAS} ${INTENSIFIER} ${INTENSIFIED_PREDICATES}`,
-      frame`${EMPHATIC_SUBJECTS} ${INTENSIFIER} ${EMPHATIC_ACTIONS}`,
-      frame`${EMPHATIC_AUXILIARIES} ${INTENSIFIER} ${EMPHATIC_AUXILIARY_ACTIONS}`,
       frame`${INTENSIFIER_MODIFIERS} ${INTENSIFIER} ${INTENSIFIED_ADJECTIVES}`,
       frame`${NUMBER} ${INTENSIFIER} ${COUNT_UNIT}`
-    ]),
-    group("frames/mass-nouns", 3050, [
-      frame`${MASS_NOUN_PREFIXES} ${MASS_NOUN}`
-    ]),
-    group("frames/simile-expletives", 3060, [
-      frame`${AS_FUCK_ADJECTIVES} as ${SIMILE_FUCK}`,
-      frame`${AS_SHIT_ADJECTIVES} as ${SIMILE_SHIT}`
     ]),
     group("frames/phrasal-verbs", 3070, [
       frame`${PHRASAL_VERB_PREFIXES} ${BASE_VERB} ${PHRASAL_SUFFIXES}`,
       frame`${SUBJECT_PRONOUNS} ${PHRASAL_SUBJECT_MODALS} ${BASE_VERB} ${PHRASAL_PARTICLE_SUFFIXES}`,
       frame`${FUTURE_SUBJECTS} ${BASE_VERB} ${PHRASAL_PARTICLE_SUFFIXES}`
+    ]),
+    group("frames/single-intensifier-suffixes", 3080, [
+      frame`${SINGLE_INTENSIFIER} ${SINGLE_INTENSIFIER_SUFFIXES}`
     ])
   ]);
 
 
   var QUESTION_WORDS = vocabulary.QUESTION_WORDS;
-  var INTENSIFIED_TRAILING_WORDS = vocabulary.INTENSIFIED_TRAILING_WORDS;
-  var VALIDATED_INTENSIFIER_SUFFIXES = vocabulary.VALIDATED_INTENSIFIER_SUFFIXES;
-  var RARE_INTENSIFIER_SUFFIXES = vocabulary.RARE_INTENSIFIER_SUFFIXES;
   var SAFE_INTENSIFIER_PREFIXES = vocabulary.SAFE_INTENSIFIER_PREFIXES;
   var LOW_CONFIDENCE_RULES = Object.freeze([
     group("low-confidence/mass-nouns", 4000, [
@@ -377,7 +359,7 @@
       pattern`cut the [shit]$`,
       pattern`load of [shit]$`,
       pattern`${["don't have", "looks like"]} [shit]$`,
-      pattern`${["this is", "all the", "for your", "to his"]} [bullshit]$`
+      pattern`${["for your", "to his"]} [bullshit]$`
     ]),
     group("low-confidence/insults", 4010, [
       pattern`${["a little", "a crazy", "you crazy", "you fuckin'", "she's a"]} [bitch]$`,
@@ -430,7 +412,6 @@
       pattern`sit [fucking] still`,
       pattern`[fuck|fucked|fucking|shitting] me`,
       pattern`[fuck|shit] yourself`,
-      pattern`[fuck|fucking|fucked|shit] off`,
       pattern`this [shit|motherfucker|bitch|bullshit|fucker|fucking] is`,
       pattern`[fuck|fucking|fucked|shit|bullshit|bitch] it`,
       pattern`[fucking|shit|motherfuckers] eyes`,
@@ -444,17 +425,11 @@
       pattern`[fucking|shit] figure`,
       pattern`[fucking|bullshit] planet`,
       pattern`${SAFE_INTENSIFIER_PREFIXES} [fucking] …`,
-      pattern`[fucking] ${INTENSIFIED_TRAILING_WORDS.concat(
-        VALIDATED_INTENSIFIER_SUFFIXES,
-        RARE_INTENSIFIER_SUFFIXES
-      )}`,
       pattern`I'm a [fucking|fuck|bitch|whore] …`,
       pattern`have a [fucking|shit|bullshit] …`,
       pattern`there's a [fucking|fuck] …`,
       pattern`got a [fucking|shit|fucked] …`,
       pattern`[fucking|fuck|bitch] nothing`,
-      pattern`[fucking|shit] sucks`,
-      pattern`[shit|fucking] like this`,
       pattern`[shit] all over the`,
       pattern`[fucking|shit|asshole|fucked] thing`,
       pattern`[fucking|bitch|fuck|bullshit|pussy] ass`,
@@ -464,6 +439,21 @@
       pattern`all your [shit|fucking] …`,
       pattern`${["cuz", "to say"]} [fuck] …`,
       pattern`woo [fuck|bitches] …`,
+    ]),
+    group("fallback/coverage-preserving", 5005, [
+      pattern`like oh [shit] yeah`,
+      pattern`take a [shit]`,
+      pattern`[shit] in a`,
+      pattern`look like a [fucking]`,
+      pattern`that [shit] up`
+    ]),
+    group("fallback/validated-fill", 5010, [
+      pattern`the [fucking] face`,
+      pattern`can't do [shit]`,
+      pattern`the [fuck] is this`,
+      pattern`[fucking] love it`,
+      pattern`[fucking] neck`,
+      pattern`your [fucking] hands`
     ])
   ]);
 

@@ -3,7 +3,7 @@
   "minimum_chrome_version": "148",
   "message_serialization": "structured_clone",
   "name": "Uncensored YouTube",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "Restores words censored in YouTube's automatic captions.",
   "icons": {
     "16": "src/icons/icon-16.png",
@@ -40,7 +40,6 @@
         "src/rule-data/language.js",
         "src/rule-data/exact.js",
         "src/rule-data/grammar.js",
-        "src/rule-data/priors.js",
         "src/rules-data.js",
         "src/rules.js",
         "src/timedtext.js",
@@ -59,7 +58,6 @@
         "src/rule-data/language.js",
         "src/rule-data/exact.js",
         "src/rule-data/grammar.js",
-        "src/rule-data/priors.js",
         "src/rules-data.js",
         "src/rules.js",
         "src/timedtext.js"
