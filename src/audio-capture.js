@@ -436,6 +436,18 @@
     return candidates;
   }
 
+  function ruleCandidatesForToken(token) {
+    var result;
+
+    if (token.deterministicCandidates && token.deterministicCandidates.length) {
+      return token.deterministicCandidates;
+    }
+    if (!token.contextWord) return [];
+    result = rules.applyDeterministicRules(token.context);
+    return result.replacements && result.replacements.length === 1 && result.replacements[0].rule
+      ? result.replacements[0].rule.candidates : [];
+  }
+
   function normalizeContext(text) {
     return text
       .toLowerCase()
@@ -465,7 +477,7 @@
 
   function resolutionPriority(resolution) {
     if (resolution.source === "media") {
-      return resolution.evidence === "transcript-anchor" ? 3 : 1;
+      return resolution.evidence === "transcript-anchor" || resolution.hybridCrossFamily ? 3 : 1;
     }
     return resolution.source === "context" || resolution.source === "deterministic" ? 2 : 0;
   }
@@ -497,7 +509,7 @@
     }
   }
 
-  function rememberResolution(token, word, source, evidence) {
+  function rememberResolution(token, word, source, evidence, hybridCrossFamily) {
     var key;
     var existing;
 
@@ -512,13 +524,16 @@
     existing = resolvedTokens.get(key);
 
     if (existing) {
-      if (resolutionPriority(existing) > resolutionPriority({ source: source, evidence: evidence })) {
+      if (resolutionPriority(existing) > resolutionPriority({
+        source: source, evidence: evidence, hybridCrossFamily: Boolean(hybridCrossFamily)
+      })) {
         return;
       }
 
       existing.word = word;
       existing.source = source;
       existing.evidence = evidence;
+      existing.hybridCrossFamily = Boolean(hybridCrossFamily);
       notifyTimedTextResolution(token, word, source, evidence);
       watchCaptionMutations();
       scheduleVisibleCaptionResolution();
@@ -529,7 +544,8 @@
       tokenIndex: token.tokenIndex,
       word: word,
       source: source,
-      evidence: evidence
+      evidence: evidence,
+      hybridCrossFamily: Boolean(hybridCrossFamily)
     };
     resolvedTokens.set(key, existing);
 
@@ -546,7 +562,8 @@
 
   function shouldResolveWithWhisper(token) {
     if (!options.whisperEnabled || failedTokens.has(token.tokenIndex)) return false;
-    return !options.rulesEnabled || !token.deterministicWord || token.deterministicAmbiguous;
+    return !options.rulesEnabled || !token.deterministicWord || token.deterministicAmbiguous ||
+      token.deterministicTier === "exact" || token.deterministicTier === "frame";
   }
 
   function markWhisperFailed(token) {
@@ -566,6 +583,9 @@
       fCandidates: token.fCandidates,
       previousWord: token.previousWord,
       previousWordOffset: token.previousWordOffset,
+      hybridRuleWord: options.rulesEnabled && (token.deterministicWord || token.contextWord) || "",
+      hybridRuleCandidates: options.rulesEnabled ? ruleCandidatesForToken(token) : [],
+      hybridRuleSource: token.contextWord ? "context" : "deterministic",
       slotOrdinal: token.adjacentTokenIndex,
       slotCount: token.adjacentTokenCount
     }).then(function resolvedDecision(decision) {
@@ -590,7 +610,8 @@
         word: decision.word,
         source: source,
         transcript: decision.transcript,
-        evidence: decision.evidence
+        evidence: decision.evidence,
+        hybridCrossFamily: Boolean(decision.hybridCrossFamily)
       };
     });
   }
@@ -642,6 +663,10 @@
         fCandidatesBySlot: group.map(function groupFCandidates(token) { return token.fCandidates; }),
         previousWords: group.map(function groupPreviousWord(token) { return token.previousWord; }),
         previousWordOffsets: group.map(function groupPreviousWordOffset(token) { return token.previousWordOffset; }),
+        hybridRuleWords: options.rulesEnabled ? group.map(function groupRuleWord(token) {
+          return token.deterministicWord || token.contextWord || "";
+        }) : [],
+        hybridRuleCandidatesBySlot: options.rulesEnabled ? group.map(ruleCandidatesForToken) : [],
         slotOrdinal: 0,
         slotCount: group.length
       }).then(function applyGroupDecision(decision) {
@@ -663,7 +688,8 @@
           applyResolvedWord(token, {
             word: targetWords[index],
             source: "media",
-            evidence: decision.slotEvidence && decision.slotEvidence[index] || decision.evidence
+            evidence: decision.slotEvidence && decision.slotEvidence[index] || decision.evidence,
+            hybridCrossFamily: Boolean(decision.slotHybridCrossFamily && decision.slotHybridCrossFamily[index])
           });
         });
 
@@ -673,8 +699,9 @@
   }
 
   function arbitrateResolution(token, resolution) {
-    var ruleWord = token.deterministicWord || token.contextWord;
+    var ruleWord = options.rulesEnabled && (token.deterministicWord || token.contextWord);
 
+    if (resolution && resolution.hybridCrossFamily) return resolution;
     if (ruleWord && (!resolution || resolution.evidence !== "transcript-anchor")) {
       return {
         word: ruleWord,
@@ -696,7 +723,8 @@
     }
 
     token.resolved = true;
-    rememberResolution(token, word, resolution.source, resolution.evidence);
+    rememberResolution(token, word, resolution.source, resolution.evidence,
+      resolution.hybridCrossFamily);
   }
 
   function contextWordForToken(token) {

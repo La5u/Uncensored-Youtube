@@ -153,6 +153,30 @@ function transcriptContainsWord(transcript, word) {
   return Boolean(normalized && words.includes(normalized));
 }
 
+function transcriptCandidates(token, mode) {
+  if (mode !== "rules+whisper") return token.candidates || [];
+  return [...new Set((token.candidates || []).concat(rules.ALLOWED_WORDS))];
+}
+
+function contextWordForToken(token) {
+  if (token.deterministicWord) return "";
+  const result = rules.applyDeterministicRules(token.context);
+  return result.replacements?.length === 1 ? result.replacements[0].word : "";
+}
+
+function contextCandidatesForToken(token) {
+  if (token.deterministicCandidates?.length) return token.deterministicCandidates;
+  const result = rules.applyDeterministicRules(token.context);
+  return result.replacements?.length === 1 && result.replacements[0].rule
+    ? result.replacements[0].rule.candidates : [];
+}
+
+function shouldTranscribeToken(token, mode) {
+  return mode === "whisper-only" || mode === "rules+whisper" &&
+    (!token.deterministicWord || Boolean(token.deterministicAmbiguous) ||
+      token.deterministicTier === "exact" || token.deterministicTier === "frame");
+}
+
 function ruleQualityGate(metric) {
   const support = metric.matchedCount || 0;
   const candidateCount = metric.candidateCount || 1;
@@ -416,6 +440,11 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults, reu
     const reviewContext = reviewContextForToken(timedData.timeline, token, args.contextEvents, timelineIndex);
     const candidateWords = args.mode === "rules-only" ? token.deterministicCandidates : [];
     const anyCandidate = args.rulesScoring === "any-candidate";
+    const audioCandidates = transcriptCandidates(token, args.mode);
+    const hybridRuleWord = args.mode === "rules+whisper"
+      ? token.deterministicWord || contextWordForToken(token) : "";
+    const hybridRuleSource = token.deterministicWord ? "deterministic" : "context";
+    const hybridRuleCandidates = args.mode === "rules+whisper" ? contextCandidatesForToken(token) : [];
     const reusable = reusableResults && reusableResults.get(token.tokenIndex);
     if (args.mode === "rules-only" && reusable && reusable.context === token.context &&
         reusable.reviewContext === reviewContext && reusable.word === token.deterministicWord &&
@@ -428,10 +457,10 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults, reu
       reusedSlotCount += 1;
       continue;
     }
-    const deterministic = args.mode === "rules-only" ? Boolean(token.deterministicWord) : false;
+    const transcribe = shouldTranscribeToken(token, args.mode);
     let transcript = "";
     let chosen = { word: token.deterministicWord, evidence: "deterministic" };
-    if (!deterministic && args.mode !== "rules-only") {
+    if (transcribe) {
       const cached = cachedResults && cachedResults.get(token.tokenIndex);
       if (cached) {
         transcript = cached.transcript;
@@ -446,7 +475,7 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults, reu
       }
       chosen = decision.decisionFromTranscript(
         transcript,
-        token.candidates,
+        audioCandidates,
         token.context,
         {
           fCandidates: token.fCandidates,
@@ -462,7 +491,7 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults, reu
         const retryResult = await transcriber(retryPcm, { max_new_tokens: 32 });
         const retryTranscript = typeof retryResult === "string" ? retryResult : retryResult.text;
         const retryDecision = decision.decisionFromTranscript(
-          retryTranscript, token.candidates, token.context, {
+          retryTranscript, audioCandidates, token.context, {
             fCandidates: token.fCandidates,
             previousWord: token.previousWord,
             previousWordOffset: token.previousWordOffset
@@ -473,9 +502,12 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults, reu
           chosen = retryDecision;
         }
       }
-      if (args.mode === "rules+whisper" && token.deterministicWord &&
-          chosen.evidence !== "transcript-anchor") {
-        chosen = { word: token.deterministicWord, evidence: "deterministic" };
+      if (hybridRuleWord || hybridRuleCandidates.length) {
+        chosen = decision.arbitrateHybridResolution(
+          hybridRuleWord, chosen, hybridRuleCandidates, hybridRuleSource
+        );
+        if (!chosen || !chosen.word) chosen = hybridRuleWord
+          ? { word: hybridRuleWord, evidence: "rule" } : chosen || {};
       }
     }
     const expected = expectedByToken.has(token.tokenIndex) ? [expectedByToken.get(token.tokenIndex)] : [];

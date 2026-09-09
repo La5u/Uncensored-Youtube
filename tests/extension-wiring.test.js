@@ -103,11 +103,20 @@ assert.strictEqual(audio.arbitrateResolution(deterministicToken, {
   word: "shit", source: "media", evidence: "transcript"
 }).word, "fuck");
 assert.strictEqual(audio.arbitrateResolution(deterministicToken, {
+  word: "shit", source: "media", evidence: "transcript", hybridCrossFamily: true
+}).word, "shit");
+assert.strictEqual(audio.arbitrateResolution(deterministicToken, {
+  word: "fucking", source: "media", evidence: "transcript"
+}).word, "fuck");
+assert.strictEqual(audio.arbitrateResolution(deterministicToken, {
   word: "shit", source: "media", evidence: "transcript-anchor"
 }).word, "shit");
 assert.strictEqual(audio.arbitrateResolution(contextToken, {
   word: "shit", source: "media", evidence: "transcript"
 }).word, "shit");
+audio.setOptions({ rulesEnabled: false, whisperEnabled: true });
+assert.strictEqual(audio.arbitrateResolution(deterministicToken, null), null);
+audio.setOptions({ rulesEnabled: true, whisperEnabled: true });
 
 audio.rememberTimedTextData({ tokens: [contextToken], timeline: [] }, "lang=en&kind=asr");
 audio.rememberTimedTextData({ tokens: [deterministicToken], timeline: [] }, "lang=en&kind=asr");
@@ -173,19 +182,20 @@ audio.rememberTimedTextData({
     context: "Stop. [__] hell",
     deterministicWord: "Fucking",
     deterministicCandidates: ["fucking", "Fucking"],
-    deterministicAmbiguous: false
+    deterministicAmbiguous: false,
+    deterministicTier: "exact"
   })],
   timeline: [
     { eventIndex: 2, startTime: 110, endTime: 111, text: "Stop. [__] hell", firstTokenIndex: 2, tokenCount: 1 }
   ]
 }, "lang=en&kind=formatted");
 assert.strictEqual(captionSegment.textContent, "Stop. Fucking hell");
-assert.strictEqual(audio.pendingTokenValues().length, 0);
+assert.strictEqual(audio.pendingTokenValues().length, 1);
 
 audio.setOptions({ rulesEnabled: false, whisperEnabled: true, audioEnabled: true });
 assert.strictEqual(audio.pendingTokenValues().length, 1);
 audio.setOptions({ rulesEnabled: true, whisperEnabled: true, audioEnabled: true });
-assert.strictEqual(audio.pendingTokenValues().length, 0);
+assert.strictEqual(audio.pendingTokenValues().length, 1);
 audio.setOptions({ rulesEnabled: false, whisperEnabled: true, audioEnabled: true });
 assert.strictEqual(audio.pendingTokenValues().length, 1);
 const cachedToken = Object.assign({}, contextToken, {

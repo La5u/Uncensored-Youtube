@@ -1,6 +1,24 @@
 (function buildWhisperLocal() {
   "use strict";
   var root = typeof globalThis !== "undefined" ? globalThis : this;
+  // Explicit families keep cross-family arbitration conservative.
+  var HYBRID_FAMILIES = Object.freeze({
+    fuck: "fuck fucks fuck's fucking fucked fucker fuckers fuckery motherfuck motherfucker motherfuckers motherfucking clusterfuck fuckable fuckup fucko fuckwit".split(" "),
+    shit: "shit shithole shitting shithead shitheads shitter bullshit dipshit dipshits".split(" "),
+    bitch: "bitch bitches bitchy".split(" "),
+    moron: ["moron"], cock: "cock cocks cocksucker".split(" "), arsehole: ["arsehole"],
+    asshole: "asshole assholes".split(" "), dick: "dicked dicking dickin dickhead dickheads dickwad".split(" "),
+    twat: "twat twats".split(" "), whore: "whore whores".split(" "), cunt: "cunt cunts cuntskeleton".split(" "),
+    pussy: "pussy pussies".split(" "), slut: "slut slutty sluts".split(" "), cum: ["cum"], cripple: ["cripple"],
+    clit: ["clit"], tranny: ["tranny"], retard: "retard retarded".split(" "), nigger: ["nigger"],
+    faggot: "faggot fags".split(" "), blowjob: ["blowjob"], midget: ["midget"]
+  });
+  var HYBRID_WORD_FAMILIES = new Map();
+  Object.keys(HYBRID_FAMILIES).forEach(function indexHybridFamily(family) {
+    HYBRID_FAMILIES[family].forEach(function indexHybridWord(word) {
+      HYBRID_WORD_FAMILIES.set(word, family);
+    });
+  });
 
   var runtime = root.browser || root.chrome;
   var currentScript = root.document && root.document.currentScript;
@@ -136,6 +154,43 @@
       .replace(/[^a-z0-9']+/g, " ")
       .replace(/\s+/g, " ")
       .trim();
+  }
+
+  function arbitrateHybridResolution(ruleWord, resolution, candidates, ruleSource) {
+    var ruleFamily = HYBRID_WORD_FAMILIES.get(normalizeText(ruleWord));
+    var whisperFamily;
+    var matching;
+
+    if (!resolution || !resolution.word) {
+      return ruleWord ? {
+        word: ruleWord, words: [ruleWord], source: ruleSource || "deterministic", evidence: "rule"
+      } : resolution;
+    }
+    // Transcript anchors remain authoritative and unchanged.
+    if (resolution.evidence === "transcript-anchor") return resolution;
+    if (resolution.evidence !== "transcript") {
+      return ruleWord ? {
+        word: ruleWord, words: [ruleWord], source: ruleSource || "deterministic", evidence: "rule"
+      } : resolution;
+    }
+    whisperFamily = HYBRID_WORD_FAMILIES.get(normalizeText(resolution.word));
+    matching = (Array.isArray(candidates) ? candidates : []).map(normalizeText)
+      .filter(function matchingFamily(candidate, index, all) {
+        return candidate && all.indexOf(candidate) === index && whisperFamily &&
+          HYBRID_WORD_FAMILIES.get(candidate) === whisperFamily;
+      });
+    if (matching.length) {
+      return Object.assign({}, resolution, {
+        word: matching.length === 1 ? matching[0] : resolution.word,
+        hybridCrossFamily: true
+      });
+    }
+    if (!ruleWord || ruleFamily && whisperFamily && ruleFamily !== whisperFamily) {
+      return Object.assign({}, resolution, { hybridCrossFamily: true });
+    }
+    return {
+      word: ruleWord, words: [ruleWord], source: ruleSource || "deterministic", evidence: "rule"
+    };
   }
 
   function normalizeTranscriptText(text) {
@@ -524,6 +579,32 @@
     };
   }
 
+  function arbitrateHybridSlots(decision, options) {
+    var ruleWords = options && options.hybridRuleWords || [];
+    var slotWords = Array.isArray(decision.slotWords) ? decision.slotWords.slice() : [];
+    var slotEvidence = Array.isArray(decision.slotEvidence) ? decision.slotEvidence.slice() : [];
+    var candidateSlots = options && options.hybridRuleCandidatesBySlot || [];
+    var slotHybridCrossFamily = [];
+
+    for (var index = 0; index < slotWords.length; index += 1) {
+      if (!slotWords[index]) continue;
+      var arbitrated = arbitrateHybridResolution(
+        ruleWords[index] || "",
+        { word: slotWords[index], evidence: slotEvidence[index] || "none" },
+        candidateSlots[index],
+        ruleWords[index] ? "deterministic" : "context"
+      );
+      slotWords[index] = arbitrated.word;
+      slotEvidence[index] = arbitrated.evidence;
+      slotHybridCrossFamily[index] = Boolean(arbitrated.hybridCrossFamily);
+    }
+    return Object.assign({}, decision, {
+      slotWords: slotWords,
+      slotEvidence: slotEvidence,
+      slotHybridCrossFamily: slotHybridCrossFamily
+    });
+  }
+
   function transcribeDetailed(audio, candidates, context, options) {
     if (!audio || !audio.length || !candidates || !candidates.length) {
       return Promise.resolve({
@@ -539,7 +620,15 @@
       });
     }).then(function chooseCandidate(result) {
       var transcript = typeof result === "string" ? result : result && result.text;
-      return decisionFromTranscript(transcript, candidates, context, options);
+      var decision = decisionFromTranscript(transcript, candidates, context, options);
+
+      if (options && options.hybridRuleWords && options.slotCount > 1) {
+        return arbitrateHybridSlots(decision, options);
+      }
+      return options && (options.hybridRuleWord || options.hybridRuleCandidates) && decision.word
+        ? arbitrateHybridResolution(options.hybridRuleWord, decision,
+          options.hybridRuleCandidates, options.hybridRuleSource)
+        : decision;
     }).catch(function keepToken(error) {
       debugLog("whisper transcription failed", errorDetails(error));
       return {
@@ -558,7 +647,9 @@
     },
     transcribeDetailed: transcribeDetailed,
     normalizeText: normalizeText,
-    decisionFromTranscript: decisionFromTranscript
+    decisionFromTranscript: decisionFromTranscript,
+    arbitrateHybridResolution: arbitrateHybridResolution,
+    HYBRID_FAMILIES: HYBRID_FAMILIES
   });
 
   root.UncensoredWhisperLocal = exports;

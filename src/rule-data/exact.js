@@ -79,12 +79,15 @@
       pattern`up in this [bitch]`,
       pattern`did I [fuck] up`,
       pattern`get the [fuck] ${["out", "off", "on", "in"]}`,
+      pattern`jack [shit] nothing`,
+      pattern`what the [fucking] purpose`,
       pattern`and [shit] but *`,
       pattern`piece of [fucking] shit`,
       pattern`to [shit] all$`
     ]),
 
     group("exact/context-prefixes", 1000, [
+      pattern`might be [fucking] with`,
       pattern`might be [fucked]`,
       pattern`${CONTEXTUAL_FUCKING_PREFIXES} [fucking]`,
       pattern`${CONTEXTUAL_SHIT_PREFIXES} [shit]`,

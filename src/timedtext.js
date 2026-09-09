@@ -63,35 +63,31 @@
     return units ? units.length : 0;
   }
 
-  function eventDurationMs(payload, event, eventIndex) {
+  function eventDurationMs(payload, event, eventIndex, nextEventStarts) {
     var startMs = typeof event.tStartMs === "number" ? event.tStartMs : 0;
     var durationMs = typeof event.dDurationMs === "number" ? event.dDurationMs : 0;
-    var nextEvent = payload.events.slice(eventIndex + 1).find(function findNextTimedEvent(candidate) {
-      return candidate && typeof candidate.tStartMs === "number" && candidate.tStartMs > startMs;
-    });
+    var nextStartMs = nextEventStarts[eventIndex];
     // Temporary: this identifies YouTube's fixed two-line caption experiment.
     var fixedPage = payload.wpWinPositions && payload.wpWinPositions.some(function twoRows(position) {
       return position && position.rcRows === 2;
     }) && event.segs.every(function untimed(seg) { return typeof seg.tOffsetMs !== "number"; }) &&
       event.segs.some(function lineBreak(seg) { return String(seg.utf8 || "").indexOf("\n") !== -1; });
 
-    return nextEvent && (fixedPage || durationMs <= 0) ? nextEvent.tStartMs - startMs : durationMs;
+    return nextStartMs !== undefined && (fixedPage || durationMs <= 0) ? nextStartMs - startMs : durationMs;
   }
 
-  function tokenTimeSeconds(payload, event, eventIndex, seg, segIndex, tokenOffset) {
+  function tokenTimeSeconds(payload, event, eventIndex, seg, segIndex, tokenOffset, eventText, nextEventStarts) {
     var startMs = typeof event.tStartMs === "number" ? event.tStartMs : 0;
     var offsetMs;
     var durationMs;
-    var eventText;
     var units;
 
     if (typeof seg.tOffsetMs === "number") {
       return (startMs + seg.tOffsetMs) / 1000;
     }
 
-    durationMs = eventDurationMs(payload, event, eventIndex);
+    durationMs = eventDurationMs(payload, event, eventIndex, nextEventStarts);
 
-    eventText = getEventText(event);
     units = spokenUnitCount(eventText);
     if (durationMs > 0 && units > 1) {
       offsetMs = durationMs * spokenUnitCount(
@@ -199,7 +195,7 @@
     return words && words.length ? words[words.length - 1] : "";
   }
 
-  function collectCensoredTokens(payload, deterministicByTokenIndex, fRulesByTokenIndex, options) {
+  function collectCensoredTokens(payload, deterministicByTokenIndex, fRulesByTokenIndex, options, eventTexts, nextEventStarts) {
     var tokenIndex = 0;
     var tokens = [];
     var previousWord = "";
@@ -211,7 +207,7 @@
       if (!event || !Array.isArray(event.segs)) {
         return;
       }
-      var text = getEventText(event);
+      var text = eventTexts[eventIndex];
       if (!text.trim()) {
         return;
       }
@@ -224,7 +220,7 @@
         return;
       }
 
-      var eventText = getEventText(event);
+      var eventText = eventTexts[eventIndex];
       var eventTokenGroups = adjacentTokenGroups(eventText);
       var firstEventTokenIndex = tokenIndex;
       var eventTokenIndex = 0;
@@ -255,7 +251,7 @@
             adjacentTokenIndex: eventTokenGroups[eventTokenIndex].index,
             adjacentTokenCount: eventTokenGroups[eventTokenIndex].count,
             eventIndex: eventIndex,
-            timeSeconds: tokenTimeSeconds(payload, event, eventIndex, seg, segIndex, offset),
+            timeSeconds: tokenTimeSeconds(payload, event, eventIndex, seg, segIndex, offset, eventText, nextEventStarts),
             previousWord: previousWord,
             previousWordOffset: previousWordOffset,
             context: contextForToken(visibleEvents, position, tokenIndex, firstEventTokenIndex, deterministicByTokenIndex, contextBefore, contextAfter),
@@ -291,14 +287,14 @@
     return tokens;
   }
 
-  function collectCaptionTimeline(payload) {
+  function collectCaptionTimeline(payload, eventTexts, nextEventStarts) {
     var tokenIndex = 0;
     var events = [];
 
     payload.events.forEach(function collectEvent(event, eventIndex) {
       if (!event || !Array.isArray(event.segs)) return;
 
-      var text = getEventText(event);
+      var text = eventTexts[eventIndex];
       var tokenCount = countCensoredTokens(text);
       var startTime = (typeof event.tStartMs === "number" ? event.tStartMs : 0) / 1000;
 
@@ -306,7 +302,7 @@
         events.push({
           eventIndex: eventIndex,
           startTime: startTime,
-          endTime: startTime + eventDurationMs(payload, event, eventIndex) / 1000,
+          endTime: startTime + eventDurationMs(payload, event, eventIndex, nextEventStarts) / 1000,
           text: text,
           firstTokenIndex: tokenIndex,
           tokenCount: tokenCount
@@ -437,8 +433,23 @@
     try {
       var payload = JSON.parse(body);
       var parsed = Array.isArray(payload.events) && payload.events.length > 0;
-      var ruleResult = deterministicAnalysis(payload, body, true).result;
+      var analysis = deterministicAnalysis(payload, body, true);
+      var eventTexts = analysis.eventTexts;
+      var ruleResult = analysis.result;
       var result = useDeterministic === false ? { decisions: [] } : ruleResult;
+      var nextEventStarts = [];
+      var nextStartMs;
+      var eventIndex;
+
+      for (eventIndex = payload.events.length - 1; eventIndex >= 0; eventIndex -= 1) {
+        var timelineEvent = payload.events[eventIndex];
+        var startMs = timelineEvent && timelineEvent.tStartMs;
+
+        nextEventStarts[eventIndex] = nextStartMs;
+        if (typeof startMs === "number" && (nextStartMs === undefined || startMs < nextStartMs)) {
+          nextStartMs = startMs;
+        }
+      }
 
       return {
         parsed: parsed,
@@ -446,9 +457,11 @@
           payload,
           deterministicTokenMap(result.decisions || result.replacements),
           deterministicTokenMap(ruleResult.decisions || ruleResult.replacements),
-          options
+          options,
+          eventTexts,
+          nextEventStarts
         ) : [],
-        timeline: parsed ? collectCaptionTimeline(payload) : []
+        timeline: parsed ? collectCaptionTimeline(payload, eventTexts, nextEventStarts) : []
       };
     } catch (error) {
       return { parsed: false, tokens: [], timeline: [] };

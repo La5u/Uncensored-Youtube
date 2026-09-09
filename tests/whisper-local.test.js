@@ -156,6 +156,20 @@ const exactAnchorPriority = whisper.decisionFromTranscript(
 assert.strictEqual(exactAnchorPriority.word, "shit");
 assert.strictEqual(exactAnchorPriority.evidence, "transcript-anchor");
 
+// A rule candidate list must reach arbitration: a direct cross-family Whisper
+// result is accepted, while an anchored result remains untouched.
+const candidateOnlyHybrid = whisper.arbitrateHybridResolution(
+  "shit", { word: "fuck", evidence: "transcript" }, ["shit", "fuck"]
+);
+assert.strictEqual(candidateOnlyHybrid.word, "fuck");
+assert.strictEqual(candidateOnlyHybrid.hybridCrossFamily, true);
+assert.strictEqual(whisper.arbitrateHybridResolution(
+  "shit", { word: "fuck", evidence: "transcript-anchor" }, ["shit", "fuck"]
+).word, "fuck");
+assert.strictEqual(whisper.arbitrateHybridResolution(
+  "shit", { word: "bullshit", evidence: "transcript" }, "deterministic"
+).word, "shit");
+
 assert.deepStrictEqual(
   whisper.decisionFromTranscript(
     "say fuck then shit",

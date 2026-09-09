@@ -31,5 +31,5 @@ const compiled = {
   priors: data.CANDIDATE_PRIORS
 };
 const digest = crypto.createHash("sha256").update(JSON.stringify(compiled)).digest("hex");
-assert.strictEqual(digest, "d8a1daef660838e79992140516c659a3e7ac30a6f4bd61999575ec667882ba4b");
+assert.strictEqual(digest, "bd215d8a5627540e21dce0d208f7aa3225c85a34281fb3d8db85aaea1c622687");
 console.log("rules-data-structure.test.js passed");
