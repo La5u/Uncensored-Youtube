@@ -156,19 +156,53 @@ const exactAnchorPriority = whisper.decisionFromTranscript(
 assert.strictEqual(exactAnchorPriority.word, "shit");
 assert.strictEqual(exactAnchorPriority.evidence, "transcript-anchor");
 
-// A rule candidate list must reach arbitration: a direct cross-family Whisper
-// result is accepted, while an anchored result remains untouched.
-const candidateOnlyHybrid = whisper.arbitrateHybridResolution(
-  "shit", { word: "fuck", evidence: "transcript" }, ["shit", "fuck"]
+// Observed human-approved non-anchor corrections for the hybrid experiment.
+for (const [ruleWord, transcript, context, expected] of [
+  ["shit", "Fuck you, GameY", "something come on really I can't see [__] you game you piece of …", "fuck"],
+  ["shit", "And you are grapple. Fuck. You've got the nutty.", "take uh eight points of bludgeoning damage and you are grappled. [__]", "fuck"],
+  ["fucking", "This is what you can know is back in bullshit and magic bullshit", "Is it the same? I can [__] magic … it if you", "bullshit"]
+]) {
+  const transcriptDecision = whisper.decisionFromTranscript(
+    transcript, [ruleWord, expected], context, {}
+  );
+  const hybridDecision = whisper.arbitrateHybridResolution(
+    ruleWord, transcriptDecision, "deterministic", "deterministic"
+  );
+  assert.strictEqual(transcriptDecision.word, expected);
+  assert.strictEqual(hybridDecision.word, expected);
+  assert.strictEqual(hybridDecision.hybridCrossFamily, true);
+}
+
+const candidateFamilyHybrid = whisper.arbitrateHybridResolution(
+  "shit", { word: "fucks", evidence: "transcript" }, ["fuck", "shit"]
 );
-assert.strictEqual(candidateOnlyHybrid.word, "fuck");
-assert.strictEqual(candidateOnlyHybrid.hybridCrossFamily, true);
-assert.strictEqual(whisper.arbitrateHybridResolution(
-  "shit", { word: "fuck", evidence: "transcript-anchor" }, ["shit", "fuck"]
-).word, "fuck");
-assert.strictEqual(whisper.arbitrateHybridResolution(
-  "shit", { word: "bullshit", evidence: "transcript" }, "deterministic"
-).word, "shit");
+assert.strictEqual(candidateFamilyHybrid.word, "fuck");
+const competingFamilyHybrid = whisper.arbitrateHybridResolution(
+  "shit", { word: "fucks", evidence: "transcript" }, ["fuck", "fucks"]
+);
+assert.strictEqual(competingFamilyHybrid.word, "fucks");
+const anchorFamilyHybrid = whisper.arbitrateHybridResolution(
+  "shit", { word: "fucks", evidence: "transcript-anchor" }, ["fuck", "shit"]
+);
+assert.strictEqual(anchorFamilyHybrid.word, "fucks");
+
+const sameFamilyHybrid = whisper.arbitrateHybridResolution(
+  "fuck", whisper.decisionFromTranscript("fucking", ["fuck", "fucking"], "[__]", {}),
+  "deterministic", "deterministic"
+);
+assert.strictEqual(sameFamilyHybrid.word, "fuck");
+const compoundFamilyHybrid = whisper.arbitrateHybridResolution(
+  "shit", whisper.decisionFromTranscript("bullshit", ["shit", "bullshit"], "[__]", {}),
+  "deterministic", "deterministic"
+);
+assert.strictEqual(compoundFamilyHybrid.word, "shit");
+const tailHybrid = whisper.arbitrateHybridResolution(
+  "shit", whisper.decisionFromTranscript(
+    "I gotta go why? fucking asshole", ["shit", "fucking", "asshole"],
+    "No, go away. [__]", {}
+  ), "deterministic", "deterministic"
+);
+assert.strictEqual(tailHybrid.word, "shit");
 
 assert.deepStrictEqual(
   whisper.decisionFromTranscript(
@@ -372,24 +406,11 @@ assert.strictEqual(
   ).word,
   "cock"
 );
-assert.strictEqual(
-  whisper.decisionFromTranscript(
-    "Let the cook work",
-    ["shit"],
-    "let the [__] work",
-    { previousWord: "the" }
-  ).word,
-  ""
-);
-assert.strictEqual(
-  whisper.decisionFromTranscript(
-    "Let the cook work",
-    ["cock"],
-    "let the [__] work",
-    { previousWord: "the" }
-  ).word,
-  ""
-);
+["shit", "cock"].forEach((candidate) => {
+  assert.strictEqual(whisper.decisionFromTranscript(
+    "Let the cook work", [candidate], "let the [__] work", { previousWord: "the" }
+  ).word, "");
+});
 assert.strictEqual(
   whisper.decisionFromTranscript("The shift changed", ["shit"], "the [__] changed").word,
   ""
@@ -542,19 +563,9 @@ assert.strictEqual(
   assert.strictEqual(whisper.decisionFromTranscript(transcript, candidates, context, {}).word, expected);
 });
 
-[
-  ["clusterfuck", "a cluster [__]", "fuck"]
-].forEach(([transcript, context, expected]) => {
-  assert.strictEqual(
-    whisper.decisionFromTranscript(
-      transcript,
-      ["shit", "fuck", "clusterfuck"],
-      context,
-      {}
-    ).word,
-    expected
-  );
-});
+assert.strictEqual(whisper.decisionFromTranscript(
+  "clusterfuck", ["shit", "fuck", "clusterfuck"], "a cluster [__]", {}
+).word, "fuck");
 
 [
   ["fucking", "whatever the [__] you want", "fuck"],

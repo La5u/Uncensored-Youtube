@@ -5,6 +5,9 @@ tmp/
 .parquet
 corpus/
 logs/
+Downloads/
+{profile}/
+isolate-*-v8.log
 test-fixtures/
 .codex/
 .tmp-*.json

@@ -1,7 +1,7 @@
 (function buildWhisperLocal() {
   "use strict";
   var root = typeof globalThis !== "undefined" ? globalThis : this;
-  // Explicit families keep cross-family arbitration conservative.
+  // Exact word families only; unmapped words never receive a family by prefix.
   var HYBRID_FAMILIES = Object.freeze({
     fuck: "fuck fucks fuck's fucking fucked fucker fuckers fuckery motherfuck motherfucker motherfuckers motherfucking clusterfuck fuckable fuckup fucko fuckwit".split(" "),
     shit: "shit shithole shitting shithead shitheads shitter bullshit dipshit dipshits".split(" "),
@@ -21,15 +21,12 @@
   });
 
   var runtime = root.browser || root.chrome;
-  var currentScript = root.document && root.document.currentScript;
   var currentLocation = root.location && root.location.href || "";
   var baseUrl = runtime && runtime.runtime && runtime.runtime.getURL
     ? runtime.runtime.getURL("")
-    : currentScript && currentScript.src
-      ? currentScript.src.replace(/src\/whisper-local\.js(?:\?.*)?$/, "")
-      : currentLocation
-          ? currentLocation.replace(/src\/(?:whisper-local|whisper-module-worker)\.js(?:\?.*)?$/, "")
-        : "";
+    : currentLocation
+      ? currentLocation.replace(/src\/(?:whisper-local|whisper-module-worker)\.js(?:\?.*)?$/, "")
+      : "";
   var DEFAULT_MODEL = "whisper-tiny.en";
   var MASKED_F_REGEX = /\bf\s*[*#_\u2010-\u2015-]+(?=\s|[.,!?]|$)/giu;
   var MASKED_F_TEST_REGEX = /\bf\s*[*#_\u2010-\u2015-]+(?=\s|[.,!?]|$)/iu;
@@ -79,19 +76,6 @@
       }
     }).join(" ");
     root.console.debug("[uncensored] " + message);
-  }
-
-  function errorDetails(error) {
-    if (!error) {
-      return "";
-    }
-
-    return {
-      name: error.name || "",
-      message: error.message || String(error),
-      cause: error.cause ? String(error.cause) : "",
-      stack: error.stack || ""
-    };
   }
 
   function getTranscriber() {
@@ -166,13 +150,14 @@
         word: ruleWord, words: [ruleWord], source: ruleSource || "deterministic", evidence: "rule"
       } : resolution;
     }
-    // Transcript anchors remain authoritative and unchanged.
+    // Anchors are deliberately unchanged: only direct transcript evidence is hybrid.
     if (resolution.evidence === "transcript-anchor") return resolution;
     if (resolution.evidence !== "transcript") {
       return ruleWord ? {
         word: ruleWord, words: [ruleWord], source: ruleSource || "deterministic", evidence: "rule"
       } : resolution;
     }
+
     whisperFamily = HYBRID_WORD_FAMILIES.get(normalizeText(resolution.word));
     matching = (Array.isArray(candidates) ? candidates : []).map(normalizeText)
       .filter(function matchingFamily(candidate, index, all) {
@@ -182,11 +167,12 @@
     if (matching.length) {
       return Object.assign({}, resolution, {
         word: matching.length === 1 ? matching[0] : resolution.word,
+        // This marker gives accepted media evidence the same cache priority as anchors.
         hybridCrossFamily: true
       });
     }
     if (!ruleWord || ruleFamily && whisperFamily && ruleFamily !== whisperFamily) {
-      return Object.assign({}, resolution, { hybridCrossFamily: true });
+      return !ruleWord ? resolution : Object.assign({}, resolution, { hybridCrossFamily: true });
     }
     return {
       word: ruleWord, words: [ruleWord], source: ruleSource || "deterministic", evidence: "rule"
@@ -579,39 +565,46 @@
     };
   }
 
+  function emptyDecision() {
+    return { word: "", transcript: "", evidence: "none" };
+  }
+
   function arbitrateHybridSlots(decision, options) {
     var ruleWords = options && options.hybridRuleWords || [];
+    var candidateSlots = options && options.hybridRuleCandidatesBySlot || [];
     var slotWords = Array.isArray(decision.slotWords) ? decision.slotWords.slice() : [];
     var slotEvidence = Array.isArray(decision.slotEvidence) ? decision.slotEvidence.slice() : [];
-    var candidateSlots = options && options.hybridRuleCandidatesBySlot || [];
-    var slotHybridCrossFamily = [];
+    var crossFamily = [];
+    var slotCount = Math.max(ruleWords.length, candidateSlots.length, slotWords.length);
+    var index;
 
-    for (var index = 0; index < slotWords.length; index += 1) {
+    for (index = 0; index < slotCount; index += 1) {
+      var ruleWord = ruleWords[index] || "";
+      var slotDecision;
+      var arbitrated;
+
       if (!slotWords[index]) continue;
-      var arbitrated = arbitrateHybridResolution(
-        ruleWords[index] || "",
-        { word: slotWords[index], evidence: slotEvidence[index] || "none" },
-        candidateSlots[index],
-        ruleWords[index] ? "deterministic" : "context"
-      );
+      slotDecision = {
+        word: slotWords[index],
+        evidence: slotEvidence[index] || "none"
+      };
+      arbitrated = arbitrateHybridResolution(ruleWord, slotDecision, candidateSlots[index],
+        ruleWord ? "deterministic" : "context");
       slotWords[index] = arbitrated.word;
       slotEvidence[index] = arbitrated.evidence;
-      slotHybridCrossFamily[index] = Boolean(arbitrated.hybridCrossFamily);
+      crossFamily[index] = Boolean(arbitrated.hybridCrossFamily);
     }
+
     return Object.assign({}, decision, {
       slotWords: slotWords,
       slotEvidence: slotEvidence,
-      slotHybridCrossFamily: slotHybridCrossFamily
+      slotHybridCrossFamily: crossFamily
     });
   }
 
   function transcribeDetailed(audio, candidates, context, options) {
     if (!audio || !audio.length || !candidates || !candidates.length) {
-      return Promise.resolve({
-        word: "",
-        transcript: "",
-        evidence: "none"
-      });
+      return Promise.resolve(emptyDecision());
     }
 
     return getTranscriber().then(function runTranscriber(transcriber) {
@@ -622,28 +615,27 @@
       var transcript = typeof result === "string" ? result : result && result.text;
       var decision = decisionFromTranscript(transcript, candidates, context, options);
 
-      if (options && options.hybridRuleWords && options.slotCount > 1) {
+      if (options && (options.hybridRuleWords || options.hybridRuleCandidatesBySlot) &&
+          options.slotCount > 1) {
         return arbitrateHybridSlots(decision, options);
       }
-      return options && (options.hybridRuleWord || options.hybridRuleCandidates) && decision.word
+      return options && (options.hybridRuleWord ||
+        options.hybridRuleCandidates && options.hybridRuleCandidates.length) && decision.word
         ? arbitrateHybridResolution(options.hybridRuleWord, decision,
           options.hybridRuleCandidates, options.hybridRuleSource)
         : decision;
     }).catch(function keepToken(error) {
-      debugLog("whisper transcription failed", errorDetails(error));
-      return {
-        word: "",
-        transcript: "",
-        evidence: "none"
-      };
+      debugLog("whisper transcription failed", error ? {
+        name: error.name || "", message: error.message || String(error),
+        cause: error.cause ? String(error.cause) : "", stack: error.stack || ""
+      } : "");
+      return emptyDecision();
     });
   }
 
   var exports = Object.freeze({
     preload: function preload() {
-      return getTranscriber().then(function loaded() {
-        return true;
-      });
+      return getTranscriber().then(function loaded() { return true; });
     },
     transcribeDetailed: transcribeDetailed,
     normalizeText: normalizeText,

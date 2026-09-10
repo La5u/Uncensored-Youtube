@@ -1,37 +1,37 @@
 const assert = require("assert");
 const fs = require("fs");
-const { ALLOWED_WORDS } = require("../src/rules");
 
-// Exercise the actual single- and grouped-candidate transport path.
+// The worker loads whisper-local directly. Keep a real candidate-only request
+// here so the worker payload shape cannot regress to requiring a rule word.
 let transcriptionCalls = 0;
 global.transformers = {
   env: { backends: { onnx: { wasm: {} } } },
-  pipeline: () => Promise.resolve(() => (++transcriptionCalls === 1 ? "fucks" : "fuck shit"))
+  pipeline: () => Promise.resolve(() => (++transcriptionCalls === 1 ? "fuck" : "fuck shit"))
 };
 const whisper = require("../src/whisper-local");
 
-const cachedMorphology = whisper.decisionFromTranscript(
+// Real cached row OjMPJVmXxV8:14: the stored morphology is not one of the
+// runtime candidates, so arbitration must not invent the first candidate.
+const ojDecision = whisper.decisionFromTranscript(
   " dragging the Danish girl, both fucks the Danish, I could never have",
-  ALLOWED_WORDS,
+  ["fuck", "shit"],
   "dreams ha dragging the Danish girl well [__] the Danish I could never abide that",
   {}
 );
-assert.strictEqual(cachedMorphology.word, "fucks");
-assert.strictEqual(whisper.arbitrateHybridResolution(
-  "", cachedMorphology, ["fuck", "shit"]
-).word, "fuck");
+assert.strictEqual(ojDecision.word, "");
+assert.strictEqual(whisper.arbitrateHybridResolution("", ojDecision, ["fuck", "shit"]), ojDecision);
 
 Promise.all([
-  whisper.transcribeDetailed(new Float32Array([0.1]), ALLOWED_WORDS, "say [__] then", {
+  whisper.transcribeDetailed(new Float32Array([0.1]), ["fuck", "shit"], "say [__] then", {
     hybridRuleWord: "",
-    hybridRuleCandidates: ["shit", "fuck"]
+    hybridRuleCandidates: ["fuck", "shit"]
   }),
-  whisper.transcribeDetailed(new Float32Array([0.1]), ALLOWED_WORDS, "say [__] then [__]", {
+  whisper.transcribeDetailed(new Float32Array([0.1]), ["fuck", "shit"], "say [__] then [__]", {
     contexts: ["say [__]", "then [__]"],
     previousWords: ["say", "then"],
     slotCount: 2,
-    hybridRuleWords: ["shit", "fucking"],
-    hybridRuleCandidatesBySlot: [["shit", "fuck"], ["fucking", "shit"]]
+    hybridRuleWords: ["", ""],
+    hybridRuleCandidatesBySlot: [["fuck"], ["shit"]]
   })
 ]).then(([single, group]) => {
   assert.strictEqual(single.word, "fuck");

@@ -421,19 +421,9 @@
   }
 
   function candidatesForToken(token) {
-    var seen = Object.create(null);
-    var candidates = [];
-    var tokenCandidates = options.rulesEnabled && token.candidates.length ? token.candidates : [];
-
-    // Audio may recognize broad allowed words that deterministic rules cannot emit.
-    tokenCandidates.concat(rules.ALLOWED_WORDS).forEach(function addCandidate(candidate) {
-      if (!seen[candidate]) {
-        seen[candidate] = true;
-        candidates.push(candidate);
-      }
-    });
-
-    return candidates;
+    var tokenCandidates = options.rulesEnabled && token.candidates.length
+      ? token.candidates : rules.ALLOWED_WORDS;
+    return Array.from(new Set(tokenCandidates));
   }
 
   function ruleCandidatesForToken(token) {
@@ -444,7 +434,7 @@
     }
     if (!token.contextWord) return [];
     result = rules.applyDeterministicRules(token.context);
-    return result.replacements && result.replacements.length === 1 && result.replacements[0].rule
+    return result.replacements && result.replacements.length === 1
       ? result.replacements[0].rule.candidates : [];
   }
 
@@ -467,12 +457,11 @@
   }
 
   function resolutionForTokenIndex(tokenIndex) {
-    var match;
-
-    resolvedTokens.forEach(function matchingTokenIndex(resolution) {
-      if (!match && resolution.tokenIndex === tokenIndex) match = resolution;
+    var token = captionTokens.find(function currentToken(candidate) {
+      return candidate.tokenIndex === tokenIndex;
     });
-    return match;
+
+    return token ? resolvedTokens.get(tokenCacheKey(token)) : null;
   }
 
   function resolutionPriority(resolution) {
@@ -512,6 +501,7 @@
   function rememberResolution(token, word, source, evidence, hybridCrossFamily) {
     var key;
     var existing;
+    var candidate;
 
     if (!word || !tokenIsCurrent(token)) {
       return;
@@ -522,33 +512,19 @@
     word = rules.formatWordCase(word, token.context);
     key = tokenCacheKey(token);
     existing = resolvedTokens.get(key);
+    candidate = { source: source, evidence: evidence, hybridCrossFamily: Boolean(hybridCrossFamily) };
 
     if (existing) {
-      if (resolutionPriority(existing) > resolutionPriority({
-        source: source, evidence: evidence, hybridCrossFamily: Boolean(hybridCrossFamily)
-      })) {
-        return;
-      }
-
+      if (resolutionPriority(existing) > resolutionPriority(candidate)) return;
       existing.word = word;
       existing.source = source;
       existing.evidence = evidence;
-      existing.hybridCrossFamily = Boolean(hybridCrossFamily);
-      notifyTimedTextResolution(token, word, source, evidence);
-      watchCaptionMutations();
-      scheduleVisibleCaptionResolution();
-      return existing;
+      existing.hybridCrossFamily = candidate.hybridCrossFamily;
+    } else {
+      existing = { tokenIndex: token.tokenIndex, word: word, source: source, evidence: evidence,
+        hybridCrossFamily: candidate.hybridCrossFamily };
+      resolvedTokens.set(key, existing);
     }
-
-    existing = {
-      tokenIndex: token.tokenIndex,
-      word: word,
-      source: source,
-      evidence: evidence,
-      hybridCrossFamily: Boolean(hybridCrossFamily)
-    };
-    resolvedTokens.set(key, existing);
-
     notifyTimedTextResolution(token, word, source, evidence);
     watchCaptionMutations();
     scheduleVisibleCaptionResolution();
@@ -561,13 +537,13 @@
   }
 
   function shouldResolveWithWhisper(token) {
-    if (!options.whisperEnabled || failedTokens.has(token.tokenIndex)) return false;
+    if (!options.whisperEnabled || failedTokens.has(tokenCacheKey(token))) return false;
     return !options.rulesEnabled || !token.deterministicWord || token.deterministicAmbiguous ||
       token.deterministicTier === "exact" || token.deterministicTier === "frame";
   }
 
   function markWhisperFailed(token) {
-    if (tokenIsCurrent(token)) failedTokens.add(token.tokenIndex);
+    if (tokenIsCurrent(token)) failedTokens.add(tokenCacheKey(token));
   }
 
   function transcribeTokenPcm(token, sourcePcm, sourceRate, source) {
@@ -782,7 +758,7 @@
 
   function compactPendingTokens() {
     pendingTokens.forEach(function deleteResolvedToken(token, key) {
-      if (token.resolved || failedTokens.has(token.tokenIndex)) pendingTokens.delete(key);
+      if (token.resolved || failedTokens.has(tokenCacheKey(token))) pendingTokens.delete(key);
     });
     compactMediaSegments();
   }
@@ -809,7 +785,6 @@
     mediaAudio.segments = mediaAudio.segments.filter(function keepNeededSegment(segment) {
       return !tokenMetadataKnown || segmentNeeded(segment);
     });
-
   }
 
   function scheduleWhisperQueue() {
@@ -861,7 +836,7 @@
       group.forEach(function clearResolving(token) {
         token.resolving = false;
         if (pendingTokens.get(tokenCacheKey(token)) === token &&
-            (token.resolved || failedTokens.has(token.tokenIndex))) {
+            (token.resolved || failedTokens.has(tokenCacheKey(token)))) {
           pendingTokens.delete(tokenCacheKey(token));
         }
       });
@@ -977,8 +952,6 @@
       });
     });
   }
-
-
 
   function captionSnapshot(segments) {
     var fullText = "";

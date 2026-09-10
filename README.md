@@ -3,6 +3,13 @@
 Uncensored restores words hidden as `[__]` in YouTube captions, primarily for
 deaf and hard-of-hearing viewers. Audio, captions, and inference stay local.
 
+## 1.5.3
+
+- Improves hybrid rule/Whisper arbitration for direct transcript evidence, including grouped slots.
+- Adds three narrowly targeted caption rules and reuses parsed timed-text events more efficiently.
+- Keeps Whisper candidates scoped to the active rule when available and makes cached outcomes navigation-safe.
+- Extends Chromium and Firefox smoke coverage for modes, seeking, visible captions, and multi-video navigation.
+
 ## Modes
 
 | Context rules | Audio inference | Behavior |
@@ -339,7 +346,7 @@ separate, cap prolific creators with `--new-slot-cap`, and use
 ## Build
 
 ```sh
-./build.sh 1.5.2
+./build.sh 1.5.3
 ```
 
 This creates separate Chromium and Firefox ZIPs in `dist/`. See

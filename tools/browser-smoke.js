@@ -25,6 +25,10 @@ const expectedWords = (args.find((arg) => arg.startsWith("--expect=")) || "").sp
   ?.split(",").map((word) => word.trim().toLowerCase()).filter(Boolean) || [];
 const validModes = new Set(["rules-only", "whisper-only", "hybrid", "both-off"]);
 if (mode && !validModes.has(mode)) throw new Error(`Unknown smoke mode: ${mode}`);
+const modeValues = mode && {
+  rulesEnabled: mode !== "whisper-only" && mode !== "both-off",
+  whisperEnabled: mode !== "rules-only" && mode !== "both-off"
+};
 if (!["search", "direct", "home"].includes(navigationRoute)) {
   throw new Error(`Unknown navigation route: ${navigationRoute}`);
 }
@@ -116,7 +120,8 @@ const CHROMIUM_SMOKE = "[u]ncensored-chromium-smoke-";
 
 function removeGeneratedProfiles() {
   fs.readdirSync("/tmp").filter((name) =>
-    name.startsWith("uncensored-chromium-smoke-") || name.startsWith("firefox-profile")
+    name.startsWith("uncensored-chromium-smoke-") || name.startsWith("uncensored-firefox-smoke-") ||
+    name.startsWith("uncensored-firefox-extension-") || name.startsWith("firefox-profile")
   ).forEach((name) => fs.rmSync(path.join("/tmp", name), { recursive: true, force: true }));
 }
 
@@ -138,6 +143,7 @@ function hardTerminate() {
   });
   pkill(HEADLESS_FIREFOX, "KILL");
   pkill(CHROMIUM_SMOKE, "KILL");
+  removeGeneratedProfiles();
   process.exit(0);
 }
 
@@ -357,22 +363,17 @@ async function chromium() {
   await client.ready;
   await client.send("Runtime.enable");
   await client.send("Page.enable");
-  if (mode) {
-    const extensionId = chromiumExtensionId(extensionPaths[0]);
-    const extensionUrl = `chrome-extension://${extensionId}/src/popup.html`;
-    const values = {
-      rulesEnabled: mode !== "whisper-only" && mode !== "both-off",
-      whisperEnabled: mode !== "rules-only" && mode !== "both-off"
-    };
+  if (modeValues) {
+    const extensionUrl = `chrome-extension://${chromiumExtensionId(extensionPaths[0])}/src/popup.html`;
     await client.send("Page.navigate", { url: extensionUrl });
     await retry(async () => {
       const response = await client.send("Runtime.evaluate", {
-        expression: `chrome.storage.local.set(${JSON.stringify(values)}).then(() => true)`,
+        expression: `chrome.storage.local.set(${JSON.stringify(modeValues)}).then(() => true)`,
         awaitPromise: true, returnByValue: true
       });
       return response.result.value === true;
     });
-    console.log(`Chromium mode ${mode}: ${JSON.stringify(values)}.`);
+    console.log(`Chromium mode ${mode}: ${JSON.stringify(modeValues)}.`);
   }
   await client.send("Page.navigate", { url: launchUrl.href });
   if (!firstSeekTime) await wait(10000);
@@ -612,8 +613,18 @@ async function chromium() {
 }
 
 async function firefox() {
-  launch("web-ext", ["run", "--source-dir", "dist/firefox", "--firefox", "/usr/bin/firefox",
-    "--start-url", firstUrl, "--no-reload", "--no-input", "--arg=-headless",
+  const profile = `/tmp/uncensored-firefox-smoke-${process.pid}`;
+  const source = `/tmp/uncensored-firefox-extension-${process.pid}`;
+  [profile, source].forEach((item) => fs.rmSync(item, { recursive: true, force: true }));
+  fs.cpSync(path.join(root, "dist/firefox"), source, { recursive: true });
+  if (modeValues) {
+    const content = path.join(source, "src/content.js");
+    fs.writeFileSync(content, fs.readFileSync(content, "utf8").replace(
+      /(rulesEnabled|whisperEnabled): true/g, (match, key) => `${key}: ${modeValues[key]}`));
+  }
+  launch("web-ext", ["run", "--source-dir", source, "--firefox", "/usr/bin/firefox",
+    "--firefox-profile", profile, "--profile-create-if-missing", "--keep-profile-changes",
+    "--start-url", "about:blank", "--no-reload", "--no-input", "--arg=-headless",
     `--arg=--remote-debugging-port=${firefoxPort}`]);
   const logs = [];
   let timedTextRequests = 0;
@@ -628,10 +639,7 @@ async function firefox() {
   });
   await client.ready;
   await client.send("session.new", { capabilities: { alwaysMatch: {} } });
-  const page = await retry(async () => {
-    const tree = await client.send("browsingContext.getTree");
-    return tree.contexts.find((item) => item.url.includes("youtube.com/watch"));
-  });
+  const page = await retry(async () => (await client.send("browsingContext.getTree")).contexts[0]);
   const context = page.context;
   await client.send("session.subscribe", {
     events: ["log.entryAdded", "network.beforeRequestSent"], contexts: [context]
@@ -642,17 +650,42 @@ async function firefox() {
     });
     return response.result && response.result.value;
   }
+  if (modeValues) console.log(`Firefox mode ${mode}: ${JSON.stringify(modeValues)}.`);
+  await client.send("browsingContext.navigate", { context, url: launchUrl.href, wait: "none" });
   let state = await retry(async () => {
     const value = JSON.parse(await evaluate(`JSON.stringify(${playbackExpression()})`));
     return value.hook && value;
   });
   if (!await evaluate(fetchTransparencyExpression())) throw new Error("Firefox Fetch transparency check failed.");
   console.log("Firefox Fetch transparency check passed.");
+  if (firstSeekTime) await retry(async () => {
+    const sought = await evaluate(`(() => { const video = document.querySelector("video");
+      const player = document.querySelector("#movie_player");
+      if (!video || !player?.seekTo || !(video.duration > ${firstSeekTime})) return false;
+      player.seekTo(${firstSeekTime}, true); video.play().catch(() => {}); return true; })()`);
+    await wait(500);
+    return sought && Math.abs(await evaluate("document.querySelector('video')?.currentTime") - firstSeekTime) < 2;
+  });
   await retry(() => timedTextRequests > 0 || cleanDecision(logs));
   try {
     await retry(() => inferenceReady(logs), 90000);
   } catch (error) {
     throw new Error(`No initial Firefox audio or clean-caption decision. Logs: ${logs.slice(-12).join(" | ")}`);
+  }
+  if (expectedWords.length || mode === "both-off") {
+    const visible = await retry(async () => {
+      await evaluate(`(() => { const player = document.querySelector("#movie_player");
+        const track = player?.getPlayerResponse?.()?.captions?.playerCaptionsTracklistRenderer
+          ?.captionTracks?.find(item => item.languageCode === "en" && item.kind === "asr");
+        if (track) player.setOption("captions", "track", { languageCode: "en", kind: "asr", vssId: track.vssId || "" });
+        const button = document.querySelector(".ytp-subtitles-button");
+        if (button?.getAttribute("aria-pressed") !== "true") button?.click(); return true; })()`);
+      const value = JSON.parse(await evaluate(`JSON.stringify(${visibleCaptionExpression()})`));
+      const found = expectedWords.every((word) => new RegExp("(?:^| )" +
+        word.replace(/[^a-z0-9' ]/g, "") + "(?: |$)").test(value.text));
+      return (mode === "both-off" ? value.placeholders : found && !value.placeholders) && value;
+    }, 20000);
+    console.log(`Firefox DOM ${mode === "both-off" ? "disabled-mode check" : "expectation"} passed (${firstUrl}, ${JSON.stringify(visible)}).`);
   }
   if (pauseFor) {
     await evaluate("document.querySelector('video')?.pause()");

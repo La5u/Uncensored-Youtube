@@ -155,7 +155,7 @@ function transcriptContainsWord(transcript, word) {
 
 function transcriptCandidates(token, mode) {
   if (mode !== "rules+whisper") return token.candidates || [];
-  return [...new Set((token.candidates || []).concat(rules.ALLOWED_WORDS))];
+  return token.candidates?.length ? token.candidates : rules.ALLOWED_WORDS;
 }
 
 function contextWordForToken(token) {
@@ -166,6 +166,7 @@ function contextWordForToken(token) {
 
 function contextCandidatesForToken(token) {
   if (token.deterministicCandidates?.length) return token.deterministicCandidates;
+  if (token.deterministicWord) return [];
   const result = rules.applyDeterministicRules(token.context);
   return result.replacements?.length === 1 && result.replacements[0].rule
     ? result.replacements[0].rule.candidates : [];
