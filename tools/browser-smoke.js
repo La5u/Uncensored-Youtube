@@ -151,6 +151,36 @@ async function playThrough(label, logs, currentTime, run) {
   if (seekIndex >= 0) leadSummary(`${label} after seek`, logs.slice(seekIndex));
 }
 
+// Re-request the caption track YouTube loaded: raw via Fetch (never patched) and through
+// XHR, which the page hook patches with the current mode. Compares [__] counts.
+function captionPatchExpression() {
+  return `(async () => {
+    const entry = performance.getEntriesByType("resource").map((item) => item.name)
+      .filter((url) => url.includes("/api/timedtext") && url.includes("fmt=json3")).pop();
+    if (!entry) return "";
+    const count = (text) => (text.match(/\\[\\s*__\\s*\\]/g) || []).length;
+    const raw = await (await fetch(entry)).text();
+    const patched = await new Promise((resolve) => {
+      const request = new XMLHttpRequest();
+      request.open("GET", entry);
+      request.onloadend = () => resolve(request.responseText);
+      request.send();
+    });
+    return JSON.stringify({ raw: count(raw), patched: count(patched) });
+  })()`;
+}
+
+async function captionPatchCheck(label, run) {
+  try {
+    const value = await retry(async () => run(captionPatchExpression()), 60000);
+    const { raw, patched } = JSON.parse(value);
+    console.log(`${label} caption patch (${mode}): ${raw} [__] in the track, ${patched} left after the page hook ` +
+      `(${raw - patched} filled by rules).`);
+  } catch (error) {
+    console.log(`${label} caption patch check unavailable: ${error.message}`);
+  }
+}
+
 function launch(command, args) {
   const child = spawn(command, args, {
     cwd: root,
@@ -453,6 +483,9 @@ async function chromium() {
   });
   if (result.result.value !== true) throw new Error("Chromium Fetch transparency check failed.");
   console.log("Chromium Fetch transparency check passed.");
+  await captionPatchCheck("Chromium", async (expression) => (await client.send("Runtime.evaluate", {
+    expression, awaitPromise: true, returnByValue: true
+  })).result.value);
   if (firstSeekTime) {
     await retry(async () => {
       const sought = await client.send("Runtime.evaluate", { expression: `(() => {
@@ -729,6 +762,7 @@ async function firefox() {
   });
   if (!await evaluate(fetchTransparencyExpression())) throw new Error("Firefox Fetch transparency check failed.");
   console.log("Firefox Fetch transparency check passed.");
+  await captionPatchCheck("Firefox", evaluate);
   if (firstSeekTime) await retry(async () => {
     const sought = await evaluate(`(() => { const video = document.querySelector("video");
       const player = document.querySelector("#movie_player");
