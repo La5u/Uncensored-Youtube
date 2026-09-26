@@ -35,10 +35,13 @@ assert.deepStrictEqual(chromiumManifest.content_scripts[0].js, contentScripts);
 assert.deepStrictEqual(firefoxManifest.content_scripts[0].js, contentScripts);
 assert.ok(injectedScripts.every((script, index) => index === injectedScripts.length - 1 ||
   content.indexOf(`"${script}"`) < content.indexOf(`"${injectedScripts[index + 1]}"`)));
-assert.ok(popup.includes('id="metricsLabel"'));
+assert.ok(popup.includes('id="mode" type="range" min="0" max="4"'));
 assert.ok(popup.includes('id="versionLabel"'));
-assert.ok(popupScript.includes("rulesEnabled: true"));
-assert.ok(popupScript.includes("whisperEnabled: true"));
+// The popup's five slider stops and content.js's mode table must stay in step.
+const popupModes = [...popupScript.matchAll(/\{ id: "([a-z-]+)"/gu)].map((match) => match[1]);
+assert.deepStrictEqual(popupModes, ["off", "rules", "rules-first", "whisper-first", "whisper"]);
+assert.ok(popupModes.every((mode) => content.includes(`${mode.includes("-") ? `"${mode}"` : mode}: [`)));
+assert.ok(popupScript.includes('var DEFAULT_MODE = "rules-first";'));
 
 const captionSegment = { textContent: "fucking" };
 let captionSegments = [captionSegment];
@@ -98,25 +101,7 @@ const contextToken = {
 const deterministicToken = Object.assign({}, contextToken, {
   deterministicWord: "fuck"
 });
-
-assert.strictEqual(audio.arbitrateResolution(deterministicToken, {
-  word: "shit", source: "media", evidence: "transcript"
-}).word, "fuck");
-assert.strictEqual(audio.arbitrateResolution(deterministicToken, {
-  word: "shit", source: "media", evidence: "transcript", hybridCrossFamily: true
-}).word, "shit");
-assert.strictEqual(audio.arbitrateResolution(deterministicToken, {
-  word: "fucking", source: "media", evidence: "transcript"
-}).word, "fuck");
-assert.strictEqual(audio.arbitrateResolution(deterministicToken, {
-  word: "shit", source: "media", evidence: "transcript-anchor"
-}).word, "shit");
-assert.strictEqual(audio.arbitrateResolution(contextToken, {
-  word: "shit", source: "media", evidence: "transcript"
-}).word, "shit");
-audio.setOptions({ rulesEnabled: false, whisperEnabled: true });
-assert.strictEqual(audio.arbitrateResolution(deterministicToken, null), null);
-audio.setOptions({ rulesEnabled: true, whisperEnabled: true });
+audio.setOptions({ rulesEnabled: true, whisperEnabled: false });
 
 audio.rememberTimedTextData({ tokens: [contextToken], timeline: [] }, "lang=en&kind=asr");
 audio.rememberTimedTextData({ tokens: [deterministicToken], timeline: [] }, "lang=en&kind=asr");
@@ -190,11 +175,14 @@ audio.rememberTimedTextData({
   ]
 }, "lang=en&kind=formatted");
 assert.strictEqual(captionSegment.textContent, "Stop. Fucking hell");
-assert.strictEqual(audio.pendingTokenValues().length, 1);
+assert.strictEqual(audio.pendingTokenValues().length, 0);
 
 audio.setOptions({ rulesEnabled: false, whisperEnabled: true, audioEnabled: true });
 assert.strictEqual(audio.pendingTokenValues().length, 1);
+// Rules first: an unambiguous rule fill is not queued for Whisper; Whisper first is.
 audio.setOptions({ rulesEnabled: true, whisperEnabled: true, audioEnabled: true });
+assert.strictEqual(audio.pendingTokenValues().length, 0);
+audio.setOptions({ rulesEnabled: true, whisperEnabled: true, whisperFirst: true, audioEnabled: true });
 assert.strictEqual(audio.pendingTokenValues().length, 1);
 audio.setOptions({ rulesEnabled: false, whisperEnabled: true, audioEnabled: true });
 assert.strictEqual(audio.pendingTokenValues().length, 1);

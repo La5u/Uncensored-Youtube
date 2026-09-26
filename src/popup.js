@@ -3,53 +3,59 @@
 
   var runtime = globalThis.browser || globalThis.chrome;
   var storage = runtime.storage.local;
-  var defaults = {
-    rulesEnabled: true,
-    whisperEnabled: true
-  };
-  var metrics = {
-    hybrid: { precision: "92.1", coverage: "90.9" },
-    rules: { precision: "89.9", coverage: "40.2" },
-    whisper: { precision: "94.5", coverage: "91.2" },
-    disabled: { precision: "", coverage: "0.0" }
-  };
+  // Best case: dense English development set the rules were tuned on (docs/evaluation-metrics.json).
+  var MODES = [
+    { id: "off", title: "Off", precision: "—", coverage: "0%", cpu: "None",
+      description: "Captions are left unchanged." },
+    { id: "rules", title: "Rules only", precision: "Up to 96%", coverage: "Up to 52%", cpu: "Minimal",
+      description: "Fill words from caption context instantly. Uncertain slots stay hidden." },
+    { id: "rules-first", title: "Rules first", precision: "Up to 95%", coverage: "Up to 90%", cpu: "Moderate",
+      description: "Rules fill what they can; local Whisper listens only to the rest." },
+    { id: "whisper-first", title: "Whisper first", precision: "Up to 96%", coverage: "Up to 91%", cpu: "High",
+      description: "Rules fill instantly, then Whisper checks every slot and corrects them." },
+    { id: "whisper", title: "Whisper only", precision: "Up to 96%", coverage: "Up to 88%", cpu: "High",
+      description: "Only local Whisper audio recognition; no context rules." }
+  ];
+  var DEFAULT_MODE = "rules-first";
 
   function element(id) {
     return document.getElementById(id);
   }
 
-  function setControls(values) {
-    element("rulesEnabled").checked = values.rulesEnabled !== false;
-    element("whisperEnabled").checked = values.whisperEnabled !== false;
-    updateMetrics();
+  // Settings before 1.6 stored two switches.
+  function storedMode(values) {
+    if (MODES.some(function known(mode) { return mode.id === values.mode; })) return values.mode;
+    if (values.rulesEnabled === false) return values.whisperEnabled === false ? "off" : "whisper";
+    return values.whisperEnabled === false ? "rules" : DEFAULT_MODE;
   }
 
-  function updateMetrics() {
-    var rulesEnabled = element("rulesEnabled").checked;
-    var whisperEnabled = element("whisperEnabled").checked;
-    var mode = rulesEnabled && whisperEnabled ? "hybrid"
-      : rulesEnabled ? "rules" : whisperEnabled ? "whisper" : "disabled";
-    var metric = metrics[mode];
+  function show(index) {
+    var mode = MODES[index];
 
-    element("metricsLabel").textContent = metric.coverage + "% coverage · " +
-      (metric.precision ? metric.precision + "%" : "—") + " precision";
+    element("mode").value = String(index);
+    element("mode").setAttribute("aria-valuetext", mode.title);
+    element("modeTitle").textContent = mode.title;
+    element("modeDescription").textContent = mode.description;
+    element("modePrecision").textContent = mode.precision;
+    element("modeCoverage").textContent = mode.coverage;
+    element("modeCpu").textContent = mode.cpu;
   }
 
-  function saveSetting(event) {
-    var data = {};
-
-    data[event.target.id] = event.target.checked;
-    storage.set(data);
-    updateMetrics();
+  function showMode(id) {
+    show(MODES.findIndex(function matches(mode) { return mode.id === id; }));
   }
 
   element("versionLabel").textContent = "v" + runtime.runtime.getManifest().version;
-  setControls(defaults);
-
-  storage.get(defaults).then(setControls, function useDefaults() {
-    setControls(defaults);
+  showMode(DEFAULT_MODE);
+  storage.get({ mode: null, rulesEnabled: true, whisperEnabled: true }).then(function loaded(values) {
+    showMode(storedMode(values));
+  }, function useDefault() {
+    showMode(DEFAULT_MODE);
   });
-
-  element("rulesEnabled").addEventListener("change", saveSetting);
-  element("whisperEnabled").addEventListener("change", saveSetting);
+  element("mode").addEventListener("input", function preview() {
+    show(Number(element("mode").value));
+  });
+  element("mode").addEventListener("change", function save() {
+    storage.set({ mode: MODES[Number(element("mode").value)].id });
+  });
 })();

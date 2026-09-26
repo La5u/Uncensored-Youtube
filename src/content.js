@@ -3,9 +3,18 @@
 
   var runtime = globalThis.browser || globalThis.chrome;
   var sabrDecoder = globalThis.UncensoredSabrParser && globalThis.UncensoredSabrParser.createStreamDecoder();
+  // Popup modes: [rulesEnabled, whisperEnabled, whisperFirst].
+  var MODE_SETTINGS = {
+    off: [false, false, false],
+    rules: [true, false, false],
+    "rules-first": [true, true, false],
+    "whisper-first": [true, true, true],
+    whisper: [false, true, false]
+  };
   var settings = {
     rulesEnabled: true,
-    whisperEnabled: true
+    whisperEnabled: true,
+    whisperFirst: false
   };
   var INJECT_VERSION = String(Date.now());
   var audioEnabled = null;
@@ -133,12 +142,21 @@
     }
 
     return runtime.storage.local.get({
+      mode: null,
       rulesEnabled: true,
       whisperEnabled: true
-    }).then(function gotSettings(values) {
-      settings.rulesEnabled = values.rulesEnabled !== false;
-      settings.whisperEnabled = values.whisperEnabled !== false;
-    }, function keepDefaults() {});
+    }).then(applyMode, function keepDefaults() {});
+  }
+
+  // Settings before 1.6 stored two switches; both on maps to the default "rules first".
+  function applyMode(values) {
+    var mode = MODE_SETTINGS[values.mode] ? values.mode
+      : values.rulesEnabled === false ? (values.whisperEnabled === false ? "off" : "whisper")
+        : values.whisperEnabled === false ? "rules" : "rules-first";
+
+    settings.rulesEnabled = MODE_SETTINGS[mode][0];
+    settings.whisperEnabled = MODE_SETTINGS[mode][1];
+    settings.whisperFirst = MODE_SETTINGS[mode][2];
   }
 
   function watchSettings() {
@@ -151,15 +169,12 @@
         return;
       }
 
-      if (changes.rulesEnabled) {
-        settings.rulesEnabled = changes.rulesEnabled.newValue !== false;
+      if (!changes.mode) {
+        return;
       }
 
-      if (changes.whisperEnabled) {
-        settings.whisperEnabled = changes.whisperEnabled.newValue !== false;
-        updateAudioNeeded();
-      }
-
+      applyMode({ mode: changes.mode.newValue });
+      updateAudioNeeded();
       window.setTimeout(dispatchSettings, 0);
     });
   }
