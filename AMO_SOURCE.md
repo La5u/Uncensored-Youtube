@@ -3,13 +3,13 @@
 This repository is the extension source. `build.sh` copies checked-in files
 without bundling and creates:
 
-- `dist/uncensored-youtube-firefox-1.5.2.zip`
-- `dist/uncensored-youtube-chromium-1.5.2.zip`
+- `dist/uncensored-youtube-firefox-1.6.0.zip`
+- `dist/uncensored-youtube-chromium-1.6.0.zip`
 
 Build and validate with:
 
 ```sh
-npm test
+npm run test:release
 ```
 
 Local Whisper requires checked-in third-party and model artifacts:
