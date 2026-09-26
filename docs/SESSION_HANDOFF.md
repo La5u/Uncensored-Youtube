@@ -151,7 +151,16 @@ Preserve the dirty worktree, `tmp/`, `corpus/`, `test-fixtures/` and `.tmp-archi
    96.01%/90.84%, Whisper only 96.29%/87.78% (1,801 slots). Efficiency edits changed
    2/1,925 audio decisions (batch 16→4; q8 dynamic quantization is batch-sensitive).
    `npm test` and `npm run test:release` pass (Firefox lint 0/0).
-   Next: user checks the popup visually; multi-threaded WASM;
+   **Frozen 09-20 set (154 videos / 6,304 slots, no overlap with the dense set, gate
+   not tuned on it; `tmp/frozen-v3-*.json`):** Whisper only 93.05%/77.57% (old) ->
+   94.98%/88.28%; Whisper first 86.08%/76.70% -> 94.47%/89.90%; Rules first
+   87.31%/83.09%; rules only 81.05%/37.28%. Rules generalise poorly to new creators
+   (exact tier 78.6%, frame 86.0%, productive 86.9%, fallback 61.4%), so no tier can
+   skip Whisper cheaply. User kept Rules first as default; popup now shows these
+   new-creator figures. Deepgram triage of the frozen set: `tmp/deepgram-frozen-all.json`
+   (3,720 requests), queue `tmp/deepgram-frozen-disagreements.json` (1,234; top tiers
+   caption-vs-deepgram(+whisper) = 269 worth labelling).
+   Next: multi-threaded WASM;
    slurs only have 8 labelled slots.
    User's 8766 labels (`tmp/deepgram-disagreement-review.json`, 161 swear): manual
    captions wrong on 13/89 contested slots — candidates for `expectedByToken`
