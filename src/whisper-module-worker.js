@@ -27,13 +27,9 @@ import "./whisper-local.js";
     var message = event.data || {};
 
     if (!whisper) {
-      post(message.id, {
-        ok: false,
-        error: "Whisper runtime unavailable"
-      });
+      post(message.id, { ok: false, error: "Whisper runtime unavailable" });
       return;
     }
-
     if (message.type === "preload") {
       enqueue(function preload() {
         return whisper.preload();

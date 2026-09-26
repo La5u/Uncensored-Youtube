@@ -10,6 +10,11 @@
 
   var CENSORED_TOKEN_REGEX = rules.CENSORED_TOKEN_REGEX;
   var CENSORED_TOKEN_COUNT_REGEX = new RegExp(rules.CENSORED_TOKEN_REGEX.source, "gu");
+  var SPOKEN_PIECE_REGEX = new RegExp(rules.CENSORED_TOKEN_REGEX.source + "|\\S+", "gu");
+  // Audio scoring context: timed caption words from the 30 s before a slot (a
+  // Whisper window) and the first caption word within 2 s after it.
+  var PRECEDING_SECONDS = 30;
+  var NEXT_WORD_SECONDS = 2;
   var deterministicAnalysisCache = null;
 
   function getEventText(event) {
@@ -67,13 +72,22 @@
     var startMs = typeof event.tStartMs === "number" ? event.tStartMs : 0;
     var durationMs = typeof event.dDurationMs === "number" ? event.dDurationMs : 0;
     var nextStartMs = nextEventStarts[eventIndex];
-    // Temporary: this identifies YouTube's fixed two-line caption experiment.
-    var fixedPage = payload.wpWinPositions && payload.wpWinPositions.some(function twoRows(position) {
-      return position && position.rcRows === 2;
-    }) && event.segs.every(function untimed(seg) { return typeof seg.tOffsetMs !== "number"; }) &&
+    if (nextStartMs === undefined) {
+      return durationMs;
+    }
+
+    // Fixed two-row caption pages report page lifetime as every event's
+    // duration. Content alone cannot distinguish them from normal untimed
+    // events (identical segs, line breaks, and overlap), so the page layout
+    // is the only available tell. Override only where the lie is detectable:
+    // a positive duration reaching past the next event's start.
+    var fixedPage = durationMs > 0 && nextStartMs - startMs < durationMs &&
+      payload.wpWinPositions && payload.wpWinPositions.some(function twoRows(position) {
+        return position && position.rcRows === 2;
+      }) && event.segs.every(function untimed(seg) { return typeof seg.tOffsetMs !== "number"; }) &&
       event.segs.some(function lineBreak(seg) { return String(seg.utf8 || "").indexOf("\n") !== -1; });
 
-    return nextStartMs !== undefined && (fixedPage || durationMs <= 0) ? nextStartMs - startMs : durationMs;
+    return fixedPage || durationMs <= 0 ? nextStartMs - startMs : durationMs;
   }
 
   function tokenTimeSeconds(payload, event, eventIndex, seg, segIndex, tokenOffset, eventText, nextEventStarts) {
@@ -167,39 +181,10 @@
     return parts.join(" ").trim();
   }
 
-  function adjacentTokenGroups(eventText) {
-    var gaps = eventText.split(CENSORED_TOKEN_REGEX);
-    var groups = [];
-    var start = 0;
-    var end;
-    var index;
-
-    for (end = 0; end < gaps.length - 1; end += 1) {
-      if (end < gaps.length - 2 && !/\S/u.test(gaps[end + 1])) {
-        continue;
-      }
-      for (index = start; index <= end; index += 1) {
-        groups[index] = {
-          index: index - start,
-          count: end - start + 1
-        };
-      }
-      start = end + 1;
-    }
-
-    return groups;
-  }
-
-  function lastWord(text) {
-    var words = text.match(/[a-z0-9]+(?:['’][a-z0-9]+)*/giu);
-    return words && words.length ? words[words.length - 1] : "";
-  }
-
-  function collectCensoredTokens(payload, deterministicByTokenIndex, fRulesByTokenIndex, options, eventTexts, nextEventStarts) {
+  function collectCensoredTokens(payload, deterministicByTokenIndex, options, eventTexts, nextEventStarts) {
     var tokenIndex = 0;
     var tokens = [];
-    var previousWord = "";
-    var previousWordOffset = 0;
+    var spoken = [];
     var visibleEvents = [];
     var positionByEventIndex = new Map();
 
@@ -221,7 +206,6 @@
       }
 
       var eventText = eventTexts[eventIndex];
-      var eventTokenGroups = adjacentTokenGroups(eventText);
       var firstEventTokenIndex = tokenIndex;
       var eventTokenIndex = 0;
       var contextBefore = options && options.contextBefore != null ? options.contextBefore : 1;
@@ -229,31 +213,26 @@
       var position = positionByEventIndex.get(eventIndex);
 
       event.segs.forEach(function collectSegmentTokens(seg, segIndex) {
-        var cursor = 0;
-
         if (!seg || typeof seg.utf8 !== "string") {
           return;
         }
 
+        seg.utf8.replace(SPOKEN_PIECE_REGEX, function collectSpoken(piece, offset) {
+          spoken.push({
+            word: piece,
+            censored: new RegExp(CENSORED_TOKEN_REGEX.source, "u").test(piece),
+            time: tokenTimeSeconds(payload, event, eventIndex, seg, segIndex, offset, eventText, nextEventStarts)
+          });
+          return piece;
+        });
         seg.utf8.replace(CENSORED_TOKEN_REGEX, function collectToken(match, offset) {
           var deterministic = deterministicByTokenIndex.get(tokenIndex);
-          var fRule = fRulesByTokenIndex.get(tokenIndex);
-
-          var word = lastWord(seg.utf8.slice(cursor, offset));
-          if (word) {
-            previousWord = word;
-            previousWordOffset = 0;
-          }
 
           tokens.push({
             tokenIndex: tokenIndex,
             eventTokenIndex: eventTokenIndex,
-            adjacentTokenIndex: eventTokenGroups[eventTokenIndex].index,
-            adjacentTokenCount: eventTokenGroups[eventTokenIndex].count,
             eventIndex: eventIndex,
             timeSeconds: tokenTimeSeconds(payload, event, eventIndex, seg, segIndex, offset, eventText, nextEventStarts),
-            previousWord: previousWord,
-            previousWordOffset: previousWordOffset,
             context: contextForToken(visibleEvents, position, tokenIndex, firstEventTokenIndex, deterministicByTokenIndex, contextBefore, contextAfter),
             deterministicWord: deterministic ? deterministic.word : "",
             deterministicCandidates: deterministic ? deterministic.candidates : [],
@@ -263,28 +242,35 @@
               ? deterministic.replacement.rule.groupId + ":" + deterministic.replacement.rule.priority
               : "",
             deterministicTier: deterministic ? deterministic.replacement.tier : "",
-            fCandidates: fRule ? fRule.candidates.filter(function fWord(candidate) {
-              return candidate.toLowerCase().indexOf("fuck") !== -1;
-            }) : [],
             candidates: deterministic && deterministic.candidates.length
               ? deterministic.candidates
               : rules.ALLOWED_WORDS
           });
           tokenIndex += 1;
           eventTokenIndex += 1;
-          previousWordOffset += 1;
-          cursor = offset + match.length;
           return rules.CENSORED_TOKEN;
         });
-        var trailingWord = lastWord(seg.utf8.slice(cursor));
-        if (trailingWord) {
-          previousWord = trailingWord;
-          previousWordOffset = 0;
-        }
       });
     });
 
+    addSpokenContext(tokens, spoken);
     return tokens;
+  }
+
+  function addSpokenContext(tokens, spoken) {
+    var censored = spoken.filter(function isCensored(piece) { return piece.censored; });
+
+    tokens.forEach(function addContext(token, index) {
+      var slot = spoken.indexOf(censored[index]);
+      var next = slot < 0 ? null : spoken.slice(slot + 1).find(function spokenWord(piece) {
+        return !piece.censored && piece.word.charAt(0) !== "[";
+      });
+
+      token.precedingWords = slot < 0 ? [] : spoken.slice(0, slot).filter(function heardBefore(piece) {
+        return !piece.censored && piece.time >= token.timeSeconds - PRECEDING_SECONDS;
+      }).map(function timedWord(piece) { return { word: piece.word, time: piece.time }; });
+      token.nextWord = next && next.time <= token.timeSeconds + NEXT_WORD_SECONDS ? next.word : "";
+    });
   }
 
   function collectCaptionTimeline(payload, eventTexts, nextEventStarts) {
@@ -456,7 +442,6 @@
         tokens: parsed ? collectCensoredTokens(
           payload,
           deterministicTokenMap(result.decisions || result.replacements),
-          deterministicTokenMap(ruleResult.decisions || ruleResult.replacements),
           options,
           eventTexts,
           nextEventStarts

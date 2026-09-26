@@ -115,8 +115,12 @@ assert.strictEqual(payload.events[1].segs[1].utf8, " fucking");
 assert.strictEqual(payload.events[2].segs.map((seg) => seg.utf8).join(""), "Stop. Fucking hell");
 assert.strictEqual(payload.events[3].segs.map((seg) => seg.utf8).join(""), "oh [\u00a0__\u00a0] Timmy");
 assert.strictEqual(payload.events[5].segs.map((seg) => seg.utf8).join(""), "Fuck yeah.");
-assert.strictEqual(payload.events[6].segs.map((seg) => seg.utf8).join(""), "Holy shit.");
-assert.strictEqual(payload.events[9].segs.map((seg) => seg.utf8).join(""), "shit if something");
+assert.ok(rules.normalizeCensoredTokens(
+  payload.events[6].segs.map((seg) => seg.utf8).join("")
+).includes(rules.CENSORED_TOKEN));
+assert.ok(rules.normalizeCensoredTokens(
+  payload.events[9].segs.map((seg) => seg.utf8).join("")
+).includes(rules.CENSORED_TOKEN));
 assert.ok(!payload.pens || !payload.pens.some((pen) => pen.fcForeColor === 8421504));
 assert.ok(payload.events[3].segs.every((seg) => typeof seg.penId === "undefined"));
 assert.ok(payload.events[6].segs.every((seg) => typeof seg.penId === "undefined"));
@@ -163,12 +167,14 @@ const audioPayload = {
   ]
 };
 
+const heard = (token) => token.precedingWords.map((word) => word.word).join(" ");
 const tokens = timedText.collectTimedTextTokens(JSON.stringify(audioPayload));
 const audioData = timedText.collectTimedTextData(JSON.stringify(audioPayload));
 
 assert.strictEqual(tokens.length, 1);
 assert.strictEqual(tokens[0].timeSeconds, 10.75);
-assert.strictEqual(tokens[0].previousWord, "hello");
+assert.deepStrictEqual(tokens[0].precedingWords, [{ word: "hello", time: 10 }]);
+assert.strictEqual(tokens[0].nextWord, "");
 assert.deepStrictEqual(tokens[0].candidates.includes("fuck"), true);
 
 const interpolatedTokens = timedText.collectTimedTextTokens(JSON.stringify({
@@ -206,7 +212,6 @@ const cleanTrack = timedText.collectTimedTextData(JSON.stringify({
 }));
 assert.strictEqual(cleanTrack.parsed, true);
 assert.strictEqual(cleanTrack.tokens.length, 0);
-
 const leadingTokenPayload = {
   events: [
     { segs: [{ utf8: "still on the previous line" }] },
@@ -217,7 +222,8 @@ const leadingTokenPayload = {
 const leadingTokens = timedText.collectTimedTextTokens(JSON.stringify(leadingTokenPayload), false);
 
 assert.strictEqual(leadingTokens[0].context, "still on the previous line [__] appears first");
-assert.strictEqual(leadingTokens[0].previousWord, "line");
+assert.strictEqual(heard(leadingTokens[0]), "still on the previous line");
+assert.strictEqual(leadingTokens[0].nextWord, "appears");
 
 const deterministicPayload = {
   events: [
@@ -241,12 +247,10 @@ const deterministicTokens = timedText.collectTimedTextTokens(JSON.stringify(dete
 const whisperOnlyTokens = timedText.collectTimedTextTokens(JSON.stringify(deterministicPayload), false);
 
 assert.strictEqual(deterministicTokens.length, 2);
-assert.strictEqual(deterministicTokens[0].deterministicWord, "shit");
-assert.deepStrictEqual(deterministicTokens[0].candidates, ["shit"]);
+assert.strictEqual(deterministicTokens[0].deterministicWord, "");
+assert.deepStrictEqual(deterministicTokens[0].candidates, ["shit", "fuck", "fucking"]);
 assert.strictEqual(deterministicTokens[1].deterministicWord, "fuck");
 assert.strictEqual(whisperOnlyTokens[0].deterministicWord, "");
-assert.deepStrictEqual(whisperOnlyTokens[0].fCandidates, []);
-assert.deepStrictEqual(whisperOnlyTokens[1].fCandidates, ["fuck"]);
 
 const cueSplitPayload = {
   events: [
@@ -334,13 +338,16 @@ const multiTokenPayload = {
 const multiTokens = timedText.collectTimedTextTokens(JSON.stringify(multiTokenPayload), false);
 
 assert.deepStrictEqual(multiTokens.map((token) => token.eventTokenIndex), [0, 1, 2]);
-assert.deepStrictEqual(multiTokens.map((token) => token.previousWordOffset), [0, 0, 0]);
+// Audio-scoring context skips other censored slots.
+assert.deepStrictEqual(multiTokens.map((token) => [heard(token), token.nextWord]), [
+  ["oh", "oh"], ["oh oh", "oh"], ["oh oh oh", ""]
+]);
 
 const adjacentTokens = timedText.collectTimedTextTokens(JSON.stringify({
   events: [{ segs: [{ utf8: "say [__] [__] now" }] }]
 }), false);
-assert.deepStrictEqual(adjacentTokens.map((token) => [token.previousWord, token.previousWordOffset]), [
-  ["say", 0], ["say", 1]
+assert.deepStrictEqual(adjacentTokens.map((token) => [heard(token), token.nextWord]), [
+  ["say", "now"], ["say", "now"]
 ]);
 
 const separatedRuleTokens = timedText.collectTimedTextTokens(JSON.stringify({

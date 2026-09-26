@@ -40,6 +40,7 @@ const storage = new Map();
 const listeners = new Map();
 const timedTextDetails = [];
 const patchOverrides = [];
+const deterministicModes = [];
 let fetchResult;
 const context = {
   URL,
@@ -72,8 +73,9 @@ const context = {
   },
   UncensoredRules: { ALLOWED_WORDS: ["fuck"] },
   UncensoredTimedText: {
-    patchTimedTextBodyWithOverrides(body, overrides) {
+    patchTimedTextBodyWithOverrides(body, overrides, useDeterministic) {
       patchOverrides.push(overrides.slice());
+      deterministicModes.push(useDeterministic);
       return body.replace("[__]", overrides[0]?.word || "fuck");
     }
   },
@@ -120,6 +122,21 @@ alternateTrack.open("GET", captionUrl + "&name=English&tlang=es&vssId=.es");
 alternateTrack.finish('{"events":[{"segs":[{"utf8":"[__]"}]}]}');
 assert.notStrictEqual(timedTextDetails.at(-1).trackId, firstTrack);
 assert.strictEqual(patchOverrides.at(-1).length, 0);
+
+context.dispatchEvent(new context.CustomEvent("uncensored-settings", {
+  detail: JSON.stringify({ rulesEnabled: true, whisperEnabled: true, videoId: "test" })
+}));
+const hybridTrack = new FakeXHR();
+hybridTrack.open("GET", captionUrl + "&name=hybrid");
+hybridTrack.finish('{"events":[{"segs":[{"utf8":"[__]"}]}]}');
+assert.strictEqual(deterministicModes.at(-1), true);
+context.dispatchEvent(new context.CustomEvent("uncensored-settings", {
+  detail: JSON.stringify({ rulesEnabled: true, whisperEnabled: false, videoId: "test" })
+}));
+const rulesTrack = new FakeXHR();
+rulesTrack.open("GET", captionUrl + "&name=rules");
+rulesTrack.finish('{"events":[{"segs":[{"utf8":"[__]"}]}]}');
+assert.strictEqual(deterministicModes.at(-1), true);
 
 const plain = new FakeXHR();
 plain.open("GET", "https://www.youtube.com/youtubei/v1/player");

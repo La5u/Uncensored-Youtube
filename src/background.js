@@ -141,8 +141,7 @@
     });
   }
 
-  if (runtime.runtime.onMessage) {
-    runtime.runtime.onMessage.addListener(function onWhisperMessage(message, sender, sendResponse) {
+  runtime.runtime.onMessage.addListener(function onWhisperMessage(message, sender, sendResponse) {
       if (!message) return;
 
       if (message.uncensoredIdle) {
@@ -187,7 +186,6 @@
         return true;
       }
     });
-  }
 
   var tabs = root.chrome && root.chrome.tabs || runtime.tabs;
   if (tabs && tabs.onRemoved) {

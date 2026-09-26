@@ -10,7 +10,6 @@ const context = {
   Promise,
   Set,
   Error,
-  Worker: function Worker() {},
   chrome: {
     runtime: {
       getManifest() { return { background: { service_worker: "src/background.js" } }; },
@@ -35,9 +34,7 @@ const context = {
         return Promise.resolve();
       }
     }
-  },
-  setTimeout,
-  clearTimeout
+  }
 };
 context.globalThis = context;
 vm.runInNewContext(fs.readFileSync("src/background.js", "utf8"), context);
