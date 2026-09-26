@@ -1,0 +1,221 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-09-05",
+  "source": "docs/SESSION_HANDOFF.md plus the 2026-08-20 dense-audio benchmark",
+  "reproducibility": {
+    "ordinaryCheck": "node tools/evaluation-metrics.js --check",
+    "releaseCheck": "node tools/test.js --release",
+    "claimedSourceReportsRequired": true,
+    "cleanCheckoutReportsOptional": true
+  },
+  "rows": [
+    {
+      "id": "manual-auto",
+      "label": "Manual-auto",
+      "tier": "manual-auto",
+      "status": "development",
+      "scoredSlots": 26429,
+      "attempted": 13218,
+      "correct": 11843,
+      "precision": 0.8959751853533061,
+      "coverage": 0.44810624692572554,
+      "note": "In-sample development corpus; primary rule evidence."
+    },
+    {
+      "id": "synthetic",
+      "label": "Synthetic",
+      "tier": "synthetic",
+      "status": "development",
+      "scoredSlots": 149135,
+      "attempted": 66597,
+      "correct": 59895,
+      "precision": 0.8993648362538853,
+      "coverage": 0.40161598551647837,
+      "note": "Discovery-only synthetic tier; not a real held-out estimate."
+    },
+    {
+      "id": "auto-auto",
+      "label": "Auto-auto",
+      "tier": "auto-auto",
+      "status": "development",
+      "scoredSlots": 10,
+      "attempted": 8,
+      "correct": 8,
+      "precision": 1,
+      "coverage": 0.8,
+      "note": "Only ten aligned slots; too small to drive decisions."
+    },
+    {
+      "id": "held-out-validation",
+      "label": "Historical validation (unverified)",
+      "tier": "synthetic",
+      "status": "diagnostic",
+      "diagnostic": true,
+      "scoredSlots": 9,
+      "attempted": 1,
+      "correct": 1,
+      "precision": 1,
+      "coverage": 0.1111111111111111,
+      "note": "Nine slots only; diagnostic and not a broad held-out claim. No canonical source report is recorded."
+    },
+    {
+      "id": "held-out-test",
+      "label": "Held-out test",
+      "tier": "manual-auto",
+      "status": "held-out-test",
+      "available": false,
+      "note": "No paired test fixtures were found."
+    },
+    {
+      "id": "rules-any-candidate",
+      "label": "Any-candidate oracle",
+      "tier": "diagnostic",
+      "status": "diagnostic",
+      "precision": 0.90808,
+      "coverage": 0.49831,
+      "note": "Candidate-oracle diagnostic from the handoff; not runtime strict scoring."
+    },
+    {
+      "id": "synthetic-gap-sample-20260905",
+      "label": "Synthetic Filmot gap sample, rules-only",
+      "tier": "synthetic",
+      "status": "diagnostic",
+      "diagnostic": true,
+      "stale": true,
+      "superseded": true,
+      "mode": "rules-only",
+      "scoredSlots": 110,
+      "attempted": 41,
+      "correct": 35,
+      "precision": 0.8536585365853658,
+      "coverage": 0.3181818181818182,
+      "source": {
+        "report": "tmp/rule-campaign/gap-sample-rules-only-current.json",
+        "reportFingerprint": "sha256:9addd5ae80ab407bf606f0e87a1cc3d7063e40d3de1e1a8d01e4f1401f1c7e69",
+        "mode": "rules-only",
+        "complete": true,
+        "rulesFingerprint": "3793:39:1tga3wh",
+        "rulesAuxFingerprint": "8hsabx",
+        "rulesEngineFingerprint": "gzlhma"
+      },
+      "note": "Three newly promoted Filmot-gap synthetic pairs under current rules; discovery-only diagnostic, separate from manual-auto and auto-auto tiers; not a held-out estimate or vocabulary/rule promotion evidence."
+    },
+    {
+      "id": "manual-filmot-wave-20260905",
+      "label": "Manual Filmot wave, rules-only",
+      "tier": "manual-auto",
+      "status": "diagnostic",
+      "diagnostic": true,
+      "stale": true,
+      "superseded": true,
+      "mode": "rules-only",
+      "scoredSlots": 275,
+      "attempted": 109,
+      "correct": 76,
+      "precision": 0.6972477064220184,
+      "coverage": 0.27636363636363637,
+      "source": {
+        "report": "corpus/generated/manual-filmot-20260905-rules-only.json",
+        "reportFingerprint": "sha256:b8f536e0a55cffeda9aa75c4c089fb39a900191b7885b339ecc2f0a8a06269d2",
+        "mode": "rules-only",
+        "complete": true,
+        "rulesFingerprint": "3793:39:1tga3wh",
+        "rulesAuxFingerprint": "8hsabx",
+        "rulesEngineFingerprint": "gzlhma"
+      },
+      "note": "Eight new manual-auto pairs; 314 raw evaluated slots but only 275 scored after caption alignment (39 unscored); 69.72% strict precision and 27.64% correct coverage. Diagnostic only, no audio, not merged into the canonical development aggregate or treated as held-out evidence."
+    },
+    {
+      "id": "dense-audio-rules",
+      "label": "Dense audio set, rules only",
+      "tier": "manual-auto",
+      "status": "diagnostic",
+      "diagnostic": true,
+      "mode": "rules-only",
+      "scoredSlots": 1845,
+      "attempted": 1007,
+      "correct": 962,
+      "precision": 0.9553128103277061,
+      "coverage": 0.5214092140921409,
+      "source": {
+        "report": "corpus/generated/dense-audio-v3-rules-only.json",
+        "reportFingerprint": "sha256:ecdb8f3627aaf6d6aaf829c2776b27ec6da6eea98d1db926e490ec4b59cda621",
+        "mode": "rules-only",
+        "complete": true,
+        "rulesFingerprint": "3795:39:11g0z2u",
+        "rulesAuxFingerprint": "8hsabx",
+        "rulesEngineFingerprint": "1ejn65d"
+      },
+      "note": "Same 24 fixtures / slots as the audio rows; rules were tuned on this development corpus; diagnostic only, not held-out."
+    },
+    {
+      "id": "dense-audio-whisper",
+      "label": "Dense audio set, Whisper",
+      "tier": "manual-auto",
+      "status": "diagnostic",
+      "diagnostic": true,
+      "mode": "whisper-only",
+      "scoredSlots": 1801,
+      "attempted": 1642,
+      "correct": 1581,
+      "precision": 0.9628501827040195,
+      "coverage": 0.8778456413103831,
+      "source": {
+        "report": "corpus/generated/dense-audio-v3-whisper-scoring.json",
+        "reportFingerprint": "sha256:a93b8eb3fda24fb09ed03865f0adf6028dd390f1f346bd84767dcdcf313dd771",
+        "mode": "whisper-only",
+        "complete": true,
+        "rulesFingerprint": "3795:39:11g0z2u",
+        "rulesAuxFingerprint": "8hsabx",
+        "rulesEngineFingerprint": "1ejn65d"
+      },
+      "note": "24 fixtures / 1,801 manual-caption-labelled slots with local audio. Candidate scoring with shared 30 s windows; gate (-4) chosen on this development set; diagnostic only, not held-out."
+    },
+    {
+      "id": "dense-audio-hybrid",
+      "label": "Dense audio set, Whisper first",
+      "tier": "manual-auto",
+      "status": "diagnostic",
+      "diagnostic": true,
+      "mode": "rules+whisper",
+      "scoredSlots": 1801,
+      "attempted": 1704,
+      "correct": 1636,
+      "precision": 0.960093896713615,
+      "coverage": 0.9083842309827873,
+      "source": {
+        "report": "corpus/generated/dense-audio-v3-hybrid-scoring.json",
+        "reportFingerprint": "sha256:84b1cc2380d569086a6adacff9ca7ed6bf44ad4c178919c490b5c8c988114b48",
+        "mode": "rules+whisper",
+        "complete": true,
+        "rulesFingerprint": "3795:39:11g0z2u",
+        "rulesAuxFingerprint": "8hsabx",
+        "rulesEngineFingerprint": "1ejn65d"
+      },
+      "note": "24 fixtures / 1,801 manual-caption-labelled slots with local audio. Candidate scoring with shared 30 s windows; gate (-4) chosen on this development set; diagnostic only, not held-out."
+    },
+    {
+      "id": "dense-audio-rules-first",
+      "label": "Dense audio set, rules first (default)",
+      "tier": "manual-auto",
+      "status": "diagnostic",
+      "diagnostic": true,
+      "mode": "rules-first",
+      "scoredSlots": 1801,
+      "attempted": 1704,
+      "correct": 1618,
+      "precision": 0.9495305164319249,
+      "coverage": 0.8983897834536368,
+      "source": {
+        "report": "corpus/generated/dense-audio-v3-rules-first-scoring.json",
+        "reportFingerprint": "sha256:40f7c82c776373beffe96bc18f088385c4117bb6a6ef21b125c67e24b4238382",
+        "mode": "rules-first",
+        "complete": true,
+        "rulesFingerprint": "3795:39:11g0z2u",
+        "rulesAuxFingerprint": "8hsabx",
+        "rulesEngineFingerprint": "1ejn65d"
+      },
+      "note": "24 fixtures / 1,801 manual-caption-labelled slots with local audio. Candidate scoring with shared 30 s windows; gate (-4) chosen on this development set; diagnostic only, not held-out."
+    }
+  ]
+}

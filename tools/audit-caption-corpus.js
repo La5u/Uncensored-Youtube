@@ -11,15 +11,29 @@ const rules = require("../src/rules-data");
 const { classifyPairKind } = require("./download-paired-captions");
 const timedText = require("../src/timedtext");
 const {
-  align, groundTruthWords, manualSwearEvents, normalizeCompoundLabel
+  align, eventText, groundTruthWords, manualSwearEvents, normalizeCompoundLabel
 } = require("./evaluation-alignment");
 
-const PAIR_CLASSES = new Set(["manual-auto", "auto-auto", "synthetic"]);
-const AUDIT_CLASSES = new Set([...PAIR_CLASSES, "unknown", "conflict"]);
+const PAIR_CLASSES = new Set(["manual-auto", "auto-auto", "synthetic", "conflict"]);
+const AUDIT_CLASSES = new Set([...PAIR_CLASSES, "unknown"]);
+const EVIDENCE_POLICY = "exclude-explicitly-incomplete-v1";
 
 function fixturePart(name) {
   const match = String(name).match(/^([A-Za-z0-9_-]{11}).*_(auto|manual)\.en\.json3$/u);
   return match ? { id: match[1], kind: match[2] } : null;
+}
+
+function fixturePairs(fixturesDir) {
+  const pairs = new Map();
+  if (!fs.existsSync(fixturesDir)) return pairs;
+  fs.readdirSync(fixturesDir).forEach((name) => {
+    const part = fixturePart(name);
+    if (!part) return;
+    const pair = pairs.get(part.id) || {};
+    pair[part.kind] = path.join(fixturesDir, name);
+    pairs.set(part.id, pair);
+  });
+  return pairs;
 }
 
 function mergeCounts(target, source) {
@@ -35,6 +49,27 @@ function metadataText(value) {
   return text && !/^(?:NA|N\/A|unknown)$/iu.test(text) ? text : "";
 }
 
+function reportEvidenceStatus(report) {
+  const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+  if (hasOwn(report, "queueComplete") && typeof report.queueComplete !== "boolean") {
+    throw new TypeError("report queueComplete must be boolean");
+  }
+  const channels = Array.isArray(report.channels) ? report.channels : [];
+  channels.forEach((channel) => {
+    if (hasOwn(channel, "queueComplete") && typeof channel.queueComplete !== "boolean") {
+      throw new TypeError("channel queueComplete must be boolean");
+    }
+  });
+  if (report.queueComplete === false || channels.some((channel) => channel.queueComplete === false)) {
+    return "incomplete";
+  }
+  if (report.queueComplete === true || (channels.length > 0 &&
+      channels.every((channel) => channel.queueComplete === true))) {
+    return "complete";
+  }
+  return "legacy";
+}
+
 function reportPairItems(reportPaths) {
   return reportPaths.flatMap((reportPath) => {
     let report;
@@ -43,6 +78,7 @@ function reportPairItems(reportPaths) {
     } catch {
       return [];
     }
+    const evidenceStatus = reportEvidenceStatus(report);
     const backfill = (report.provenance || []).flatMap((group) => (group.ids || []).map((id) => ({
       id: String(id),
       pairClass: PAIR_CLASSES.has(group.pairClass) ? group.pairClass : "unknown",
@@ -50,7 +86,8 @@ function reportPairItems(reportPaths) {
       creator: metadataText(group.creator),
       creatorId: metadataText(group.creatorId),
       creatorHandle: metadataText(group.creatorHandle),
-      report: reportPath
+      report: reportPath,
+      evidenceStatus
     })));
     const downloads = (report.channels || []).flatMap((channel) => (channel.items || [])
       .filter((item) => item.status === "paired-saved" && item.id)
@@ -68,7 +105,8 @@ function reportPairItems(reportPaths) {
           creatorId: metadataText(item.creatorId) || metadataText(channel.creatorId) ||
             metadataText(channel.channelId),
           creatorHandle: metadataText(item.creatorHandle) || metadataText(channel.creatorHandle),
-          report: reportPath
+          report: reportPath,
+          evidenceStatus
         };
       }));
     return backfill.concat(downloads);
@@ -80,13 +118,15 @@ function buildProvenanceIndex(reportPaths) {
   reportPairItems(reportPaths).forEach((item) => {
     const record = records.get(item.id) || { id: item.id, classes: new Set(),
       pairKinds: new Set(), creators: new Set(), creatorIds: new Set(),
-      creatorHandles: new Set(), reports: new Set() };
+      creatorHandles: new Set(), reports: new Set(), reportEvidence: {}, eligibleClasses: new Set() };
     if (item.pairClass !== "unknown") record.classes.add(item.pairClass);
     if (item.pairKind) record.pairKinds.add(item.pairKind);
     if (item.creator) record.creators.add(item.creator);
     if (item.creatorId) record.creatorIds.add(item.creatorId);
     if (item.creatorHandle) record.creatorHandles.add(item.creatorHandle);
     record.reports.add(item.report);
+    record.reportEvidence[item.report] = item.evidenceStatus;
+    if (item.evidenceStatus !== "incomplete") record.eligibleClasses.add(item.pairClass);
     records.set(item.id, record);
   });
   return new Map([...records].map(([id, record]) => {
@@ -102,7 +142,9 @@ function buildProvenanceIndex(reportPaths) {
       creatorId: creatorIds.length === 1 ? creatorIds[0] : "",
       creatorHandle: creatorHandles.length === 1 ? creatorHandles[0] : "",
       creators,
-      reports: [...record.reports].sort()
+      reports: [...record.reports].sort(),
+      reportEvidence: Object.fromEntries(Object.entries(record.reportEvidence).sort()),
+      evidenceEligible: classes.length === 1 ? record.eligibleClasses.has(classes[0]) : record.eligibleClasses.size > 0
     }];
   }));
 }
@@ -116,12 +158,9 @@ function emptyGroup() {
     visibleWordCounts: {},
     unsupportedWordCounts: {},
     unsupportedCreators: {},
-    unknownSlotTexts: {}
+    unknownSlotTexts: {},
+    eligibleWordCounts: {}
   };
-}
-
-function eventText(event) {
-  return (event.segs || []).map((segment) => segment.utf8 || "").join("");
 }
 
 function directSlotLabels(auto, manual) {
@@ -161,15 +200,7 @@ function auditCaptionCorpus({
 }) {
   const provenance = buildProvenanceIndex(reportPaths);
   const notCensored = new Set(notCensoredWords);
-  const files = fs.existsSync(fixturesDir) ? fs.readdirSync(fixturesDir) : [];
-  const pairs = new Map();
-  files.forEach((name) => {
-    const part = fixturePart(name);
-    if (!part) return;
-    const pair = pairs.get(part.id) || {};
-    pair[part.kind] = path.join(fixturesDir, name);
-    pairs.set(part.id, pair);
-  });
+  const pairs = fixturePairs(fixturesDir);
   const groups = {
     "manual-auto": emptyGroup(),
     "auto-auto": emptyGroup(),
@@ -221,6 +252,9 @@ function auditCaptionCorpus({
     group.alignedSlots += expected.length;
     mergeCounts(group.wordCounts, targetCounts);
     mergeCounts(group.visibleWordCounts, visibleCounts);
+    if (provenanceRecord.evidenceEligible) {
+      mergeCounts(group.eligibleWordCounts, targetCounts);
+    }
     mergeCounts(group.unsupportedWordCounts, unsupported);
     if (provenanceRecord.creator) {
       Object.keys(unsupported).forEach((word) => {
@@ -240,11 +274,12 @@ function auditCaptionCorpus({
     // Keep the other tiers' word counts and visible-label diagnostics, but do
     // not expose them as additions that a later pass could promote.
     group.censoredWordCandidates = pairClass === "manual-auto"
-      ? Object.fromEntries(Object.entries(group.wordCounts)
+      ? Object.fromEntries(Object.entries(group.eligibleWordCounts)
         .filter(([word]) => !group.visibleWordCounts[word] && !notCensored.has(word)))
       : {};
     group.visibleWordCandidates = Object.fromEntries(Object.entries(group.wordCounts)
       .filter(([word]) => group.visibleWordCounts[word] || notCensored.has(word)));
+    delete group.eligibleWordCounts;
   });
   return {
     version: 1,
@@ -263,7 +298,17 @@ function defaultReports(root) {
   const generated = path.join(root, "corpus/generated");
   const reports = fs.existsSync(generated) ? fs.readdirSync(generated)
     .filter((name) => /^(?:paired-caption|synthetic-auto|caption-growth).*\.json$/u.test(name))
-    .map((name) => path.join(generated, name)).sort() : [];
+    .map((name) => path.join(generated, name))
+    .filter((file) => {
+      try {
+        const report = JSON.parse(fs.readFileSync(file, "utf8"));
+        return Array.isArray(report.provenance) || Array.isArray(report.channels);
+      } catch {
+        // Keep malformed matching inputs visible to callers that validate
+        // provenance rather than silently dropping them.
+        return true;
+      }
+    }).sort() : [];
   const backfill = path.join(root, "tools/caption-pair-provenance.json");
   return fs.existsSync(backfill) ? reports.concat(backfill) : reports;
 }
@@ -304,8 +349,11 @@ if (require.main === module) {
 module.exports = {
   auditCaptionCorpus,
   buildProvenanceIndex,
+  EVIDENCE_POLICY,
+  reportEvidenceStatus,
+  reportPairItems,
   defaultReports,
   directSlotLabels,
-  fixturePart,
-  parseArgs
+  fixturePairs,
+  fixturePart
 };

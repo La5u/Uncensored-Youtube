@@ -1,0 +1,723 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rule review</title>
+  <style>
+    :root { color-scheme: dark; --bg:#101318; --panel:#181d25; --line:#303946; --muted:#9da9b8; --text:#edf2f7; --accent:#70b7ff; --good:#70d39b; --bad:#ff8c8c; --warn:#ffd479; --synthetic:#c990ff; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:15px system-ui,sans-serif; }
+    button,input,textarea,select { font:inherit; color:inherit; background:#11161d; border:1px solid var(--line); border-radius:6px; padding:.55rem .65rem; }
+    button { cursor:pointer; background:#202936; } button:hover,button:focus { border-color:var(--accent); }
+    button:disabled,input:disabled,textarea:disabled,select:disabled { opacity:.45; cursor:wait; }
+    .shell { width:min(900px,calc(100% - 28px)); margin:0 auto; padding:22px 0 50px; }
+    header { display:flex; justify-content:space-between; align-items:flex-start; gap:15px; margin-bottom:15px; }
+    h1 { font-size:1.35rem; margin:0; } h2 { font-size:1.1rem; margin:0; } h3 { font-size:1rem; margin:0 0 10px; }
+    .actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .progress,.muted,.notice,.meta { color:var(--muted); } .progress { margin-top:4px; font-size:.9rem; }
+    details { border:1px solid var(--line); border-radius:6px; padding:9px 11px; background:#141920; } details + details { margin-top:10px; }
+    summary { cursor:pointer; font-weight:650; } .filters { display:grid; grid-template-columns:2fr 1fr 1fr 1fr; gap:8px; margin-top:10px; } .check { display:flex; align-items:center; gap:7px; color:var(--text); }
+    .filter-count { margin-top:8px; font-size:.85rem; }
+    .card { margin-top:13px; padding:20px; border:1px solid var(--line); border-radius:9px; background:var(--panel); }
+    .card-header { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; } .badge { display:inline-block; padding:2px 7px; border-radius:12px; font-size:.75rem; background:#354253; }
+    .tier-label { font-weight:700; } .tier-manual-auto { border-left:3px solid var(--good); } .tier-synthetic { border-left:3px solid var(--synthetic); } .tier-unknown { border-left:3px solid var(--warn); } .tier-conflict { border-left:3px solid var(--bad); }
+    .status { color:var(--warn); } .stale { color:var(--warn); margin-top:8px; }
+    .pattern-label { margin:25px 0 5px; color:var(--muted); font-size:.85rem; } .pattern { font-size:1.35rem; line-height:1.55; padding:12px 14px; border-radius:7px; background:#11161d; border:1px solid var(--line); }
+    .mark { padding:2px 5px; border-radius:4px; background:#705820; color:#fff; font-weight:700; }
+    .instruction { margin:18px 0 10px; font-weight:650; }
+    .examples { display:grid; gap:8px; } .example { padding:11px 12px; border:1px solid var(--line); border-radius:6px; } .caption { line-height:1.55; white-space:pre-wrap; } .example-meta { margin-top:6px; font-size:.82rem; }
+    .expected.conflict { color:var(--bad); } .expected.unknown { color:var(--warn); } .example.contradiction { border-color:#9a5252; }
+    .primary-actions { margin-top:19px; } .primary-actions button { min-width:112px; } #accept { background:#24563d; } #reject { background:#632f37; } #skip { margin-left:auto; }
+    .needs { margin-top:12px; padding-top:12px; border-top:1px solid var(--line); } .choices { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; } .choice { display:flex; gap:5px; align-items:center; color:var(--text); }
+    textarea { width:100%; min-height:64px; resize:vertical; } label.field { display:grid; gap:5px; color:var(--muted); margin:9px 0; } .edit-grid { display:grid; grid-template-columns:2fr 1fr; gap:10px; }
+    .advanced { margin-top:12px; } .advanced-section { margin-top:16px; padding-top:14px; border-top:1px solid var(--line); } .metrics { display:flex; flex-wrap:wrap; gap:14px; color:var(--muted); font-size:.9rem; } .metrics b { color:var(--text); }
+    .evidence-tools { display:flex; gap:7px; flex-wrap:wrap; align-items:center; } .pager { display:flex; justify-content:space-between; align-items:center; margin-top:9px; }
+    .empty,.loading,.error { padding:35px 15px; text-align:center; color:var(--muted); } .error { color:var(--bad); } .error button { margin-left:8px; }
+    .toast { position:fixed; right:15px; bottom:15px; max-width:430px; padding:10px; border:1px solid var(--line); border-radius:6px; background:#363e4b; }
+    dialog { width:min(560px,calc(100% - 30px)); border:1px solid var(--line); border-radius:8px; background:var(--panel); color:var(--text); } dialog::backdrop { background:#000b; }
+    @media(max-width:700px) { .shell { width:calc(100% - 18px); padding-top:14px; } header,.card-header { display:block; } header .actions { margin-top:10px; } .filters,.edit-grid { grid-template-columns:1fr; } #skip { margin-left:0; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div><h1>Rule review</h1><div id="progress" class="progress">Loading progress…</div></div>
+      <div class="actions"><button id="refresh" type="button">Refresh</button></div>
+    </header>
+    <details id="filterDetails">
+      <summary>Filters</summary>
+      <div class="filters">
+        <input id="search" aria-label="Search" placeholder="Search target or pattern">
+        <input id="target" aria-label="Filter target word" placeholder="Target word">
+        <select id="tier" aria-label="Filter tier"><option value="">All tiers</option><option value="manual-auto">manual-auto</option><option value="synthetic">synthetic</option><option value="unknown">unknown</option><option value="conflict">conflict</option></select>
+        <select id="review" aria-label="Filter review status"><option value="">All statuses</option><option value="pending">pending</option><option value="accepted">accepted</option><option value="rejected">rejected</option><option value="generalize">generalize</option><option value="narrow">narrow</option><option value="suggestion">suggestion</option></select>
+      </div>
+      <label class="check"><input id="pending" type="checkbox" checked> Pending only</label>
+      <label class="check"><input id="wildcards" type="checkbox"> Show patterns with multiple wildcards</label>
+      <div id="filterCount" class="filter-count muted"></div>
+    </details>
+    <p class="notice">Keyboard: <b>A</b> looks right · <b>R</b> wrong · <b>N</b> too broad · <b>G</b> too narrow · <b>S</b> skip · <b>E</b> edit · <b>Ctrl+Enter</b> save note/edit</p>
+    <main id="main"><div class="loading">Loading…</div></main>
+  </div>
+  <dialog id="customDialog">
+    <form id="customForm">
+      <h2>New custom rule</h2><p class="notice">Custom rules are saved for review; they are not deployed.</p>
+      <label class="field">Pattern<input name="pattern" required maxlength="1000"></label>
+      <label class="field">Target<input name="target" required maxlength="100"></label>
+      <label class="field">Note<textarea name="note"></textarea></label>
+      <div class="actions"><button id="customCancel" type="button">Cancel</button><button type="submit">Create</button></div>
+    </form>
+  </dialog>
+  <dialog id="previewDialog"><h2>Diagnostic preview</h2><p class="notice">This searches discovery rows only. It is not validation evidence, saved, or deployed.</p><div id="previewResults"></div><div class="actions"><button id="previewClose" type="button">Close</button></div></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script>
+    'use strict';
+    const $ = selector => document.querySelector(selector);
+    const api = '/api';
+    const statuses = ['pending', 'accepted', 'rejected', 'generalize', 'narrow', 'suggestion'];
+    const state = { items: [], revision: null, current: null, detail: null, drafts: {}, skipped: new Set(), busyCount: 0, requestToken: 0, examplesToken: 0, evidence: { kind: 'all', scope: 'all', offset: 0, limit: 20 } };
+
+    // These small helpers are intentionally independent of the DOM: the review queue is easy to test without a browser.
+    function filterCandidates(items, filters) {
+      const query = String(filters.search || '').toLowerCase();
+      const target = String(filters.target || '').toLowerCase();
+      return items.filter(item => {
+        const text = `${item.target || ''} ${item.pattern || ''}`.toLowerCase();
+        return (!query || text.includes(query)) && (!target || String(item.target || '').toLowerCase().includes(target)) &&
+          (!filters.tier || item.tier === filters.tier) && (!filters.review || item.review === filters.review) && (!filters.pendingOnly || item.review === 'pending') &&
+          (filters.showWildcards || (String(item.pattern || '').match(/\*/g) || []).length <= 1);
+      });
+    }
+    function nextPending(items, currentId, filters, skipped = new Set()) {
+      const queue = filterCandidates(items, filters).filter(item => item.review === 'pending' && !skipped.has(item.id));
+      const ordered = filterCandidates(items, { ...filters, pendingOnly: false, review: '' }).filter(item => !skipped.has(item.id));
+      if (!ordered.length || !queue.length) return null;
+      const index = ordered.findIndex(item => item.id === currentId);
+      for (let step = 1; step <= ordered.length; step += 1) {
+        const item = ordered[(index + step + ordered.length) % ordered.length];
+        if (item.review === 'pending') return item.id;
+      }
+      return null;
+    }
+    function isContradiction(example, target) {
+      return example.labelStatus === 'known' && example.expected &&
+        String(example.expected).toLowerCase() !== String(target).toLowerCase();
+    }
+
+    function representativeExamples(groups, target) {
+      const expand = group => {
+        if (Array.isArray(group)) return group.flatMap(expand);
+        if (group?.examples) return expand(group.examples);
+        if (Array.isArray(group?.items)) return group.items;
+        return group ? [group] : [];
+      };
+      const all = expand(Array.isArray(groups) ? groups : Object.values(groups || {}));
+      const unique = [...new Map(all.filter(Boolean).map(example => [
+        example.id || `${example.context}:${example.targetOffset}`, example
+      ])).values()];
+      const contradictions = unique.filter(example => isContradiction(example, target));
+      const rest = unique.filter(example => !isContradiction(example, target));
+      return contradictions.concat(rest).slice(0, 3);
+    }
+
+    function judgmentStatus(choice) {
+      return {
+        'too broad': 'narrow',
+        'too narrow': 'generalize',
+        'different wording': 'suggestion'
+      }[choice] || choice;
+    }
+
+    function reviewRequest(candidate, draft, status) {
+      return {
+        id: candidate.id,
+        status,
+        pattern: draft.pattern,
+        target: draft.target,
+        note: draft.note || ''
+      };
+    }
+
+    function filtersFromControls() {
+      return {
+        search: $('#search').value,
+        target: $('#target').value,
+        tier: $('#tier').value,
+        review: $('#review').value,
+        pendingOnly: $('#pending').checked,
+        showWildcards: $('#wildcards').checked
+      };
+    }
+
+    function filteredCandidates() {
+      return filterCandidates(state.items, filtersFromControls());
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[character]));
+    }
+
+    function tierClass(tier) {
+      return `tier-${String(tier || 'unknown').replace(/[^a-z0-9-]/gi, '-')}`;
+    }
+
+    function toast(message) {
+      const box = $('#toast');
+      box.textContent = message;
+      box.hidden = false;
+      clearTimeout(toast.timer);
+      toast.timer = setTimeout(() => { box.hidden = true; }, 4500);
+    }
+
+    function syncBusy() {
+      const busy = state.busyCount > 0;
+      document.body.setAttribute('aria-busy', String(busy));
+      document.querySelectorAll('button,input,textarea,select').forEach(control => {
+        control.disabled = busy || control.dataset.locked === 'true';
+      });
+    }
+
+    function setBusy(value) {
+      state.busyCount = Math.max(0, state.busyCount + (value ? 1 : -1));
+      syncBusy();
+    }
+    async function get(path) {
+      const response = await fetch(api + path);
+      const value = await response.json().catch(() => {
+        throw new Error('Server returned invalid JSON');
+      });
+      if (!response.ok) {
+        throw new Error(value.error || `Request failed (${response.status})`);
+      }
+      return value;
+    }
+
+    async function post(path, body) {
+      const response = await fetch(api + path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...body, revision: state.revision })
+      });
+      const value = await response.json().catch(() => {
+        throw new Error('Server returned invalid JSON');
+      });
+      if (response.status === 409) {
+        throw Object.assign(
+          new Error(value.error || 'Dataset changed. Review and save again.'),
+          { status: 409, stale: true }
+        );
+      }
+      if (!response.ok) {
+        throw new Error(value.error || `Request failed (${response.status})`);
+      }
+      return value;
+    }
+
+    function draftFor(candidate) {
+      const saved = candidate.reviewDetails || {};
+      return state.drafts[candidate.id] || {
+        pattern: saved.pattern ?? candidate.pattern,
+        target: saved.target ?? candidate.target,
+        note: saved.note ?? '',
+        status: saved.status ?? candidate.review,
+        dirty: false
+      };
+    }
+
+    function currentDraft() {
+      return state.detail ? draftFor(state.detail) : null;
+    }
+
+    function saveDraft() {
+      if (!state.detail) return;
+      state.drafts[state.detail.id] = {
+        pattern: $('#pattern').value,
+        target: $('#ruleTarget').value,
+        note: $('#note').value,
+        status: currentDraft().status,
+        dirty: true
+      };
+      $('#draftStatus').textContent = 'Unsaved draft';
+    }
+
+    function appendPattern(box, pattern, target) {
+      String(pattern || '').split(/(\s+)/).forEach(token => {
+        if (/^\[word\]$/iu.test(token)) {
+          const mark = document.createElement('mark');
+          mark.className = 'mark';
+          mark.textContent = `[${target}]`;
+          box.append(mark);
+        } else {
+          box.append(document.createTextNode(token));
+        }
+      });
+    }
+
+    function expectedText(example, target) {
+      const candidates = Array.isArray(example.expectedCandidates)
+        ? example.expectedCandidates : [];
+      if (example.labelStatus === 'ambiguous' || candidates.length > 1) {
+        return {
+          text: `conflict: ${candidates.join(' / ') || 'multiple candidates'}`,
+          className: 'conflict'
+        };
+      }
+      if (example.labelStatus !== 'known' || !example.expected) {
+        return {
+          text: `unknown${candidates.length ? ` candidates: ${candidates.join(' / ')}` : ''}`,
+          className: 'unknown'
+        };
+      }
+      return {
+        text: `expected: ${example.expected}`,
+        className: isContradiction(example, target) ? 'conflict' : ''
+      };
+    }
+    function captionExcerpt(text, start, span) {
+      const tokens = [];
+      const tokenPattern = /\S+/g;
+      let match;
+      while ((match = tokenPattern.exec(text))) {
+        tokens.push({ start: match.index, end: match.index + match[0].length });
+      }
+      const before = tokens.filter(token => token.end <= start);
+      const after = tokens.filter(token => token.start >= start + span);
+      const leftTrimmed = before.length > 8;
+      const rightTrimmed = after.length > 8;
+      return {
+        start: leftTrimmed ? before[before.length - 8].start : 0,
+        end: rightTrimmed ? after[7].end : text.length,
+        leftTrimmed,
+        rightTrimmed
+      };
+    }
+
+    function appendCaption(box, example, compact = false) {
+      const text = String(example.context ?? '');
+      const start = Number(example.targetOffset);
+      const span = Number(example.targetSpan);
+      const valid = Number.isSafeInteger(start) && start >= 0 &&
+        Number.isSafeInteger(span) && span > 0 && start + span <= text.length;
+      if (!valid) {
+        box.append(document.createTextNode(text));
+        return;
+      }
+      const excerpt = compact ? captionExcerpt(text, start, span) :
+        { start: 0, end: text.length, leftTrimmed: false, rightTrimmed: false };
+      if (excerpt.leftTrimmed) box.append(document.createTextNode('…'));
+      box.append(document.createTextNode(text.slice(excerpt.start, start)));
+      const mark = document.createElement('mark');
+      mark.className = 'mark';
+      mark.textContent = text.slice(start, start + span);
+      box.append(mark, document.createTextNode(text.slice(start + span, excerpt.end)));
+      if (excerpt.rightTrimmed) box.append(document.createTextNode('…'));
+    }
+
+    function renderExampleList(box, examples, target, compact = false) {
+      box.textContent = '';
+      if (!examples.length) {
+        box.textContent = 'No examples found.';
+        box.className = 'empty';
+        return;
+      }
+      box.className = 'examples';
+      examples.forEach(example => {
+        const article = document.createElement('article');
+        article.className = `example${isContradiction(example, target) ? ' contradiction' : ''}`;
+        const caption = document.createElement('div');
+        caption.className = 'caption';
+        appendCaption(caption, example, compact);
+        article.append(caption);
+
+        const expected = expectedText(example, target);
+        const meta = document.createElement('div');
+        meta.className = 'example-meta muted';
+        const label = document.createElement('span');
+        label.className = `expected ${expected.className}`;
+        label.textContent = expected.text;
+        const tier = document.createElement('strong');
+        tier.className = `badge ${tierClass(example.tier)}`;
+        tier.textContent = example.tier || 'unknown';
+        meta.append(label, document.createTextNode(' · '), tier,
+          document.createTextNode(` · ${example.provenanceStatus || 'discovery'}`));
+        article.append(meta);
+        box.append(article);
+      });
+    }
+
+    function metricValue(value) {
+      return value === undefined || value === null ? '—' : String(value);
+    }
+
+    function renderMetrics(candidate) {
+      const summary = candidate.summary || {};
+      const box = $('#metrics');
+      box.textContent = '';
+      [
+        ['Matched examples', summary.total],
+        ['Positive', summary.positive],
+        ['Counterexamples', summary.counterexample],
+        ['Unknown', summary.unknown],
+        ['Potential gain', summary.potentialGain],
+        ['Target creators', summary.targetCreatorCount]
+      ].forEach(([label, value]) => {
+        const span = document.createElement('span');
+        span.append(document.createTextNode(`${label} `));
+        const bold = document.createElement('b');
+        bold.textContent = metricValue(value);
+        span.append(bold);
+        box.append(span);
+      });
+      $('#provenance').textContent =
+        'Examples are discovery evidence. manual-auto and synthetic are separate sources; provenance may be incomplete.';
+    }
+
+    function renderFilters() {
+      const queue = filteredCandidates().filter(item => item.review === 'pending');
+      const pending = state.items.filter(item => item.review === 'pending').length;
+      $('#filterCount').textContent =
+        `${queue.length} pending in this filter · ${pending} pending overall`;
+      const reviewed = state.items.filter(item => item.review !== 'pending').length;
+      $('#progress').textContent =
+        `Reviewed ${reviewed} of ${state.items.length} · pending queue ${queue.length}`;
+    }
+
+    function renderError(message, retry) {
+      const box = $('#main');
+      box.textContent = '';
+      const error = document.createElement('div');
+      error.className = 'error';
+      error.textContent = message;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = 'Retry';
+      button.onclick = retry;
+      error.append(button);
+      box.append(error);
+    }
+
+    async function load(preferredId = null, advanceFrom = null) {
+      const token = ++state.requestToken;
+      setBusy(true);
+      try {
+        const value = await get('/state');
+        if (token !== state.requestToken) return;
+        state.items = Array.isArray(value.candidates) ? value.candidates : [];
+        state.revision = value.revision;
+        renderFilters();
+
+        let id = null;
+        if (advanceFrom) {
+          id = nextPending(
+            state.items, advanceFrom, filtersFromControls(), state.skipped
+          );
+        }
+        if (!id) {
+          const filtered = filteredCandidates();
+          id = preferredId && filtered.some(item => item.id === preferredId)
+            ? preferredId
+            : state.current && filtered.some(item => item.id === state.current)
+              ? state.current
+              : filtered.find(item => item.review === 'pending' &&
+                !state.skipped.has(item.id))?.id;
+        }
+        if (id) {
+          await selectCandidate(id, true, false);
+        } else {
+          state.current = null;
+          state.detail = null;
+          $('#main').innerHTML =
+            '<div class="empty">No unreviewed rules match these filters.</div>';
+        }
+      } catch (error) {
+        if (token === state.requestToken) {
+          renderError(`Unable to load: ${error.message}`, () => load());
+        }
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function loadRepresentatives(candidate, token) {
+      const examplesToken = ++state.examplesToken;
+      try {
+        // Counterexamples have their own request so positives can never fill all slots first.
+        const kinds = ['counterexample', 'positive', 'unknown'];
+        const requests = kinds.map(kind => get(
+          `/candidate?id=${encodeURIComponent(candidate.id)}&kind=${kind}` +
+          '&scope=all&offset=0&limit=3'
+        ));
+        const pages = await Promise.all(requests);
+        if (token !== state.requestToken || examplesToken !== state.examplesToken) return;
+        renderExampleList(
+          $('#representatives'),
+          representativeExamples(pages.map(page => page.examples), candidate.target),
+          candidate.target,
+          true
+        );
+      } catch (error) {
+        if (token === state.requestToken && examplesToken === state.examplesToken) {
+          $('#representatives').textContent = `Unable to load examples: ${error.message}`;
+          $('#representatives').className = 'error';
+        }
+      }
+    }
+
+    async function loadExamples(candidate = state.detail) {
+      if (!candidate) return;
+      const query = `/candidate?id=${encodeURIComponent(candidate.id)}` +
+        `&kind=${state.evidence.kind}&scope=${state.evidence.scope}` +
+        `&offset=${state.evidence.offset}&limit=${state.evidence.limit}`;
+      const token = ++state.examplesToken;
+      setBusy(true);
+      try {
+        const value = await get(query);
+        if (token !== state.examplesToken || state.current !== candidate.id) return;
+        const examples = value.examples;
+        renderExampleList($('#allExamples'), examples.items || [], candidate.target, false);
+        $('#evidencePage').textContent =
+          `${examples.total ? state.evidence.offset + 1 : 0}–` +
+          `${Math.min(state.evidence.offset + state.evidence.limit, examples.total)} of ${examples.total}`;
+        $('#evidencePrev').dataset.locked = String(state.evidence.offset === 0);
+        $('#evidenceNext').dataset.locked = String(
+          state.evidence.offset + state.evidence.limit >= examples.total
+        );
+        syncBusy();
+      } catch (error) {
+        if (token === state.examplesToken) {
+          $('#allExamples').textContent = `Unable to load evidence: ${error.message}`;
+          $('#allExamples').className = 'error';
+        }
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    function bindDraft(full) {
+      const draft = draftFor(full);
+      $('#pattern').value = draft.pattern;
+      $('#ruleTarget').value = draft.target;
+      $('#note').value = draft.note;
+      if (draft.dirty) $('#draftStatus').textContent = 'Unsaved draft';
+      const reasonForStatus = {
+        narrow: 'too broad',
+        generalize: 'too narrow',
+        suggestion: 'different wording'
+      }[draft.status];
+      if (draft.dirty && reasonForStatus) {
+        $('#needsWork').hidden = false;
+        $('#needs').hidden = true;
+        const reason = document.querySelector(
+          `input[name="reason"][value="${reasonForStatus}"]`
+        );
+        if (reason) reason.checked = true;
+      }
+      ['pattern', 'ruleTarget', 'note'].forEach(id => {
+        $(`#${id}`).addEventListener('input', saveDraft);
+      });
+    }
+    async function selectCandidate(id, force = false, manageBusy = true) {
+      if (manageBusy && state.busyCount) return;
+      const old = state.current;
+      const hasDraft = old && state.drafts[old]?.dirty;
+      if (!force && hasDraft && !window.confirm(
+        'Keep this draft? Cancel to stay, OK to leave it unsaved.'
+      )) return;
+
+      const token = ++state.requestToken;
+      state.current = id;
+      state.detail = null;
+      state.evidence = { kind: 'all', scope: 'all', offset: 0, limit: 20 };
+      $('#main').innerHTML = '<div class="loading">Loading rule…</div>';
+      if (manageBusy) setBusy(true);
+      try {
+        const value = await get(
+          `/candidate?id=${encodeURIComponent(id)}&kind=all` +
+          '&scope=all&offset=0&limit=3'
+        );
+        if (token !== state.requestToken || state.current !== id) return;
+        state.detail = value.candidate;
+        renderCurrent(value.candidate);
+        await loadRepresentatives(value.candidate, token);
+      } catch (error) {
+        if (token === state.requestToken) {
+          renderError(`Unable to load rule: ${error.message}`, () =>
+            selectCandidate(id, true));
+        }
+      } finally {
+        if (manageBusy) setBusy(false);
+      }
+    }
+
+    function renderCurrent(full) {
+      const stale = full.stale ? '<div class="stale">This review is from an older dataset. Save again to review the current data.</div>' : '';
+      $('#main').innerHTML = `<section class="card"><div class="card-header"><div><h2>${escapeHtml(full.target)}</h2><div class="meta"><span class="badge ${tierClass(full.tier)}">${escapeHtml(full.tier || 'unknown')}</span> <span class="badge status">${escapeHtml(full.review || 'pending')}</span>${full.custom ? ' · custom' : ''}</div>${stale}</div><div id="saveError" class="error" hidden></div></div><div class="pattern-label">Suggested pattern</div><div id="patternDisplay" class="pattern" aria-label="Suggested pattern"></div><p class="instruction">Does this pattern plausibly describe the target word?</p><div id="representatives" class="examples"><div class="loading">Loading examples…</div></div><div class="actions primary-actions"><button id="accept" type="button">Looks right</button><button id="reject" type="button">Wrong</button><button id="needs" type="button">Needs work</button><button id="skip" type="button">Skip</button></div><div id="needsWork" class="needs" hidden><div class="muted">What needs changing? (optional)</div><div class="choices"><label class="choice"><input type="radio" name="reason" value="too broad"> Too broad — narrow</label><label class="choice"><input type="radio" name="reason" value="too narrow"> Too narrow — generalize</label><label class="choice"><input type="radio" name="reason" value="different wording"> Different wording — suggestion</label></div><label class="field">Note (optional)<textarea id="note"></textarea></label><div class="actions"><button id="needsSave" type="button">Save &amp; next</button><span id="draftStatus" class="status"></span></div></div><details id="moreDetails" class="advanced"><summary>More details / Edit rule</summary><div class="advanced-section"><div class="muted">Candidate ID: ${escapeHtml(full.id)}</div><div class="edit-grid"><label class="field">Pattern<input id="pattern" maxlength="1000"></label><label class="field">Target<input id="ruleTarget" maxlength="100"></label></div><div id="metrics" class="metrics"></div><p id="provenance" class="notice"></p><div class="evidence-tools"><select id="evidenceKind" aria-label="Evidence kind"><option value="all">All examples</option><option value="positive">Positive</option><option value="counterexample">Counterexamples</option><option value="unknown">Unknown</option></select><select id="evidenceScope" aria-label="Evidence scope"><option value="all">Both tiers</option><option value="primary">Candidate tier</option><option value="other">Other caption tier</option></select><button id="preview" type="button">Preview matches</button><button id="customBtn" type="button">New custom rule</button></div><div id="allExamples" class="examples"></div><div class="pager"><button id="evidencePrev" type="button">Previous</button><span id="evidencePage" class="muted"></span><button id="evidenceNext" type="button">Next</button></div></div></details></section>`;
+      appendPattern($('#patternDisplay'), full.pattern, full.target); renderMetrics(full); bindDraft(full); syncBusy();
+      $('#accept').onclick = () => saveReview(full, 'accepted'); $('#reject').onclick = () => saveReview(full, 'rejected'); $('#needs').onclick = () => { $('#needsWork').hidden = false; $('#needs').hidden = true; $('#note').focus(); };
+      $('#needsSave').onclick = () => {
+        const selected = document.querySelector('input[name="reason"]:checked');
+        if (!selected) {
+          toast('Choose what needs work.');
+          return;
+        }
+        const status = judgmentStatus(selected.value);
+        const draft = currentDraft();
+        state.drafts[full.id] = { ...draft, status, dirty: true };
+        saveReview(full, status);
+      };
+      $('#skip').onclick = () => skipCandidate(full.id); $('#moreDetails').ontoggle = () => { if ($('#moreDetails').open) { $('#allExamples').textContent = 'Loading evidence…'; loadExamples(full); } };
+      $('#evidenceKind').onchange = () => { state.evidence.kind = $('#evidenceKind').value; state.evidence.offset = 0; loadExamples(full); }; $('#evidenceScope').onchange = () => { state.evidence.scope = $('#evidenceScope').value; state.evidence.offset = 0; loadExamples(full); };
+      $('#evidencePrev').onclick = () => { state.evidence.offset = Math.max(0, state.evidence.offset - state.evidence.limit); loadExamples(full); }; $('#evidenceNext').onclick = () => { state.evidence.offset += state.evidence.limit; loadExamples(full); }; $('#preview').onclick = preview; $('#customBtn').onclick = () => $('#customDialog').showModal();
+    }
+
+    function showSaveError(message, retry) {
+      const box = $('#saveError');
+      if (!box) return;
+      box.hidden = false;
+      box.textContent = message;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = 'Retry';
+      button.onclick = retry;
+      box.append(button);
+    }
+
+    async function saveReview(candidate, status) {
+      if (state.busyCount || !candidate) return;
+      const draft = currentDraft() || draftFor(candidate);
+      const chosenStatus = statuses.includes(status) ? status : 'pending';
+      const body = reviewRequest(candidate, draft, chosenStatus);
+      setBusy(true);
+      try {
+        await post('/review', body);
+        delete state.drafts[candidate.id];
+        toast('Saved');
+        await load(null, body.status === 'pending' ? null : candidate.id);
+      } catch (error) {
+        // A conflict reloads the same rule, never the next one. The draft stays local.
+        if (error.status === 409) {
+          try { await load(candidate.id); } catch {}
+        }
+        showSaveError(error.message, () => saveReview(candidate, body.status));
+        toast(error.message);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    function skipCandidate(id) {
+      if (state.busyCount) return;
+      state.skipped.add(id);
+      const next = nextPending(
+        state.items, id, filtersFromControls(), state.skipped
+      );
+      if (next) {
+        selectCandidate(next, true);
+      } else {
+        state.current = null;
+        $('#main').innerHTML =
+          '<div class="empty">No more unreviewed rules in this session.</div>';
+        renderFilters();
+      }
+    }
+
+    async function preview() {
+      if (state.busyCount || !state.detail) return;
+      const draft = currentDraft();
+      setBusy(true);
+      try {
+        const value = await post('/preview', {
+          pattern: draft.pattern,
+          target: draft.target
+        });
+        const box = $('#previewResults');
+        box.textContent = '';
+        Object.entries(value.tiers || {}).forEach(([tier, counts]) => {
+          const row = document.createElement('p');
+          row.textContent = `${tier}: total ${metricValue(counts.total)} · ` +
+            `positive ${metricValue(counts.positive)} · ` +
+            `counterexample ${metricValue(counts.counterexample)} · ` +
+            `unknown ${metricValue(counts.unknown)}`;
+          box.append(row);
+        });
+        if (!box.childNodes.length) box.textContent = 'No discovery matches.';
+        $('#previewDialog').showModal();
+      } catch (error) {
+        toast(`Preview failed: ${error.message}`);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    $('#refresh').onclick = () => {
+      if (!state.busyCount) load(state.current);
+    };
+    $('#previewClose').onclick = () => $('#previewDialog').close();
+    $('#customCancel').onclick = () => $('#customDialog').close();
+    $('#customForm').onsubmit = async event => {
+      event.preventDefault();
+      if (state.busyCount) return;
+      const form = new FormData(event.target);
+      setBusy(true);
+      try {
+        const value = await post('/custom', {
+          pattern: form.get('pattern'),
+          target: form.get('target'),
+          note: form.get('note')
+        });
+        $('#customDialog').close();
+        event.target.reset();
+        await load(value.id);
+      } catch (error) {
+        toast(error.message);
+      } finally {
+        setBusy(false);
+      }
+    };
+
+    ['search', 'target', 'tier', 'review', 'pending', 'wildcards'].forEach(id => {
+      $(`#${id}`).addEventListener('input', renderFilters);
+      $(`#${id}`).addEventListener('change', () => {
+        renderFilters();
+        const first = filteredCandidates().find(item => item.review === 'pending');
+        if (first) selectCandidate(first.id);
+      });
+    });
+
+    function reviewShortcut({ key, ctrlKey, metaKey, altKey, repeat, typing }) {
+      if (repeat || altKey) return null;
+      if ((ctrlKey || metaKey) && key === 'Enter') return 'save-edit';
+      if (ctrlKey || metaKey || typing) return null;
+      return { a: 'accepted', r: 'rejected', n: 'narrow', g: 'generalize', s: 'skip', e: 'edit' }[String(key).toLowerCase()] || null;
+    }
+
+    document.addEventListener('keydown', event => {
+      if (state.busyCount || !state.current || document.querySelector('dialog[open]')) return;
+      const typing = Boolean(event.target.closest?.('textarea,select,[contenteditable="true"],input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"])'));
+      const action = reviewShortcut({ key: event.key, ctrlKey: event.ctrlKey, metaKey: event.metaKey, altKey: event.altKey, repeat: event.repeat, typing });
+      if (!action) return;
+      event.preventDefault();
+      if (action === 'skip') skipCandidate(state.current);
+      else if (action === 'edit') {
+        $('#moreDetails').open = true;
+        $('#pattern').focus();
+      } else if (action === 'save-edit') {
+        const reason = document.querySelector('input[name="reason"]:checked')?.value;
+        saveReview(state.detail, judgmentStatus(reason || 'suggestion'));
+      } else saveReview(state.detail, action);
+    });
+
+    window.addEventListener('beforeunload', event => {
+      if (Object.values(state.drafts).some(draft => draft.dirty)) {
+        event.preventDefault();
+        event.returnValue = '';
+      }
+    });
+    load();
+  </script>
+</body>
+</html>

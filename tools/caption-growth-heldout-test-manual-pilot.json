@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "prospective": true,
+  "minimumCreators": 3,
+  "minimumSlots": 30,
+  "frozenAt": "2026-08-12T10:26:25.841Z",
+  "method": "Canonical creator IDs assigned to the test split before caption labels were inspected.",
+  "creators": [
+    { "name": "Unsubscribe Clips", "channelId": "UCXGcEdl8PDZPpqB5zjLoQ2w", "split": "test" },
+    { "name": "0thatvictorguy", "channelId": "UCsAWSuxD1PBs9i2Fuw2snrw", "split": "test" },
+    { "name": "Voragon", "channelId": "UClgLxx8RhPY88MOXvnpGz6g", "split": "test" },
+    { "name": "UpperCut Gaming", "channelId": "UCqrO89r98HQ0NypTy7_hsrg", "split": "test" },
+    { "name": "SleepyProwler", "channelId": "UCxeFrJF3fssZXLpTNTLIEdw", "split": "test" },
+    { "name": "Universal Comedy", "channelId": "UCZIv78thfup6-JB5HxqT3Pg", "split": "test" },
+    { "name": "JonFX", "channelId": "UCOzGLMiL72Hjgr9s-yLCmYw", "split": "test" },
+    { "name": "Beyond The Arc", "channelId": "UCjF4eJEjrOM6P2UMH0bG0_A", "split": "test" }
+  ],
+  "channels": [
+    {
+      "name": "Unsubscribe Clips",
+      "channelId": "UCXGcEdl8PDZPpqB5zjLoQ2w",
+      "sources": ["https://www.youtube.com/@Unsubscribe_Clips/videos"]
+    },
+    {
+      "name": "0thatvictorguy",
+      "channelId": "UCsAWSuxD1PBs9i2Fuw2snrw",
+      "sources": ["https://www.youtube.com/channel/UCsAWSuxD1PBs9i2Fuw2snrw/videos"]
+    },
+    {
+      "name": "UpperCut Gaming",
+      "channelId": "UCqrO89r98HQ0NypTy7_hsrg",
+      "sources": ["https://www.youtube.com/channel/UCqrO89r98HQ0NypTy7_hsrg/videos"]
+    }
+  ]
+}

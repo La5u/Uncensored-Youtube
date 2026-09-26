@@ -12,6 +12,16 @@ const root = path.join(__dirname, "..");
 const resolvePath = (value) => path.resolve(root, value);
 const REVIEW_ALIGNMENT_RATE = 0.5;
 const ALLOWED_WORD_SET = new Set(rules.ALLOWED_WORDS);
+const CREATOR_SPLITS = new Set(["discovery", "validation", "test"]);
+const CANONICAL_CREATOR_ID = /^UC[A-Za-z0-9_-]{22}$/u;
+
+function normalizeFixtureManifest(manifest) {
+  return Array.isArray(manifest) ? manifest : manifest?.fixtures;
+}
+
+function audioWindowKey({ shift, before, after }) {
+  return `shift=${Number(shift)};before=${Number(before)};after=${Number(after)}`;
+}
 
 function parseArgs(argv) {
   const args = {
@@ -22,9 +32,8 @@ function parseArgs(argv) {
     mode: "whisper-only",
     transcripts: "",
     shift: "0",
-    before: "1.5",
+    before: "3",
     after: "1.5",
-    retryAfter: "2.5",
     limit: "0",
     names: "",
     contextEvents: "4",
@@ -58,15 +67,14 @@ function parseArgs(argv) {
   args.shift = Number(args.shift);
   args.before = Number(args.before);
   args.after = Number(args.after);
-  args.retryAfter = Number(args.retryAfter);
   args.limit = Number(args.limit);
   args.contextEvents = Number(args.contextEvents);
   args.unpairedMinBlanks = Number(args.unpairedMinBlanks);
   args.checkpointEvery = Number(args.checkpointEvery);
-  if (![args.before, args.after, args.retryAfter].every((value) => Number.isFinite(value) && value >= 0) ||
+  if (![args.before, args.after].every((value) => Number.isFinite(value) && value >= 0) ||
       !Number.isInteger(args.contextEvents) || args.contextEvents < 1 ||
       !Number.isFinite(args.shift)) {
-    throw new Error("--before, --after, --retryAfter, and --shift must be numbers; --contextEvents must be a positive integer.");
+    throw new Error("--before, --after, and --shift must be numbers; --contextEvents must be a positive integer.");
   }
   if (![args.limit, args.unpairedMinBlanks, args.checkpointEvery]
     .every((value) => Number.isInteger(value) && value >= 0)) {
@@ -79,8 +87,8 @@ function parseArgs(argv) {
     }
     args[name] = args[name] === "true";
   });
-  if (!["whisper-only", "rules-only", "rules+whisper"].includes(args.mode)) {
-    throw new Error("--mode must be whisper-only, rules-only, or rules+whisper.");
+  if (!["whisper-only", "rules-only", "rules-first", "rules+whisper"].includes(args.mode)) {
+    throw new Error("--mode must be whisper-only, rules-only, rules-first, or rules+whisper.");
   }
   if (!["strict", "any-candidate"].includes(args.rulesScoring)) {
     throw new Error("--rulesScoring must be strict or any-candidate.");
@@ -94,6 +102,12 @@ function parseArgs(argv) {
   if (args.creatorSplit !== "all" && !args.creatorManifest) {
     throw new Error("--creatorSplit requires --creatorManifest.");
   }
+  if (args.creatorSplit === "test" && args.pairClass !== "manual-auto") {
+    throw new Error("--creatorSplit test requires --pairClass manual-auto.");
+  }
+  if (args.creatorSplit === "test" && args.skipMissing) {
+    throw new Error("Prospective test evaluation cannot use --skipMissing true.");
+  }
   if (args.rulesScoring !== "strict" && args.mode !== "rules-only") {
     throw new Error("--rulesScoring any-candidate requires --mode rules-only.");
   }
@@ -104,7 +118,142 @@ function parseArgs(argv) {
   }
   args.contextBefore = contextWindow[0];
   args.contextAfter = contextWindow[1];
+  args.audioWindowKey = audioWindowKey(args);
   return args;
+}
+
+function validateTranscriptCacheWindow(report, args) {
+  const expected = audioWindowKey(args);
+  if (report?.audioWindowKey === expected) return;
+  const actual = report?.audioWindowKey || "missing";
+  throw new Error(`Transcript cache is incompatible: expected audio window ${expected}, found ${actual}. ` +
+    `Regenerate it with --shift ${args.shift} --before ${args.before} --after ${args.after}, ` +
+    "or omit --transcripts.");
+}
+
+function validateTranscriptCache(report, args, expectedGenerationFingerprint = transcriptGenerationFingerprint()) {
+  validateTranscriptCacheWindow(report, args);
+  if (report?.complete !== true) {
+    throw new Error("Transcript cache is incomplete; use a complete Whisper report or omit --transcripts.");
+  }
+  if (report.mode !== "whisper-only" && report.mode !== "rules+whisper") {
+    throw new Error("Transcript cache must be generated in whisper-only or rules+whisper mode; rules-only caches are not valid.");
+  }
+  if (!expectedGenerationFingerprint ||
+      report.transcriptGenerationFingerprint !== expectedGenerationFingerprint) {
+    const actual = report?.transcriptGenerationFingerprint || "missing";
+    throw new Error(`Transcript cache is incompatible: expected transcript generation ${expectedGenerationFingerprint}, ` +
+      `found ${actual}. Regenerate it or omit --transcripts.`);
+  }
+}
+
+// A held-out result is only reproducible when the creator assignment itself is
+// frozen.  Keep this validation next to the evaluator so an ad-hoc manifest
+// cannot silently turn a prospective test run into an in-sample estimate.
+function isCanonicalCreatorId(value) {
+  return typeof value === "string" && CANONICAL_CREATOR_ID.test(value.trim());
+}
+
+function isProspectiveMethod(method) {
+  const normalized = method.toLocaleLowerCase();
+  return /\b(?:canonical|creator\s+id|channel\s+id|assignment|split)\b/u.test(normalized) &&
+    /\b(?:before|prior|pre[- ]?registered|preregistered|blind)\b/u.test(normalized) &&
+    /\b(?:caption|label|outcome|content|evaluation|inspection)\b/u.test(normalized);
+}
+
+function loadCreatorManifest(file) {
+  const raw = fs.readFileSync(file, "utf8");
+  const manifest = JSON.parse(raw);
+  if (!manifest || manifest.version !== 1 || !Array.isArray(manifest.creators) ||
+      !manifest.creators.length) {
+    throw new Error("Creator manifest must be version 1 with a non-empty creators array.");
+  }
+  const frozenAt = typeof manifest.frozenAt === "string" ? Date.parse(manifest.frozenAt) : NaN;
+  if (!Number.isFinite(frozenAt) || frozenAt > Date.now() ||
+      typeof manifest.method !== "string" || !manifest.method.trim()) {
+    throw new Error("Creator manifest must declare a valid, non-future frozenAt timestamp and method.");
+  }
+  if (manifest.prospective === true && !isProspectiveMethod(manifest.method)) {
+    throw new Error("Prospective creator manifests need a pre-registered method.");
+  }
+  if (manifest.prospective === true &&
+      (![manifest.minimumCreators, manifest.minimumSlots].every((value) =>
+        Number.isInteger(value) && value > 0))) {
+    throw new Error("Prospective creator manifests need positive minimumCreators and minimumSlots.");
+  }
+  const byName = new Map();
+  const byId = new Map();
+  const names = new Set();
+  const ids = new Set();
+  manifest.creators.forEach((creator) => {
+    if (!creator || typeof creator.name !== "string" || !creator.name.trim() ||
+        !CREATOR_SPLITS.has(creator.split)) {
+      throw new Error("Each creator manifest entry needs a name and discovery, validation, or test split.");
+    }
+    const name = creator.name.trim();
+    const nameKey = name.toLocaleLowerCase();
+    if (names.has(nameKey)) throw new Error(`Duplicate creator manifest name: ${name}.`);
+    names.add(nameKey);
+    const channelId = typeof creator.channelId === "string" ? creator.channelId.trim() : "";
+    if (creator.split === "test" && !isCanonicalCreatorId(channelId)) {
+      throw new Error(`Prospective test creator ${name} needs a canonical channelId.`);
+    }
+    if (channelId && !isCanonicalCreatorId(channelId)) {
+      throw new Error(`Creator ${name} has an invalid canonical channelId.`);
+    }
+    if (channelId && ids.has(channelId)) {
+      throw new Error(`Duplicate creator manifest channelId: ${channelId}.`);
+    }
+    byName.set(name, creator.split);
+    if (channelId) {
+      ids.add(channelId);
+      byId.set(channelId, creator.split);
+    }
+  });
+  if (manifest.prospective === true && !manifest.creators.some((creator) => creator.split === "test")) {
+    throw new Error("Prospective creator manifests need a test split.");
+  }
+  return {
+    manifest,
+    byName,
+    byId,
+    fingerprint: contentFingerprint(raw)
+  };
+}
+
+function creatorSplitForRecord(record, creatorManifest) {
+  if (!creatorManifest) return "unknown";
+  const creatorId = typeof record.creatorId === "string" ? record.creatorId.trim() : "";
+  const creatorName = typeof record.creator === "string" ? record.creator.trim() : "";
+  const idSplit = creatorId && creatorManifest.byId.get(creatorId);
+  const nameSplit = creatorName && creatorManifest.byName.get(creatorName);
+  if (idSplit && nameSplit && idSplit !== nameSplit) return "conflict";
+  return idSplit || nameSplit || "unknown";
+}
+
+function isProspectiveTestFixture(fixture, creatorManifest) {
+  return fixture.pairClass === "manual-auto" &&
+    isCanonicalCreatorId(fixture.creatorId) &&
+    creatorManifest.byId.get(fixture.creatorId.trim()) === "test" &&
+    creatorSplitForRecord(fixture, creatorManifest) === "test";
+}
+
+function validateProspectiveSummary(summary, manifest) {
+  const minimumCreators = manifest?.minimumCreators;
+  const minimumSlots = manifest?.minimumSlots;
+  if (![minimumCreators, minimumSlots].every((value) => Number.isInteger(value) && value > 0)) {
+    throw new Error("Prospective evaluation needs positive minimumCreators and minimumSlots.");
+  }
+  const creatorCount = summary?.creatorMacro?.contributingCreatorCount ??
+    summary?.creatorMacro?.creatorCount ?? 0;
+  const scoredSlots = summary?.scoredCount ?? 0;
+  return {
+    valid: creatorCount >= minimumCreators && scoredSlots >= minimumSlots,
+    creatorCount,
+    scoredSlots,
+    minimumCreators,
+    minimumSlots
+  };
 }
 
 function discoverUnpaired(fixturesPath, minBlanks) {
@@ -131,50 +280,17 @@ function discoverUnpaired(fixturesPath, minBlanks) {
     });
 }
 
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function wordsInText(text) {
-  const normalized = decision.normalizeText(text);
-  const words = rules.ALLOWED_WORDS.filter((word) => (
-    new RegExp("(^|\\s)" + escapeRegExp(decision.normalizeText(word)) + "(?=\\s|$)").test(normalized)
-  ));
-
-  // A few human caption tracks obscure otherwise explicit ground truth.
-  if (/\bfuc[#*](?!\w)/iu.test(text)) words.push("fuck");
-  if (/\bsh@(?:a|t)(?!\w)/iu.test(text)) words.push("shit");
-  return [...new Set(words)];
-}
-
-function transcriptContainsWord(transcript, word) {
-  const words = decision.normalizeText(transcript).split(" ");
-  const normalized = decision.normalizeText(word).split(" ").pop();
-  return Boolean(normalized && words.includes(normalized));
-}
-
-function transcriptCandidates(token, mode) {
-  if (mode !== "rules+whisper") return token.candidates || [];
-  return [...new Set((token.candidates || []).concat(rules.ALLOWED_WORDS))];
-}
-
 function contextWordForToken(token) {
   if (token.deterministicWord) return "";
   const result = rules.applyDeterministicRules(token.context);
   return result.replacements?.length === 1 ? result.replacements[0].word : "";
 }
 
-function contextCandidatesForToken(token) {
-  if (token.deterministicCandidates?.length) return token.deterministicCandidates;
-  const result = rules.applyDeterministicRules(token.context);
-  return result.replacements?.length === 1 && result.replacements[0].rule
-    ? result.replacements[0].rule.candidates : [];
-}
-
+// rules+whisper is the popup's "Whisper first"; rules-first leaves unambiguous rule
+// fills alone and asks Whisper only about the rest.
 function shouldTranscribeToken(token, mode) {
-  return mode === "whisper-only" || mode === "rules+whisper" &&
-    (!token.deterministicWord || Boolean(token.deterministicAmbiguous) ||
-      token.deterministicTier === "exact" || token.deterministicTier === "frame");
+  if (mode === "rules-first") return !token.deterministicWord || Boolean(token.deterministicAmbiguous);
+  return mode === "whisper-only" || mode === "rules+whisper";
 }
 
 function ruleQualityGate(metric) {
@@ -210,12 +326,6 @@ function ruleQualityGate(metric) {
     minimumCreators: 2,
     generalized
   };
-}
-
-function expectedWords(events, timeSeconds, windowSeconds) {
-  return [...new Set(events
-    .filter((event) => event.start <= timeSeconds + windowSeconds && event.end >= timeSeconds - windowSeconds)
-    .flatMap((event) => wordsInText(event.text)))];
 }
 
 function allowedExpectedWords(expectedByToken) {
@@ -285,10 +395,11 @@ async function createTranscriber() {
   env.allowLocalModels = true;
   env.localModelPath = "./src/models/";
 
-  return pipeline("automatic-speech-recognition", "whisper-tiny.en", {
+  const asr = await pipeline("automatic-speech-recognition", "whisper-tiny.en", {
     dtype: "q8",
     device: "cpu"
   });
+  return { transformers, asr };
 }
 
 function isCorrect(word, expected, context) {
@@ -317,63 +428,36 @@ function isCorrect(word, expected, context) {
   });
 }
 
-function transcriptHasLiteralExpected(transcript, expected) {
-  const literal = ` ${String(transcript || "").toLowerCase()
-    .replace(/\u2019/g, "'")
-    .replace(/[^a-z0-9']+/g, " ")
-    .replace(/\s+/g, " ")} `;
-
-  return expected.some((word) => literal.includes(
-    ` ${String(word).toLowerCase().replace(/\u2019/g, "'")} `
-  ));
-}
-
-function editDistance(left, right) {
-  const row = Array.from({ length: right.length + 1 }, (_, index) => index);
-
-  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
-    let diagonal = row[0];
-    row[0] = leftIndex;
-    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
-      const previous = row[rightIndex];
-      row[rightIndex] = Math.min(
-        row[rightIndex] + 1,
-        row[rightIndex - 1] + 1,
-        diagonal + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1)
-      );
-      diagonal = previous;
-    }
-  }
-  return row[right.length];
-}
-
-function nearExpectedWord(transcript, expected) {
-  const transcriptWords = decision.normalizeText(transcript).split(" ").filter(Boolean);
-  let best = null;
-
-  expected.forEach((candidate) => {
-    const normalized = decision.normalizeText(candidate);
-    transcriptWords.forEach((word) => {
-      const distance = editDistance(normalized, word);
-      if (!best || distance < best.distance) best = { word, expected: candidate, distance };
-    });
-  });
-  return best && best.distance <= (decision.normalizeText(best.expected).length > 5 ? 2 : 1)
-    ? best
-    : null;
-}
-
 function classifyResult(result) {
   if (!result.expected.length) return "unscored";
-  if (result.correct) {
-    return transcriptHasLiteralExpected(result.transcript, result.expected)
-      ? "correct-exact"
-      : "correct-normalized-variant";
+  if (result.correct) return "correct-exact";
+  return result.word ? "different-swear" : "missed";
+}
+
+// Mirrors audio-capture.js: one 30 s Whisper window per run of upcoming slots; each
+// slot's prefix is the caption heard since the window start.
+const WINDOW_SECONDS = 30;
+
+async function windowedAudioDecisions(args, audio, tokens, getTranscriber) {
+  const decisions = new Map();
+  const ordered = [...tokens].sort((left, right) => left.timeSeconds - right.timeSeconds);
+  for (let index = 0; index < ordered.length;) {
+    const start = Math.max(0, ordered[index].timeSeconds - args.before);
+    const group = [];
+    while (index < ordered.length && (!group.length || ordered[index].timeSeconds + args.after <= start + WINDOW_SECONDS)) {
+      group.push(ordered[index]);
+      index += 1;
+    }
+    const { transformers, asr } = await getTranscriber();
+    const end = group[group.length - 1].timeSeconds + args.after;
+    const pcm = pcmSlice(audio, start + args.shift, end - start);
+    const scored = await decision.scoreSlots(transformers, asr, pcm, rules.ALLOWED_WORDS, group.map((token) => ({
+      prefix: (token.precedingWords || []).filter((word) => word.time >= start).map((word) => word.word).join(" "),
+      nextWord: token.nextWord
+    })));
+    group.forEach((token, slot) => decisions.set(token.tokenIndex, scored[slot]));
   }
-  if (result.recognizedExpected) return "recognized-wrong-slot";
-  if (result.recognizedWords.length) return "different-swear";
-  if (nearExpectedWord(result.transcript, result.expected)) return "near-transcription";
-  return "missed";
+  return decisions;
 }
 
 async function evaluateFixture(args, fixture, getTranscriber, cachedResults, reusableResults) {
@@ -431,8 +515,9 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults, reu
     ? allowedExpectedWords(align(tokens, manualEvents, fixture.expectedByToken).expected)
     : new Map();
   const selectedTokens = args.limit > 0 ? tokens.slice(0, args.limit) : tokens;
-  const transcriptByTime = new Map();
   const timelineIndex = new Map(timedData.timeline.map((event, index) => [event.eventIndex, index]));
+  const audioDecisions = await windowedAudioDecisions(args, audio, selectedTokens.filter((token) =>
+    shouldTranscribeToken(token, args.mode) && !(cachedResults && cachedResults.get(token.tokenIndex))), getTranscriber);
   const results = [];
   let reusedSlotCount = 0;
 
@@ -440,11 +525,9 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults, reu
     const reviewContext = reviewContextForToken(timedData.timeline, token, args.contextEvents, timelineIndex);
     const candidateWords = args.mode === "rules-only" ? token.deterministicCandidates : [];
     const anyCandidate = args.rulesScoring === "any-candidate";
-    const audioCandidates = transcriptCandidates(token, args.mode);
-    const hybridRuleWord = args.mode === "rules+whisper"
+    const hybridRuleWord = args.mode === "rules+whisper" || args.mode === "rules-first"
       ? token.deterministicWord || contextWordForToken(token) : "";
     const hybridRuleSource = token.deterministicWord ? "deterministic" : "context";
-    const hybridRuleCandidates = args.mode === "rules+whisper" ? contextCandidatesForToken(token) : [];
     const reusable = reusableResults && reusableResults.get(token.tokenIndex);
     if (args.mode === "rules-only" && reusable && reusable.context === token.context &&
         reusable.reviewContext === reviewContext && reusable.word === token.deterministicWord &&
@@ -458,57 +541,19 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults, reu
       continue;
     }
     const transcribe = shouldTranscribeToken(token, args.mode);
-    let transcript = "";
+    let audioDecision = null;
     let chosen = { word: token.deterministicWord, evidence: "deterministic" };
     if (transcribe) {
       const cached = cachedResults && cachedResults.get(token.tokenIndex);
       if (cached) {
-        transcript = cached.transcript;
-      } else if (transcriptByTime.has(token.timeSeconds)) {
-        transcript = transcriptByTime.get(token.timeSeconds);
+        audioDecision = { word: cached.audioWord || "", evidence: cached.audioWord ? "candidate-score" : "none",
+          score: cached.audioScore };
       } else {
-        const transcriber = await getTranscriber();
-        const pcm = pcmSlice(audio, token.timeSeconds + args.shift - args.before, args.before + args.after);
-        const transcription = await transcriber(pcm, { max_new_tokens: 32 });
-        transcript = typeof transcription === "string" ? transcription : transcription.text;
-        transcriptByTime.set(token.timeSeconds, transcript);
+        audioDecision = audioDecisions.get(token.tokenIndex);
       }
-      chosen = decision.decisionFromTranscript(
-        transcript,
-        audioCandidates,
-        token.context,
-        {
-          fCandidates: token.fCandidates,
-          previousWord: token.previousWord,
-          previousWordOffset: token.previousWordOffset
-        }
-      );
-      if (!chosen.word && args.retryAfter > args.after &&
-          transcriptContainsWord(transcript, token.previousWord)) {
-        const transcriber = await getTranscriber();
-        const retryPcm = pcmSlice(audio, token.timeSeconds + args.shift - args.before,
-          args.before + args.retryAfter);
-        const retryResult = await transcriber(retryPcm, { max_new_tokens: 32 });
-        const retryTranscript = typeof retryResult === "string" ? retryResult : retryResult.text;
-        const retryDecision = decision.decisionFromTranscript(
-          retryTranscript, audioCandidates, token.context, {
-            fCandidates: token.fCandidates,
-            previousWord: token.previousWord,
-            previousWordOffset: token.previousWordOffset
-          }
-        );
-        if (retryDecision.evidence === "transcript-anchor") {
-          transcript = retryTranscript;
-          chosen = retryDecision;
-        }
-      }
-      if (hybridRuleWord || hybridRuleCandidates.length) {
-        chosen = decision.arbitrateHybridResolution(
-          hybridRuleWord, chosen, hybridRuleCandidates, hybridRuleSource
-        );
-        if (!chosen || !chosen.word) chosen = hybridRuleWord
-          ? { word: hybridRuleWord, evidence: "rule" } : chosen || {};
-      }
+      chosen = hybridRuleWord
+        ? decision.arbitrateHybridResolution(hybridRuleWord, audioDecision, hybridRuleSource) || {}
+        : audioDecision;
     }
     const expected = expectedByToken.has(token.tokenIndex) ? [expectedByToken.get(token.tokenIndex)] : [];
     const attempted = anyCandidate ? candidateWords.length > 0 : Boolean(chosen.word);
@@ -520,7 +565,8 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults, reu
       timeSeconds: token.timeSeconds,
       context: token.context,
       reviewContext,
-      transcript,
+      prefix: token.prefix,
+      nextWord: token.nextWord,
       word: chosen.word,
       candidates: candidateWords,
       attempted,
@@ -529,15 +575,12 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults, reu
       ruleId: token.deterministicRuleId || "",
       ruleTier: token.deterministicTier || "",
       source: chosen.evidence,
-      recognizedWords: chosen.words || (chosen.word ? [chosen.word] : []),
       expected,
-      correct,
-      recognizedExpected: (chosen.words || []).some((word) => isCorrect(word, expected, token.context))
+      correct
     };
+    if (audioDecision) Object.assign(result, { audioWord: audioDecision.word, audioScore: audioDecision.score ?? null });
+    if (chosen.hybridCrossFamily) result.hybridCrossFamily = true;
     result.classification = classifyResult(result);
-    result.nearTranscription = result.classification === "near-transcription"
-      ? nearExpectedWord(transcript, expected)
-      : null;
     results.push(result);
   }
 
@@ -590,6 +633,32 @@ function contentFingerprint(text) {
   return (hash >>> 0).toString(36);
 }
 
+function fixtureFingerprint(fixturesPath, fixture, censoredBody) {
+  let censored;
+  let uncensored = "";
+  try {
+    censored = censoredBody === undefined
+      ? fs.readFileSync(path.join(fixturesPath, fixture.censored), "utf8")
+      : censoredBody;
+  } catch {
+    return "";
+  }
+  if (fixture.uncensored) {
+    try {
+      uncensored = fs.readFileSync(path.join(fixturesPath, fixture.uncensored), "utf8");
+    } catch {
+      // An unpaired fixture has an empty manual side.
+    }
+  }
+  return contentFingerprint(`${censored}\n${uncensored}`);
+}
+
+function transcriptCacheResults(fixture, currentFingerprint) {
+  return fixture && currentFingerprint && fixture.contentFingerprint === currentFingerprint
+    ? new Map((fixture.results || []).map((result) => [result.tokenIndex, result]))
+    : null;
+}
+
 function joinedCaptionText(body) {
   try {
     const payload = JSON.parse(body);
@@ -602,16 +671,9 @@ function joinedCaptionText(body) {
 }
 
 function rulesFingerprint() {
-  const seed = `${rules.DETERMINISTIC_RULES.length}:${rules.RULE_WORDS.length}`;
-  let hash = 0x811c9dc5;
-  for (const rule of rules.DETERMINISTIC_RULES) {
-    const value = `${rule.template}|${rule.candidates.join(",")}|`;
-    for (let i = 0; i < value.length; i += 1) {
-      hash ^= value.charCodeAt(i);
-      hash = Math.imul(hash, 0x01000193);
-    }
-  }
-  return `${seed}:${(hash >>> 0).toString(36)}`;
+  const value = rules.DETERMINISTIC_RULES.map((rule) =>
+    `${rule.template}|${rule.candidates.join(",")}|`).join("");
+  return `${rules.DETERMINISTIC_RULES.length}:${rules.RULE_WORDS.length}:${contentFingerprint(value)}`;
 }
 
 function auxiliaryRulesFingerprint() {
@@ -627,6 +689,30 @@ function auxiliaryRulesFingerprint() {
 function rulesEngineFingerprint() {
   return contentFingerprint(["rules.js", "rules-compiler.js"].map((name) =>
     fs.readFileSync(path.join(root, "src", name), "utf8")).join("\n"));
+}
+
+function decisionFingerprint() {
+  return contentFingerprint([
+    fs.readFileSync(path.join(root, "src", "whisper-local.js"), "utf8"),
+    contextWordForToken, shouldTranscribeToken, windowedAudioDecisions,
+    evaluateFixture, isCorrect, classifyResult
+  ].map((value) => String(value)).join("\n"));
+}
+
+function transcriptGenerationFingerprint() {
+  return contentFingerprint([
+    "candidate-scoring-v1",
+    fs.readFileSync(path.join(root, "src", "whisper-local.js"), "utf8"),
+    audioWindowKey,
+    findAudio,
+    pcmSlice,
+    importTransformers,
+    createTranscriber,
+    evaluateFixture,
+    shouldTranscribeToken,
+    String(rules.CENSORED_TOKEN_REGEX),
+    fs.readFileSync(path.join(root, "src", "timedtext.js"), "utf8")
+  ].map((value) => String(value)).join("\n"));
 }
 
 function ruleSignature() {
@@ -663,6 +749,40 @@ function changedRuleTemplates(previous, current) {
   return {
     changed: [...changed],
     removed: [...previousMap.keys()]
+  };
+}
+
+function creatorMacro(fixtures) {
+  const buckets = new Map();
+  fixtures.forEach((fixture) => {
+    const key = fixture.creatorId || fixture.creator;
+    if (!key || key === "unknown") return; // Unknown provenance must not masquerade as a creator.
+    const bucket = buckets.get(key) || {
+      fixtureCount: 0, scoredCount: 0, attemptedCount: 0, correctCount: 0
+    };
+    const rows = fixture.results || [];
+    const scored = rows.filter((result) => result.expected.length);
+    bucket.fixtureCount += fixture.skipped ? 0 : 1;
+    bucket.scoredCount += scored.length;
+    bucket.attemptedCount += scored.filter((result) =>
+      result.attempted ?? Boolean(result.word)).length;
+    bucket.correctCount += scored.filter((result) => result.correct).length;
+    buckets.set(key, bucket);
+  });
+  const creators = [...buckets.values()];
+  const mean = (values) => values.length
+    ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+  const precisionValues = creators.filter((creator) => creator.attemptedCount)
+    .map((creator) => creator.correctCount / creator.attemptedCount);
+  const coverageValues = creators.filter((creator) => creator.scoredCount)
+    .map((creator) => creator.correctCount / creator.scoredCount);
+  return {
+    creatorCount: creators.length,
+    contributingCreatorCount: coverageValues.length,
+    attemptedCreatorCount: precisionValues.length,
+    precision: mean(precisionValues),
+    coverage: mean(coverageValues),
+    accuracy: mean(coverageValues)
   };
 }
 
@@ -706,6 +826,9 @@ function summarize(fixtures) {
     bucket.precision = bucket.attemptedCount ? bucket.correctCount / bucket.attemptedCount : 0;
     bucket.coverage = bucket.scoredCount ? bucket.correctCount / bucket.scoredCount : 0;
   });
+  const creatorMacroByPairClass = Object.fromEntries(Object.keys(pairClasses).map((name) => [
+    name, creatorMacro(fixtures.filter((fixture) => (fixture.pairClass || "unknown") === name))
+  ]));
   const creators = {};
   fixtures.forEach((fixture) => {
     const name = fixture.creator || "unknown";
@@ -793,6 +916,8 @@ function summarize(fixtures) {
     coverage: scored.length ? correct.length / scored.length : 0,
     accuracy: scored.length ? correct.length / scored.length : 0,
     pairClasses,
+    creatorMacro: creatorMacro(fixtures),
+    creatorMacroByPairClass,
     creators,
     ruleMetrics: Object.values(ruleMetrics)
       .sort((left, right) => right.attemptedCount - left.attemptedCount ||
@@ -805,24 +930,28 @@ function summarize(fixtures) {
   };
 }
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2));
+async function main(argv = process.argv.slice(2)) {
+  const args = parseArgs(argv);
   const fixturesPath = resolvePath(args.fixtures);
-  const configured = JSON.parse(fs.readFileSync(resolvePath(args.manifest), "utf8"));
+  const configured = normalizeFixtureManifest(
+    JSON.parse(fs.readFileSync(resolvePath(args.manifest), "utf8"))
+  );
   const reportPaths = args.provenanceReports
     ? args.provenanceReports.split(",").filter(Boolean).map(resolvePath)
     : defaultReports(root);
   const provenance = buildProvenanceIndex(reportPaths);
-  const splitCreators = args.creatorManifest
-    ? JSON.parse(fs.readFileSync(resolvePath(args.creatorManifest), "utf8")).creators : [];
-  const creatorSplits = new Map(splitCreators.map((creator) => [creator.name, creator.split]));
-  const creatorIdSplits = new Map(splitCreators
-    .filter((creator) => creator.channelId).map((creator) => [creator.channelId, creator.split]));
+  const creatorManifest = args.creatorManifest
+    ? loadCreatorManifest(resolvePath(args.creatorManifest)) : null;
+  if (args.creatorSplit === "test" && creatorManifest.manifest.prospective !== true) {
+    throw new Error("Prospective test evaluation requires a prospective creator manifest.");
+  }
   const withPairClass = (fixture) => {
     const record = provenance.get(fixture.videoId || fixture.name.slice(0, 11)) || {};
+    const creator = record.creator || fixture.creator || "";
+    const creatorId = record.creatorId || fixture.creatorId || "";
     return { ...fixture, pairClass: record.pairClass || "unknown",
-      creator: record.creator || "", creatorSplit: creatorIdSplits.get(record.creatorId) ||
-        creatorSplits.get(record.creator) || "unknown" };
+      creator, creatorId,
+      creatorSplit: creatorSplitForRecord({ ...record, creator, creatorId }, creatorManifest) };
   };
   const byName = new Map(configured.map(withPairClass).map((fixture) => [fixture.name, fixture]));
   if (args.discoverPaired) {
@@ -845,7 +974,9 @@ async function main() {
   const manifest = allFixtures.filter((fixture) => (
     (!args.names.size || args.names.has(fixture.name)) &&
     (args.pairClass === "all" || fixture.pairClass === args.pairClass) &&
-    (args.creatorSplit === "all" || fixture.creatorSplit === args.creatorSplit)
+    (args.creatorSplit === "all" || (args.creatorSplit === "test"
+      ? isProspectiveTestFixture(fixture, creatorManifest)
+      : fixture.creatorSplit === args.creatorSplit))
   ));
 
   if (!manifest.length) {
@@ -865,10 +996,10 @@ async function main() {
   const cachedReport = args.transcripts
     ? JSON.parse(fs.readFileSync(resolvePath(args.transcripts), "utf8"))
     : null;
-  const cachedByFixture = new Map((cachedReport && cachedReport.fixtures || []).map((fixture) => [
-    fixture.name,
-    new Map((fixture.results || []).map((result) => [result.tokenIndex, result]))
-  ]));
+  const transcriptGenerationFingerprintValue = transcriptGenerationFingerprint();
+  if (cachedReport) validateTranscriptCache(cachedReport, args, transcriptGenerationFingerprintValue);
+  const cachedByFixture = new Map((cachedReport?.fixtures || [])
+    .map((fixture) => [fixture.name, fixture]));
   const reuseReport = args.reuse
     ? JSON.parse(fs.readFileSync(resolvePath(args.reuse), "utf8"))
     : null;
@@ -883,10 +1014,12 @@ async function main() {
   const fingerprint = rulesFingerprint();
   const auxiliaryFingerprint = auxiliaryRulesFingerprint();
   const engineFingerprint = rulesEngineFingerprint();
+  const decisionFingerprintValue = decisionFingerprint();
   const signature = ruleSignature();
   const reuseCompatible = reuseReport && reuseReport.mode === args.mode &&
-    reuseReport.rulesScoring === args.rulesScoring && reuseReport.before === args.before &&
-    reuseReport.after === args.after && reuseReport.retryAfter === args.retryAfter &&
+    reuseReport.rulesScoring === args.rulesScoring && reuseReport.shift === args.shift &&
+    reuseReport.audioWindowKey === args.audioWindowKey &&
+    reuseReport.before === args.before && reuseReport.after === args.after &&
     reuseReport.contextEvents === args.contextEvents &&
     reuseReport.contextBefore === args.contextBefore &&
     reuseReport.contextAfter === args.contextAfter &&
@@ -895,8 +1028,10 @@ async function main() {
     reuseReport.discoverUnpaired === args.discoverUnpaired &&
     reuseReport.pairClass === args.pairClass &&
     reuseReport.creatorManifest === args.creatorManifest &&
+    reuseReport.creatorManifestFingerprint === (creatorManifest?.fingerprint || "") &&
     reuseReport.creatorSplit === args.creatorSplit &&
-    reuseReport.unpairedMinBlanks === args.unpairedMinBlanks;
+    reuseReport.unpairedMinBlanks === args.unpairedMinBlanks &&
+    reuseReport.decisionFingerprint === decisionFingerprintValue;
   const reusedByName = new Map((reuseCompatible && reuseReport.fixtures || [])
     .map((fixture) => [fixture.name, fixture]));
   const previousSignature = reuseCompatible && reuseReport.ruleSignature || null;
@@ -909,6 +1044,30 @@ async function main() {
     auxiliaryUnchanged && !rulesUnchanged;
   let reusedCount = 0;
   let reusedSlotCount = 0;
+  const reportPrefix = {
+    mode: args.mode, rulesScoring: args.rulesScoring, shift: args.shift,
+    before: args.before, after: args.after,
+    audioWindowKey: args.audioWindowKey
+  };
+  const reportOptions = {
+    contextEvents: args.contextEvents, contextBefore: args.contextBefore,
+    contextAfter: args.contextAfter, limit: args.limit, allowUnscored: args.allowUnscored,
+    discoverPaired: args.discoverPaired, discoverUnpaired: args.discoverUnpaired,
+    pairClass: args.pairClass, creatorManifest: args.creatorManifest,
+    creatorManifestFingerprint: creatorManifest?.fingerprint || "",
+    creatorManifestFrozenAt: creatorManifest?.manifest.frozenAt || "",
+    creatorManifestMethod: creatorManifest?.manifest.method || "",
+    creatorSplit: args.creatorSplit, prospective: args.creatorSplit === "test",
+    minimumCreators: creatorManifest?.manifest.minimumCreators || 0,
+    minimumSlots: creatorManifest?.manifest.minimumSlots || 0,
+    provenanceReports: reportPaths.map((file) => path.relative(root, file)),
+    unpairedMinBlanks: args.unpairedMinBlanks
+  };
+  const reportFingerprints = {
+    rulesFingerprint: fingerprint, rulesAuxFingerprint: auxiliaryFingerprint,
+    rulesEngineFingerprint: engineFingerprint, decisionFingerprint: decisionFingerprintValue,
+    transcriptGenerationFingerprint: transcriptGenerationFingerprintValue, ruleSignature: signature
+  };
 
   function fixtureBody(fixture) {
     try {
@@ -918,26 +1077,17 @@ async function main() {
     }
   }
 
-  function fixtureFingerprint(fixture, censoredBody) {
-    try {
-      const censored = censoredBody === undefined ? fixtureBody(fixture) : censoredBody;
-      const uncensored = fixture.uncensored
-        ? fs.readFileSync(path.join(fixturesPath, fixture.uncensored), "utf8")
-        : "";
-      return contentFingerprint(`${censored}\n${uncensored}`);
-    } catch {
-      return "";
-    }
-  }
-
   for (const [fixtureIndex, fixture] of manifest.entries()) {
     const cached = reusedByName.get(fixture.name);
     let reusable = false;
-    let cachedResults = null;
+    let reusableResults = null;
+    const body = fixtureBody(fixture);
+    const currentFixtureFingerprint = fixtureFingerprint(fixturesPath, fixture, body);
+    const transcriptResults = transcriptCacheResults(cachedByFixture.get(fixture.name),
+      currentFixtureFingerprint);
     if (cached && cached.results) {
-      const body = fixtureBody(fixture);
-      const sameContent = cached.contentFingerprint && cached.contentFingerprint === fixtureFingerprint(fixture, body);
-      if (sameContent) cachedResults = new Map(cached.results.map((result) => [result.tokenIndex, result]));
+      const sameContent = cached.contentFingerprint && cached.contentFingerprint === currentFixtureFingerprint;
+      if (sameContent) reusableResults = new Map(cached.results.map((result) => [result.tokenIndex, result]));
       if (sameContent && rulesUnchanged &&
           cached.results.every((result) => result.reviewContext)) {
         reusable = true;
@@ -953,17 +1103,18 @@ async function main() {
       reusedCount += 1;
       reusedSlotCount += cached.results.length;
       fixtures.push({ ...cached, pairClass: fixture.pairClass, creator: fixture.creator,
-        creatorSplit: fixture.creatorSplit, rulesFingerprint: fingerprint,
+        creatorId: fixture.creatorId, creatorSplit: fixture.creatorSplit, rulesFingerprint: fingerprint,
         reusedSlotCount: cached.results.length });
     } else {
       if (fixtureIndex % 50 === 0) {
         console.error(`Evaluating ${fixtureIndex + 1}/${manifest.length}...`);
       }
       const evaluated = await evaluateFixture(
-        args, fixture, getTranscriber, cachedByFixture.get(fixture.name), cachedResults
+        args, fixture, getTranscriber, transcriptResults, reusableResults
       );
       evaluated.pairClass = fixture.pairClass;
       evaluated.creator = fixture.creator;
+      evaluated.creatorId = fixture.creatorId;
       evaluated.creatorSplit = fixture.creatorSplit;
       reusedSlotCount += evaluated.reusedSlotCount || 0;
       fixtures.push(evaluated);
@@ -971,27 +1122,10 @@ async function main() {
     if (args.checkpointEvery > 0 && (fixtureIndex + 1) % args.checkpointEvery === 0) {
       fs.mkdirSync(path.dirname(outputPath), { recursive: true });
       fs.writeFileSync(outputPath, `${JSON.stringify({
-        mode: args.mode,
-        rulesScoring: args.rulesScoring,
-        before: args.before,
-        after: args.after,
-        retryAfter: args.retryAfter,
-        contextEvents: args.contextEvents,
-        contextBefore: args.contextBefore,
-        contextAfter: args.contextAfter,
-        limit: args.limit,
-        allowUnscored: args.allowUnscored,
-        discoverPaired: args.discoverPaired,
-        discoverUnpaired: args.discoverUnpaired,
-        pairClass: args.pairClass,
-        creatorManifest: args.creatorManifest,
-        creatorSplit: args.creatorSplit,
-        provenanceReports: reportPaths.map((file) => path.relative(root, file)),
-        unpairedMinBlanks: args.unpairedMinBlanks,
-        rulesFingerprint: fingerprint,
-        rulesAuxFingerprint: auxiliaryFingerprint,
-        rulesEngineFingerprint: engineFingerprint,
-        ruleSignature: signature,
+        ...reportPrefix,
+        complete: false,
+        ...reportOptions,
+        ...reportFingerprints,
         reusedCount,
         reusedSlotCount,
         summary: summarize(fixtures),
@@ -1004,32 +1138,24 @@ async function main() {
     throw new Error("No censored caption slots were evaluated.");
   }
 
+  const summary = summarize(fixtures);
+  if (args.creatorSplit === "test") {
+    const validity = validateProspectiveSummary(summary, creatorManifest.manifest);
+    if (!validity.valid) {
+      throw new Error(`Prospective test requires at least ${validity.minimumCreators} scored creators and ` +
+        `${validity.minimumSlots} scored slots; got ${validity.creatorCount} creators and ` +
+        `${validity.scoredSlots} slots.`);
+    }
+  }
+
   const report = {
-    mode: args.mode,
-    rulesScoring: args.rulesScoring,
-    before: args.before,
-    after: args.after,
-    retryAfter: args.retryAfter,
-    contextEvents: args.contextEvents,
-    contextBefore: args.contextBefore,
-    contextAfter: args.contextAfter,
-    limit: args.limit,
-    allowUnscored: args.allowUnscored,
-    discoverPaired: args.discoverPaired,
-    discoverUnpaired: args.discoverUnpaired,
-    pairClass: args.pairClass,
-    creatorManifest: args.creatorManifest,
-    creatorSplit: args.creatorSplit,
-    provenanceReports: reportPaths.map((file) => path.relative(root, file)),
-    unpairedMinBlanks: args.unpairedMinBlanks,
+    ...reportPrefix,
+    ...reportOptions,
     complete: true,
-    rulesFingerprint: fingerprint,
-    rulesAuxFingerprint: auxiliaryFingerprint,
-    rulesEngineFingerprint: engineFingerprint,
-    ruleSignature: signature,
+    ...reportFingerprints,
     reusedCount,
     reusedSlotCount,
-    summary: summarize(fixtures),
+    summary,
     fixtures
   };
 
@@ -1043,6 +1169,7 @@ async function main() {
     summary: consoleSummary,
     ruleMetricCount: ruleMetrics.length
   }, null, 2));
+  return report;
 }
 
 if (require.main === module) {
@@ -1053,11 +1180,15 @@ if (require.main === module) {
 }
 
 module.exports = {
+  main,
   parseArgs,
+  normalizeFixtureManifest,
+  audioWindowKey,
+  validateTranscriptCacheWindow,
+  validateTranscriptCache,
   discoverUnpaired,
-  wordsInText,
-  transcriptContainsWord,
-  expectedWords,
+  shouldTranscribeToken,
+  contextWordForToken,
   allowedExpectedWords,
   findAudio,
   isCorrect,
@@ -1065,9 +1196,19 @@ module.exports = {
   summarize,
   changedRuleTemplates,
   contentFingerprint,
+  fixtureFingerprint,
+  transcriptCacheResults,
   auxiliaryRulesFingerprint,
   reviewContextForToken,
   ruleQualityGate,
   rulesEngineFingerprint,
-  rulesFingerprint
+  decisionFingerprint,
+  transcriptGenerationFingerprint,
+  rulesFingerprint,
+  creatorMacro,
+  isCanonicalCreatorId,
+  isProspectiveTestFixture,
+  loadCreatorManifest,
+  creatorSplitForRecord,
+  validateProspectiveSummary
 };

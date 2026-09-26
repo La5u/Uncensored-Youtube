@@ -16,7 +16,8 @@ const GROUND_TRUTH_WORDS = [...rules.ALLOWED_WORDS, ...rules.NOT_CENSORED_WORDS,
 const GROUND_TRUTH_WORD_SET = new Set(GROUND_TRUTH_WORDS);
 
 function eventText(event) {
-  return (event.segs || []).map((segment) => segment.utf8 || "").join("");
+  return (event && Array.isArray(event.segs) ? event.segs : [])
+    .map((segment) => segment && typeof segment.utf8 === "string" ? segment.utf8 : "").join("");
 }
 
 function normalizedFuck(match, suffix) {
@@ -378,4 +379,4 @@ function align(tokens, manualEvents, expectedByToken) {
   })) };
 }
 
-module.exports = { align, groundTruthWords, manualSwearEvents, normalizeCompoundLabel };
+module.exports = { align, eventText, groundTruthWords, manualSwearEvents, normalizeCompoundLabel };

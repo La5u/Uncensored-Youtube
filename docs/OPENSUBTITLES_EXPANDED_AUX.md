@@ -25,16 +25,8 @@ node corpus/evaluate-corpus.js \
   --limit 1000000 --sampleLimit 0 --minWords 1 --maxChars 500
 ```
 
-The resulting JSONL can be mined alongside paired captions and the SBCSAE
-slice:
-
-```sh
-node tools/mine-rule-opportunities.js \
-  corpus/generated/paired-rules-only-report.json \
-  corpus/generated/rule-opportunities-with-auxiliary-text.json \
-  --sample opensubtitles-aux=corpus/generated/opensubtitles-expanded-aux/opensubtitles-samples.jsonl \
-  --sample sbcsae=corpus/generated/sbcsae-conversation/sbcsae-samples.jsonl
-```
+The resulting JSONL was mined alongside paired captions and the SBCSAE slice;
+the miner that consumed it was removed as unused pipeline code.
 
 Observed output: 2,659,610 parquet rows scanned, 48,058 profanity-bearing
 sentences, and 50,562 censored tokens. The ten most frequent labels are

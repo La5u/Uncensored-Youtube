@@ -52,6 +52,7 @@ const NEGATIVE_CHECK_STATUSES = new Set([
 const CHECKED_VIDEO_TYPES = new Set([
   "synthetic-auto", "auto-auto", "manual-auto", "audio", "paired"
 ]);
+const CANONICAL_CHANNEL_ID = /^UC[A-Za-z0-9_-]{22}$/u;
 
 function classifyPairKind(pairKind) {
   const provenance = PAIR_PROVENANCE[pairKind];
@@ -165,6 +166,152 @@ function distributedSample(items, limit) {
     items[Math.round(index * (items.length - 1) / (limit - 1))]);
 }
 
+function isCanonicalChannelId(value) {
+  return typeof value === "string" && CANONICAL_CHANNEL_ID.test(value.trim());
+}
+
+function verifyProspectiveChannelId(observed, expected) {
+  const observedChannelId = typeof observed === "string" ? observed.trim() : "";
+  if (!isCanonicalChannelId(observedChannelId)) {
+    return { valid: false, status: "channel-id-unverified", observedChannelId };
+  }
+  if (observedChannelId !== expected) {
+    return { valid: false, status: "channel-id-mismatch", observedChannelId };
+  }
+  return { valid: true, status: "", observedChannelId };
+}
+
+function prospectiveTargetStatus(channels, minimumCreators, minimumSlots) {
+  const contributingCreators = new Set();
+  let slots = 0;
+  for (const channel of channels || []) {
+    const channelId = typeof channel.channelId === "string" ? channel.channelId.trim() : "";
+    if (!isCanonicalChannelId(channelId)) continue;
+    let channelSlots = 0;
+    for (const item of channel.items || []) {
+      const pairClass = item.pairClass || classifyPairKind(item.pairKind).pairClass;
+      const creatorId = typeof item.creatorId === "string" ? item.creatorId.trim() : "";
+      if (item.status !== "paired-saved" || pairClass !== "manual-auto" || creatorId !== channelId) {
+        continue;
+      }
+      channelSlots += Math.max(0, Number(item.slots) || 0);
+    }
+    if (channelSlots) {
+      contributingCreators.add(channelId);
+      slots += channelSlots;
+    }
+  }
+  return {
+    valid: contributingCreators.size >= minimumCreators && slots >= minimumSlots,
+    contributingCreators: contributingCreators.size,
+    slots,
+    minimumCreators,
+    minimumSlots
+  };
+}
+
+function validateChannelConfig(rawConfig) {
+  if (!rawConfig || typeof rawConfig !== "object" || Array.isArray(rawConfig)) {
+    throw new Error("Channel config must be an object.");
+  }
+  if (rawConfig.captionOnly !== undefined && typeof rawConfig.captionOnly !== "boolean") {
+    throw new Error("captionOnly must be boolean.");
+  }
+  if (rawConfig.targetContexts !== undefined &&
+      (!Array.isArray(rawConfig.targetContexts) ||
+       rawConfig.targetContexts.some((context) => typeof context !== "string" || !context.trim()))) {
+    throw new Error("targetContexts must contain non-empty strings.");
+  }
+  const queryChannels = rawConfig.queries === undefined ? [] : (() => {
+    if (!Array.isArray(rawConfig.queries) || !rawConfig.queries.length) {
+      throw new Error("queries must contain at least one query.");
+    }
+    return rawConfig.queries.map((query, index) => {
+      const name = typeof query?.name === "string" ? query.name.trim()
+        : typeof query?.id === "string" ? query.id.trim() : `query-${index + 1}`;
+      const terms = Array.isArray(query?.terms) ? query.terms :
+        typeof query?.query === "string" ? [query.query] : [];
+      if (!name || !terms.length || terms.some((term) => typeof term !== "string" || !term.trim())) {
+        throw new Error("Each query needs a name and non-empty terms.");
+      }
+      return {
+        name,
+        targetContext: typeof query.context === "string" ? query.context.trim() : "",
+        sources: terms.map((term) => {
+          const source = term.trim();
+          return /^ytsearch(?:\d+|all)?:/u.test(source) ? source : `ytsearch5:${source}`;
+        })
+      };
+    });
+  })();
+  let config;
+  if (Object.prototype.hasOwnProperty.call(rawConfig, "channels")) {
+    config = { ...rawConfig,
+      channels: Array.isArray(rawConfig.channels) ? rawConfig.channels.concat(queryChannels) : rawConfig.channels
+    };
+  } else if (Array.isArray(rawConfig.candidates)) {
+    config = {
+      ...rawConfig,
+      channels: rawConfig.candidates.map((candidate) => ({
+        name: candidate.name,
+        channelId: candidate.channelId || "",
+        sources: [candidate.url]
+      }))
+    };
+  } else if (Array.isArray(rawConfig.searchChannels)) {
+    // Search-only configs are intentionally supported for discovery queues.
+    config = { ...rawConfig, channels: queryChannels };
+  } else if (queryChannels.length) {
+    config = { ...rawConfig, channels: queryChannels };
+  } else {
+    throw new Error("Channel config must contain a channels, queries, or searchChannels array.");
+  }
+  if (!Array.isArray(config.channels) ||
+      (!config.channels.length && !config.searchChannels?.length)) {
+    throw new Error("Channel config must contain a non-empty channels or searchChannels array.");
+  }
+  if (config.searchChannels !== undefined &&
+      (!Array.isArray(config.searchChannels) ||
+       config.searchChannels.some((name) => typeof name !== "string" || !name.trim()))) {
+    throw new Error("searchChannels must contain non-empty names.");
+  }
+  const names = new Set();
+  const ids = new Set();
+  const channels = config.channels.map((channel) => {
+    if (!channel || typeof channel.name !== "string" || !channel.name.trim() ||
+        !Array.isArray(channel.sources) || !channel.sources.length ||
+        channel.sources.some((source) => typeof source !== "string" || !source.trim())) {
+      throw new Error("Each configured channel needs a name and non-empty sources.");
+    }
+    const name = channel.name.trim();
+    const nameKey = name.toLocaleLowerCase();
+    if (names.has(nameKey)) throw new Error(`Duplicate configured channel name: ${name}.`);
+    names.add(nameKey);
+    const channelId = typeof channel.channelId === "string" ? channel.channelId.trim() : "";
+    if (channelId && !isCanonicalChannelId(channelId)) {
+      throw new Error(`Channel ${name} has an invalid canonical channelId.`);
+    }
+    if (config.prospective === true && !isCanonicalChannelId(channelId)) {
+      throw new Error(`Prospective channel ${name} needs a canonical channelId.`);
+    }
+    if (channelId && ids.has(channelId)) {
+      throw new Error(`Duplicate configured channelId: ${channelId}.`);
+    }
+    if (channelId) ids.add(channelId);
+    return { ...channel, name, channelId, sources: channel.sources.map((source) => source.trim()) };
+  });
+  if (config.prospective === true &&
+      ![config.minimumCreators, config.minimumSlots].every((value) =>
+        Number.isInteger(value) && value > 0)) {
+    throw new Error("Prospective channel configs need positive minimumCreators and minimumSlots.");
+  }
+  const searchChannels = (config.searchChannels || []).map((name) => name.trim());
+  if (config.prospective === true && searchChannels.length) {
+    throw new Error("Prospective channel configs cannot use ambiguous searchChannels sources.");
+  }
+  return { ...config, channels, searchChannels };
+}
+
 function parseArgs(argv) {
   const args = {
     channels: "",
@@ -186,6 +333,8 @@ function parseArgs(argv) {
     "retry-delay": "15",
     "request-sleep": "1",
     "max-global-429": "4",
+    "socket-timeout": "30",
+    "child-timeout": "300",
     config: channelsPath,
     report: reportPath,
     "checked-ledger": checkedLedgerPath,
@@ -219,9 +368,12 @@ function parseArgs(argv) {
   args.retryDelay = Number(args["retry-delay"]);
   args.requestSleep = Number(args["request-sleep"]);
   args.maxGlobal429 = Number(args["max-global-429"]);
+  args.socketTimeout = Number(args["socket-timeout"]);
+  args.childTimeout = Number(args["child-timeout"]);
   args.cookiesFromBrowser = String(args["cookies-from-browser"]).trim();
   args.checkedLedger = String(args["checked-ledger"]).trim() || checkedLedgerPath;
-  const positive = [args.maxCheck, args.listLimit, args.jobs, args.retryDelay];
+  const positive = [args.maxCheck, args.listLimit, args.jobs, args.retryDelay,
+    args.socketTimeout, args.childTimeout];
   const nonnegative = [args.pairTarget, args.audioTarget, args.audioSlotThreshold,
     args.skipAfterClean, args.retries, args.newSlotCap, args.maxGlobal429,
     args.samplePerChannel];
@@ -243,6 +395,8 @@ let blockedUntil = 0;
 let cookiesArgs = [];
 let requestSleepSeconds = 1;
 let maxGlobal429 = 4;
+let socketTimeoutSeconds = 30;
+let childWatchdogMs = 300000;
 let consecutiveGlobal429 = 0;
 let runAborted = false;
 
@@ -250,7 +404,7 @@ const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, mil
 
 function transientFailure(result) {
   return result.status !== 0 &&
-    /(?:HTTP Error 429|Too Many Requests|confirm you.re not a bot|temporar(?:y|ily)|timed? out|connection reset|failed to resolve|name or service not known|network is unreachable)/i
+    /(?:HTTP Error (?:408|425|429|5\d\d)\b|Too Many Requests|confirm you[.']?re not a bot|temporar(?:y|ily)|timed? out|timeout|connection (?:reset|aborted|refused|closed|timed out)|remote (?:end )?closed|remote disconnected|incomplete read|unexpected end of file|EOF occurred|broken pipe|failed to resolve|could not resolve|name or service not known|temporary failure in name resolution|DNS|(?:getaddrinfo|EAI_(?:AGAIN|FAIL)|ENOTFOUND|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH|ECONN(?:RESET|ABORTED|REFUSED))|network is unreachable|no route to host|(?:TLS|SSL)(?:[ _-](?:handshake|connect|connection|certificate|error|failure))?|certificate[ _]verify[ _]failed|certificate_verify_failed)/i
       .test(`${result.stdout}\n${result.stderr}`);
 }
 
@@ -258,22 +412,43 @@ async function waitForBackoff() {
   while (Date.now() < blockedUntil) await sleep(blockedUntil - Date.now());
 }
 
-function runYtDlp(ytArgs) {
+function runYtDlp(ytArgs, options = {}) {
   return new Promise((resolve) => {
-    const child = spawn("yt-dlp", ["--sleep-requests", String(requestSleepSeconds),
-      ...cookiesArgs, ...ytArgs], {
+    const spawnChild = options.spawn || spawn;
+    const watchdogMs = Number.isFinite(options.watchdogMs)
+      ? Math.max(1, options.watchdogMs) : childWatchdogMs;
+    const child = spawnChild("yt-dlp", ["--ignore-config",
+      "--socket-timeout", String(socketTimeoutSeconds),
+      "--sleep-requests", String(requestSleepSeconds), ...cookiesArgs, ...ytArgs], {
       stdio: ["ignore", "pipe", "pipe"]
     });
     let stdout = "";
     let stderr = "";
+    let settled = false;
+    let watchdog;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(watchdog);
+      resolve(result);
+    };
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.on("error", (error) => resolve({
+    child.on("error", (error) => finish({
       status: 1,
       stdout,
       stderr: `${stderr}\n${error.message}`
     }));
-    child.on("close", (status) => resolve({ status, stdout, stderr }));
+    child.on("close", (status) => finish({
+      status: Number.isInteger(status) ? status : 1,
+      stdout,
+      stderr
+    }));
+    watchdog = setTimeout(() => {
+      const message = `[yt-dlp] child watchdog timed out after ${watchdogMs / 1000}s`;
+      finish({ status: 124, stdout, stderr: `${stderr}\n${message}`, timedOut: true });
+      try { child.kill("SIGKILL"); } catch { /* ignore cleanup failures */ }
+    }, watchdogMs);
   });
 }
 
@@ -314,11 +489,11 @@ function throwIfTransient(result) {
   throw error;
 }
 
-async function listEntries(source, limit) {
+async function listEntries(source, limit, run = runYtDlpWithRetry) {
   const expanded = source.startsWith("ytsearch:")
     ? `ytsearch${limit}:${source.slice("ytsearch:".length)}`
     : source;
-  const result = await runYtDlpWithRetry([
+  const result = await run([
     "--flat-playlist",
     "--playlist-end", String(limit),
     "--print", "%(id)s\t%(title)s\t%(channel)s\t%(channel_id)s\t%(webpage_url)s",
@@ -326,9 +501,8 @@ async function listEntries(source, limit) {
     expanded
   ]);
   throwIfTransient(result);
-  if (result.status !== 0 && !result.stdout) {
-    return { error: (result.stderr || "list failed").trim(), entries: [] };
-  }
+  const listingError = result.status !== 0
+    ? (result.stderr || "list failed").trim() : "";
   const entries = String(result.stdout || "").split("\n").map((line) => {
     const [id, title, channel, channelId, url] = line.trim().split("\t");
     if (!id || id === "NA" || id.length < 6) return null;
@@ -336,14 +510,33 @@ async function listEntries(source, limit) {
       id,
       title: title || id,
       channel: channel || "",
-      channelId: channelId === "NA" ? "" : channelId,
+      channelId: channelId && channelId.trim() !== "NA" ? channelId.trim() : "",
       url: url && url !== "NA" ? url : `https://www.youtube.com/watch?v=${id}`
     };
   }).filter(Boolean);
   if (!entries.length) {
-    return { error: (result.stderr || "empty listing").trim(), entries: [] };
+    return { error: listingError || (result.stderr || "empty listing").trim(), entries: [] };
   }
-  return { error: "", entries };
+  // Preserve partial output for this run, but never let a nonzero exit look
+  // like a complete source listing.
+  return { error: listingError, entries };
+}
+
+function inspectExistingPair(videoId) {
+  const autoPath = path.join(fixturesDir, `${videoId}_auto.en.json3`);
+  const manualPath = path.join(fixturesDir, `${videoId}_manual.en.json3`);
+  if (!fs.existsSync(autoPath) || !fs.existsSync(manualPath)) {
+    return { pairValidation: "incomplete", pairKind: "", pairClass: "" };
+  }
+  const valid = hasTimedGroundTruth(autoPath, manualPath);
+  return {
+    pairValidation: valid ? "valid-unclassified" : "unverified",
+    pairKind: "",
+    pairClass: "",
+    censoredKind: "",
+    uncensoredKind: "",
+    provenance: "unknown-without-paired-saved-report"
+  };
 }
 
 function existingFixtures() {
@@ -433,7 +626,7 @@ function hasTimedGroundTruth(censoredPath, uncensoredPath, requireSameTimeline =
       .join("([\\s\\S]*?)");
     const match = new RegExp(`^${pattern}$`, "u").exec(uncensoredEvents[index].text);
     return Boolean(match && match.slice(1).every((replacement) => (
-      requireSameTimeline ? groundTruthWords(replacement).length : /\p{L}/u.test(replacement)
+      groundTruthWords(replacement).length
     )));
   });
   if (found && valid) return true;
@@ -459,6 +652,13 @@ function removeFile(filePath) {
   } catch { /* ignore cleanup failures */ }
 }
 
+function allConfiguredChannelsComplete(configuredChannels, reports) {
+  const completed = new Map((reports || []).filter(Boolean).map((channel) => [channel.name, channel]));
+  return Boolean(configuredChannels?.length) && configuredChannels.every((channel) => (
+    completed.get(channel.name)?.queueComplete === true
+  ));
+}
+
 function writeAtomic(filePath, contents) {
   const temporaryPath = `${filePath}.tmp-${process.pid}`;
   try {
@@ -472,14 +672,41 @@ function writeAtomic(filePath, contents) {
 
 function acquireReportLock(filePath) {
   const lockPath = `${filePath}.lock`;
-  try {
-    const descriptor = fs.openSync(lockPath, "wx");
-    fs.writeFileSync(descriptor, String(process.pid));
-    fs.closeSync(descriptor);
-  } catch (error) {
-    if (error.code !== "EEXIST") throw error;
-    const owner = fs.readFileSync(lockPath, "utf8").trim() || "unknown";
-    throw new Error(`Report is already being written by PID ${owner}: ${filePath}`);
+  while (true) {
+    try {
+      fs.writeFileSync(lockPath, String(process.pid), { flag: "wx" });
+      break;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      let owner;
+      try {
+        owner = fs.readFileSync(lockPath, "utf8").trim() || "unknown";
+      } catch (readError) {
+        if (readError.code === "ENOENT") continue;
+        throw readError;
+      }
+      const hasPid = /^\d+$/u.test(owner);
+      const pid = hasPid ? Number(owner) : 0;
+      let alive = !hasPid;
+      if (pid > 0) {
+        alive = true;
+        try {
+          process.kill(pid, 0);
+        } catch (killError) {
+          alive = killError.code !== "ESRCH";
+        }
+      }
+      if (!alive) {
+        try {
+          fs.unlinkSync(lockPath);
+        } catch (unlinkError) {
+          if (unlinkError.code === "ENOENT") continue;
+          throw unlinkError;
+        }
+        continue;
+      }
+      throw new Error(`Report is already being written by PID ${owner}: ${filePath}`);
+    }
   }
   let released = false;
   const stop = (code) => () => {
@@ -512,13 +739,13 @@ function cleanupVariants(videoId, keep = []) {
   }
 }
 
-async function downloadCaption(url, videoId, kind, lang) {
+async function downloadCaption(url, videoId, kind, lang, run = runYtDlpWithRetry) {
   const suffix = kind === "auto" ? "_auto" : "_manual";
   const template = path.join(fixturesDir, `${videoId}${suffix}.%(ext)s`);
   const flags = kind === "auto"
     ? ["--write-auto-subs", "--sub-langs", lang]
     : ["--write-subs", "--sub-langs", lang];
-  const result = await runYtDlpWithRetry([
+  const result = await run([
     "--no-playlist", "--no-overwrites",
     ...flags, "--sub-format", "json3", "--skip-download",
     "-o", template, url
@@ -530,9 +757,8 @@ async function downloadCaption(url, videoId, kind, lang) {
     .filter((name) => name.startsWith(`${videoId}${suffix}.`) && name.endsWith(".json3"))
     .map((name) => path.join(fixturesDir, name));
   if (!candidates.length) return "";
-  const exact = candidates.find((filePath) => filePath.endsWith(`.${lang}.json3`))
-    || candidates.find((filePath) => filePath.endsWith(".en.json3"))
-    || candidates[0];
+  const exact = candidates.find((filePath) => filePath.endsWith(`.${lang}.json3`));
+  if (!exact) return "";
   if (exact !== preferred) fs.renameSync(exact, preferred);
   for (const filePath of candidates) {
     if (filePath !== exact && filePath !== preferred) removeFile(filePath);
@@ -614,20 +840,25 @@ async function tryAlternateGroundTruth(entry, autoLang, slots, censoredPath, des
   return "";
 }
 
-async function processVideo(entry, args, known, stats) {
-  const item = {
+function videoItem(entry, status = "", checkType = "") {
+  return {
     id: entry.id,
     title: entry.title,
     channel: entry.channel,
     creatorId: entry.channelId || "",
     source: entry.source,
-    status: "",
+    status,
     slots: 0,
     pairKind: "",
     pairClass: "",
     censoredKind: "",
-    uncensoredKind: ""
+    uncensoredKind: "",
+    checkType
   };
+}
+
+async function processVideo(entry, args, known, stats, checkType) {
+  const item = videoItem(entry, "", checkType);
   if (known.paired.has(entry.id)) {
     item.status = "skipped-existing-paired";
     stats.skippedExisting += 1;
@@ -809,10 +1040,15 @@ async function mapLimit(items, limit, worker) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  const rawConfig = JSON.parse(fs.readFileSync(args.config, "utf8"));
+  const config = validateChannelConfig(rawConfig);
+  if (config.captionOnly === true) args.audioTarget = 0;
   retryCount = args.retries;
   retryDelayMs = args.retryDelay * 1000;
   requestSleepSeconds = args.requestSleep;
   maxGlobal429 = args.maxGlobal429;
+  socketTimeoutSeconds = args.socketTimeout;
+  childWatchdogMs = args.childTimeout * 1000;
   consecutiveGlobal429 = 0;
   runAborted = false;
   cookiesArgs = args.cookiesFromBrowser
@@ -826,14 +1062,6 @@ async function main() {
     acquireReportLock(args.checkedLedger);
   }
 
-  const rawConfig = JSON.parse(fs.readFileSync(args.config, "utf8"));
-  const config = rawConfig.channels ? rawConfig : {
-    channels: (rawConfig.candidates || []).map((candidate) => ({
-      name: candidate.name,
-      channelId: candidate.channelId || "",
-      sources: [candidate.url]
-    }))
-  };
   let previousChannels = new Map();
   if (fs.existsSync(args.report)) {
     try {
@@ -853,6 +1081,7 @@ async function main() {
   channels = channels.filter((channel, index) =>
     channels.findIndex((candidate) => candidate.name === channel.name) === index
   );
+  const configuredChannels = channels;
   if (args.channelFilter.size) {
     channels = channels.filter((channel) => args.channelFilter.has(channel.name));
     if (!channels.length) {
@@ -884,6 +1113,16 @@ async function main() {
     : [];
   const report = {
     pairProvenanceVersion: PAIR_PROVENANCE_VERSION,
+    prospective: config.prospective === true,
+    minimumCreators: config.minimumCreators || 0,
+    minimumSlots: config.minimumSlots || 0,
+    queueComplete: false,
+    minimumTargetsValid: config.prospective === true ? false : null,
+    contributingCreators: 0,
+    minimumSlotsObserved: 0,
+    captionOnly: config.captionOnly === true,
+    target: config.target || null,
+    targetContexts: config.targetContexts || [],
     syntheticAutoOnly: args.syntheticAutoOnly,
     autoAutoOnly: args.autoAutoOnly,
     manualAutoOnly: args.manualAutoOnly,
@@ -894,6 +1133,8 @@ async function main() {
     jobs: args.jobs,
     retries: args.retries,
     retryDelay: args.retryDelay,
+    socketTimeout: args.socketTimeout,
+    childTimeout: args.childTimeout,
     startedAt: new Date().toISOString(),
     channels: []
   };
@@ -912,12 +1153,25 @@ async function main() {
       checkedLedgerDirty = false;
     }
     report.channels = untouchedReports.concat(channelReports.filter(Boolean));
+    report.queueComplete = allConfiguredChannelsComplete(configuredChannels, report.channels);
+    const targetStatus = config.prospective === true
+      ? prospectiveTargetStatus(report.channels, config.minimumCreators, config.minimumSlots)
+      : null;
+    report.minimumTargetsValid = targetStatus?.valid ?? null;
+    report.contributingCreators = targetStatus?.contributingCreators || 0;
+    report.minimumSlotsObserved = targetStatus?.slots || 0;
+    if (report.queueComplete) report.finishedAt ??= new Date().toISOString();
+    else delete report.finishedAt;
     writeAtomic(args.report, JSON.stringify(report, null, 2));
   }
 
   saveReport();
   await mapLimit(channels, args.jobs, async (channel, channelIndex) => {
     const previous = args.revisit ? {} : previousChannels.get(channel.name) || {};
+    if (config.prospective === true && previous.channelId &&
+        previous.channelId !== channel.channelId) {
+      throw new Error(`Configured channel ${channel.name} changed canonical channelId.`);
+    }
     const previousAudio = previous.audioSaved ?? previous.audioFallbackSaved ?? 0;
     const previousItems = (previous.items || []).map((item) => item.pairClass
       ? item
@@ -925,8 +1179,13 @@ async function main() {
     const previousPairCounts = summarizePairItems(previousItems);
     const previousSlots = previousItems.reduce((total, item) =>
       total + (item.status === "paired-saved" ? Number(item.slots) || 0 : 0), 0);
-    if (previous.complete && previous.pairedSaved >= args.pairTarget &&
-        previousAudio >= args.audioTarget) {
+    // Legacy `complete` was written even after failed listings.  Only the
+    // explicit queueComplete marker is safe to resume without relisting.
+    if (previous.queueComplete === true &&
+        previous.pairedSaved >= args.pairTarget && previousAudio >= args.audioTarget) {
+      previous.channelId = channel.channelId || previous.channelId || "";
+      previous.queueComplete = true;
+      previous.complete = true;
       previous.items = previousItems;
       previous.manualAutoPaired ??= previousPairCounts.manualAuto;
       previous.autoAutoPaired ??= previousPairCounts.autoAuto;
@@ -937,6 +1196,7 @@ async function main() {
     }
     const stats = {
       name: channel.name,
+      channelId: channel.channelId || "",
       sources: channel.sources || [],
       availableEntries: previous.availableEntries || 0,
       checked: previous.checked || 0,
@@ -958,12 +1218,16 @@ async function main() {
       transientFailures: previous.transientFailures || 0,
       listFailures: previous.listFailures || 0,
       failed: previous.failed || 0,
+      channelIdMismatches: previous.channelIdMismatches || 0,
+      channelIdUnverified: previous.channelIdUnverified || 0,
       items: previousItems,
+      queueComplete: false,
       complete: false
     };
     channelReports[channelIndex] = stats;
     let consecutiveClean = 0;
-    const isClean = (item) => item.status !== "transient-failure" &&
+    const isClean = (item) => !["transient-failure", "channel-id-mismatch", "channel-id-unverified"]
+      .includes(item.status) &&
       (args.syntheticAutoOnly ? item.status !== "paired-saved" :
         (!item.slots || item.status === "no-usable-gt"));
     for (let index = stats.items.length - 1; index >= 0; index -= 1) {
@@ -971,7 +1235,8 @@ async function main() {
       if (item.status === "paired-saved") break;
       if (isClean(item)) consecutiveClean += 1;
     }
-    if (consecutiveClean >= args.skipAfterClean) {
+    if (previous.queueComplete === true && consecutiveClean >= args.skipAfterClean) {
+      stats.queueComplete = true;
       stats.complete = true;
       saveReport();
       return;
@@ -981,6 +1246,7 @@ async function main() {
 
     const seen = new Set();
     const queue = [];
+    const rejectedEntries = new Map();
     let listedSource = false;
     let listingFailed = false;
     for (const source of channel.sources || []) {
@@ -990,21 +1256,46 @@ async function main() {
       } catch (error) {
         if (error.abortRun || !error.transient) throw error;
         stats.transientFailures += 1;
+        listingFailed = true;
         console.log(`[${channel.name}] list ${source}: transient failure`);
         continue;
       }
       const { error, entries } = listed;
-      if (error && !entries.length) {
+      if (error) {
         listingFailed = true;
-        console.log(`[${channel.name}] list ${source}: fail: ${error.slice(0, 100)}`);
-        continue;
+        console.log(`[${channel.name}] list ${source}: ${entries.length
+          ? "partial result; " : "fail: "}${error.slice(0, 100)}`);
+        if (!entries.length) continue;
       }
       listedSource = true;
       let added = 0;
       for (const entry of entries) {
         if (seen.has(entry.id)) continue;
+        const observedEntry = {
+          ...entry,
+          channelId: typeof entry.channelId === "string" ? entry.channelId.trim() : "",
+          source
+        };
+        if (config.prospective === true) {
+          // Playlists and searches may mix creators.  The source/name is not
+          // ownership proof; only a matching canonical row is queueable.
+          const verification = verifyProspectiveChannelId(
+            observedEntry.channelId, channel.channelId
+          );
+          if (!verification.valid) {
+            rejectedEntries.set(entry.id, {
+              ...observedEntry,
+              channelIdStatus: verification.status,
+              expectedChannelId: channel.channelId
+            });
+            continue;
+          }
+        }
         seen.add(entry.id);
-        queue.push({ ...entry, channelId: entry.channelId || channel.channelId || "", source });
+        queue.push({
+          ...observedEntry,
+          channelId: observedEntry.channelId || (!config.prospective && channel.channelId) || ""
+        });
         added += 1;
       }
       console.log(`[${channel.name}] list ${source}: ${entries.length} listed, ${added} new`);
@@ -1015,16 +1306,50 @@ async function main() {
       saveReport();
       return;
     }
+    if (listingFailed) stats.listFailures += 1;
+
+    for (const entry of rejectedEntries.values()) {
+      if (seen.has(entry.id) || stats.items.some((item) => (
+        item.id === entry.id && item.status === entry.channelIdStatus && item.source === entry.source
+      ))) continue;
+      stats.items.push({
+        id: entry.id,
+        title: entry.title,
+        channel: entry.channel,
+        creatorId: entry.channelId,
+        expectedChannelId: entry.expectedChannelId,
+        source: entry.source,
+        status: entry.channelIdStatus,
+        slots: 0,
+        pairKind: "",
+        pairClass: "",
+        censoredKind: "",
+        uncensoredKind: "",
+        checkType
+      });
+      stats[entry.channelIdStatus === "channel-id-mismatch"
+        ? "channelIdMismatches" : "channelIdUnverified"] += 1;
+    }
+    if (rejectedEntries.size) saveReport();
 
     const sampledQueue = distributedSample(queue, args.samplePerChannel);
     stats.availableEntries = Math.max(stats.availableEntries, queue.length);
     const processed = new Set(stats.items
-      .filter((item) => item.status !== "transient-failure")
+      .filter((item) => !["transient-failure", "channel-id-mismatch", "channel-id-unverified",
+        "skipped-existing-paired"].includes(item.status))
       .map((item) => item.id));
     const pending = sampledQueue.filter((entry) => {
       if (processed.has(entry.id)) return false;
       if (known.paired.has(entry.id)) {
         stats.skippedExisting += 1;
+        if (!stats.items.some((item) => item.id === entry.id && item.status === "paired-saved")) {
+          const audit = inspectExistingPair(entry.id);
+          stats.items.push({
+            ...videoItem(entry, "existing-pair-unreported", checkType),
+            slots: countCensored(path.join(fixturesDir, `${entry.id}_auto.en.json3`)),
+            ...audit
+          });
+        }
         return false;
       }
       if (checkType === "audio" && known.audioOnly.has(entry.id)) {
@@ -1052,47 +1377,53 @@ async function main() {
         stats.skippedExisting += 1;
         continue;
       }
-      inFlight.add(entry.id);
-      stats.checked += 1;
-      console.log(`[${channel.name}] [${stats.checked}] ${entry.id} ${String(entry.title).slice(0, 55)}`);
-      let item;
+      // All downloader lanes share fixture filenames. Hold this lock through
+      // the durable report write so a second lane cannot overwrite or delete
+      // an in-progress pair, or mistake it for an unreported orphan.
+      let releaseVideo;
       try {
-        item = await processVideo(entry, args, known, stats);
+        releaseVideo = acquireReportLock(path.join(fixturesDir, `${entry.id}.video`));
       } catch (error) {
-        if (error.abortRun) throw error;
-        if (!error.transient) throw error;
-        stats.transientFailures += 1;
-        item = {
-          id: entry.id,
-          title: entry.title,
-          channel: entry.channel,
-          creatorId: entry.channelId || "",
-          source: entry.source,
-          status: "transient-failure",
-          slots: 0,
-          pairKind: "",
-          pairClass: "",
-          censoredKind: "",
-          uncensoredKind: "",
-          checkType
-        };
+        if (!/already being written/.test(error.message)) throw error;
+        continue; // Another lane owns it; leave it eligible for a later run.
+      }
+      inFlight.add(entry.id);
+      try {
+        if (fs.existsSync(path.join(fixturesDir, `${entry.id}_auto.en.json3`)) &&
+            fs.existsSync(path.join(fixturesDir, `${entry.id}_manual.en.json3`))) {
+          known.paired.add(entry.id);
+          stats.skippedExisting += 1;
+          continue;
+        }
+        stats.checked += 1;
+        console.log(`[${channel.name}] [${stats.checked}] ${entry.id} ${String(entry.title).slice(0, 55)}`);
+        let item;
+        try {
+          item = await processVideo(entry, args, known, stats, checkType);
+        } catch (error) {
+          if (error.abortRun) throw error;
+          if (!error.transient) throw error;
+          stats.transientFailures += 1;
+          item = videoItem(entry, "transient-failure", checkType);
+        }
+        if (recordCheckedVideo(checkedLedger, item.id, checkType, item.status)) {
+          checkedLedgerDirty = true;
+        }
+        stats.items.push(item);
+        saveReport();
+        if (item.status === "paired-saved") consecutiveClean = 0;
+        else if (isClean(item)) consecutiveClean += 1;
+        const extra = [item.slots ? `slots=${item.slots}` : "", item.pairKind]
+          .filter(Boolean).join(" ");
+        console.log(`[${channel.name}] [${stats.checked}] ${item.status}${extra ? ` ${extra}` : ""}`);
       } finally {
         inFlight.delete(entry.id);
+        releaseVideo();
       }
-      item.checkType = checkType;
-      if (recordCheckedVideo(checkedLedger, item.id, checkType, item.status)) {
-        checkedLedgerDirty = true;
-      }
-      stats.items.push(item);
-      saveReport();
-      if (item.status === "paired-saved") consecutiveClean = 0;
-      else if (isClean(item)) consecutiveClean += 1;
-      const extra = [item.slots ? `slots=${item.slots}` : "", item.pairKind]
-        .filter(Boolean).join(" ");
-      console.log(`[${channel.name}] [${stats.checked}] ${item.status}${extra ? ` ${extra}` : ""}`);
     }
 
-    stats.complete = true;
+    stats.queueComplete = Boolean(listedSource && !listingFailed);
+    stats.complete = stats.queueComplete;
     saveReport();
     console.log(
       `[${channel.name}] summary: paired=${stats.pairedSaved} ` +
@@ -1103,9 +1434,6 @@ async function main() {
     );
   });
 
-  if (report.channels.every((channel) => channel.complete)) {
-    report.finishedAt = new Date().toISOString();
-  }
   report.totals = report.channels.reduce((totals, channel) => {
     const pairCounts = summarizePairItems(channel.items);
     totals.paired += channel.pairedSaved;
@@ -1120,7 +1448,8 @@ async function main() {
     totals.audioFallback += channel.audioFallbackSaved;
     totals.checked += channel.checked;
     totals.transientFailures += channel.transientFailures;
-    ["noAutomatic", "noCensoredSlots", "noManual", "failed", "listFailures", "skippedExisting", "skippedChecked"].forEach((key) => {
+    ["noAutomatic", "noCensoredSlots", "noManual", "failed", "listFailures",
+      "skippedExisting", "skippedChecked", "channelIdMismatches", "channelIdUnverified"].forEach((key) => {
       totals[key] = (totals[key] || 0) + (channel[key] || 0);
     });
     return totals;
@@ -1137,7 +1466,9 @@ async function main() {
     audioFallback: 0,
     checked: 0,
     transientFailures: 0,
-    skippedChecked: 0
+    skippedChecked: 0,
+    channelIdMismatches: 0,
+    channelIdUnverified: 0
   });
   saveReport();
   console.log(`\nDone. ${JSON.stringify(report.totals)}`);
@@ -1153,6 +1484,7 @@ if (require.main === module) {
 
 module.exports = {
   acquireReportLock,
+  allConfiguredChannelsComplete,
   classifyPairKind,
   checkedVideoKey,
   checkedVideoType,
@@ -1160,13 +1492,22 @@ module.exports = {
   distributedSample,
   hasSwears,
   hasTimedGroundTruth,
+  inspectExistingPair,
   hasCheckedVideo,
   importCheckedVideoReports,
+  isCanonicalChannelId,
+  listEntries,
+  prospectiveTargetStatus,
+  validateChannelConfig,
+  verifyProspectiveChannelId,
   loadCheckedVideoLedger,
   parseArgs,
   recordCheckedVideo,
+  runYtDlp,
   saveCheckedVideoLedger,
   summarizePairItems,
+  transientFailure,
+  downloadCaption,
   synthesizeCensoredCaption,
   writeAtomic
 };

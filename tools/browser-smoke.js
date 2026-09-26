@@ -20,11 +20,20 @@ const initialOnly = args.includes("--initial-only");
 const playUntil = Number((args.find((arg) => arg.startsWith("--until=")) || "").split("=")[1]) || 0;
 const pauseFor = Number((args.find((arg) => arg.startsWith("--pause=")) || "").split("=")[1]) || 0;
 const autoNextCount = Number((args.find((arg) => arg.startsWith("--auto-next=")) || "").split("=")[1]) || 0;
-const mode = (args.find((arg) => arg.startsWith("--mode=")) || "").split("=")[1] || "";
+// Popup modes; legacy smoke names stay as aliases.
+const MODE_ALIASES = { "rules-only": "rules", "whisper-only": "whisper", hybrid: "whisper-first", "both-off": "off" };
+const requestedMode = (args.find((arg) => arg.startsWith("--mode=")) || "").split("=")[1] || "";
+const mode = MODE_ALIASES[requestedMode] || requestedMode;
+const rate = Number((args.find((arg) => arg.startsWith("--rate=")) || "").split("=")[1]) || 2;
+// Visible (not headless) browsers on a hidden Hyprland special workspace.
+const workspace = args.includes("--workspace");
+const seekArg = (args.find((arg) => arg.startsWith("--seek=")) || "").split("=")[1];
+const [seekFrom, seekTo] = seekArg ? seekArg.split(":").map(Number) : [NaN, NaN];
 const expectedWords = (args.find((arg) => arg.startsWith("--expect=")) || "").split("=")[1]
   ?.split(",").map((word) => word.trim().toLowerCase()).filter(Boolean) || [];
-const validModes = new Set(["rules-only", "whisper-only", "hybrid", "both-off"]);
-if (mode && !validModes.has(mode)) throw new Error(`Unknown smoke mode: ${mode}`);
+const validModes = new Set(["off", "rules", "rules-first", "whisper-first", "whisper"]);
+if (mode && !validModes.has(mode)) throw new Error(`Unknown smoke mode: ${requestedMode}`);
+const modeValues = mode && { mode };
 if (!["search", "direct", "home"].includes(navigationRoute)) {
   throw new Error(`Unknown navigation route: ${navigationRoute}`);
 }
@@ -46,10 +55,12 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const cleanDecision = (logs, start = 0) =>
   logs.slice(start).some((line) => line.includes("audio decoding stopped") ||
     line.includes("captions analyzed") && line.includes('"count":0'));
-const audioMode = mode !== "rules-only" && mode !== "both-off";
-const inferenceReady = (logs, start = 0) => audioMode
-  ? logs.slice(start).some((line) => line.includes("audio decoded")) || cleanDecision(logs, start)
-  : logs.slice(start).some((line) => line.includes("captions analyzed"));
+const audioMode = mode !== "rules" && mode !== "off";
+// Ready once captions are analysed (rules-first may decode no audio until a slot needs
+// Whisper); off mode does no work at all. playThrough then checks what is visible.
+const inferenceReady = (logs, start = 0) => mode === "off" ||
+  logs.slice(start).some((line) => line.includes("captions analyzed") || line.includes("audio decoded")) ||
+  cleanDecision(logs, start);
 
 function decodedThrough(logs) {
   return Math.max(...logs.map((line) => {
@@ -79,6 +90,65 @@ function portReady(port) {
     socket.once("connect", () => { socket.destroy(); resolve(true); });
     socket.once("error", () => resolve(false));
   });
+}
+
+function ensureWorkspaceRule() {
+  if (!workspace) return;
+  execSync(`hyprctl eval 'hl.window_rule({ name = "uncensored-smoke", match = { class = "uncensored-smoke" }, ` +
+    `workspace = "special:uncensored-smoke silent", no_initial_focus = true })'`);
+}
+
+// Resident memory (MB) of every launched browser process and its descendants.
+function browserMemoryMb() {
+  const rows = execSync("ps -eo pid=,ppid=,rss=").toString().trim().split("\n")
+    .map((line) => line.trim().split(/\s+/).map(Number));
+  const pids = new Set(children.map((child) => child.pid));
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const [pid, ppid] of rows) if (pids.has(ppid) && !pids.has(pid)) { pids.add(pid); grew = true; }
+  }
+  return Math.round(rows.filter(([pid]) => pids.has(pid)).reduce((sum, [, , rss]) => sum + rss, 0) / 1024);
+}
+
+function leadSummary(label, lines) {
+  const leads = lines.map((line) => line.match(/whisper resolved .* lead (-?[\d.]+)s/)).filter(Boolean).map((m) => Number(m[1]));
+  const sorted = [...leads].sort((a, b) => a - b);
+  const windows = lines.filter((line) => line.includes("whisper window")).length;
+  const failures = lines.filter((line) => /unresolved|scoring failed|Error/i.test(line)).length;
+  console.log(`${label}: ${windows} windows, ${leads.length} words, ${leads.filter((lead) => lead < 0).length} late` +
+    (sorted.length ? `, lead min ${sorted[0]}s median ${sorted[sorted.length >> 1]}s` : "") + `, ${failures} errors`);
+}
+
+// Play to --until, seeking once for --seek=FROM:TO; report memory, visible captions
+// (still censored vs restored) and word lead times.
+async function playThrough(label, logs, currentTime, run) {
+  const memory = [];
+  const lines = new Map();
+  let seekIndex = -1;
+  let lastSample = 0;
+  let lastCaption = 0;
+  await retry(async () => {
+    const time = await currentTime();
+    if (Date.now() - lastSample > 15000) { memory.push(browserMemoryMb()); lastSample = Date.now(); }
+    if (Date.now() - lastCaption > 2000) {
+      lastCaption = Date.now();
+      const text = await run(`[...document.querySelectorAll(".ytp-caption-segment")].map((node) => node.textContent).join(" ")`);
+      if (text) lines.set(text.trim(), text);
+    }
+    if (seekIndex < 0 && Number.isFinite(seekFrom) && time >= seekFrom) {
+      await run(`document.querySelector("video").currentTime = ${seekTo}`);
+      seekIndex = logs.length;
+      console.log(`${label} seeked ${seekFrom}s -> ${seekTo}s.`);
+    }
+    return time >= playUntil && (seekIndex >= 0 || !Number.isFinite(seekFrom));
+  }, (playUntil + (Number.isFinite(seekFrom) ? seekFrom : 0) + 120) * 1000 / rate);
+  if (memory.length) console.log(`${label} memory MB: start ${memory[0]}, max ${Math.max(...memory)}, end ${memory.at(-1)}.`);
+  const seen = [...lines.keys()];
+  const censored = seen.filter((text) => /\[\s*__\s*\]/u.test(text)).length;
+  const restored = seen.filter((text) => /\b(fuck|shit|bitch|ass|dick|cunt|piss|bastard|damn|cock|pussy|dipshit|bullshit|motherfuck)/iu.test(text)).length;
+  console.log(`${label} captions: ${seen.length} distinct lines, ${censored} still showing [__], ${restored} with a restored swear.`);
+  leadSummary(`${label} ${mode || "default"}`, seekIndex < 0 ? logs : logs.slice(0, seekIndex));
+  if (seekIndex >= 0) leadSummary(`${label} after seek`, logs.slice(seekIndex));
 }
 
 function launch(command, args) {
@@ -116,7 +186,8 @@ const CHROMIUM_SMOKE = "[u]ncensored-chromium-smoke-";
 
 function removeGeneratedProfiles() {
   fs.readdirSync("/tmp").filter((name) =>
-    name.startsWith("uncensored-chromium-smoke-") || name.startsWith("firefox-profile")
+    name.startsWith("uncensored-chromium-smoke-") || name.startsWith("uncensored-firefox-smoke-") ||
+    name.startsWith("uncensored-firefox-extension-") || name.startsWith("firefox-profile")
   ).forEach((name) => fs.rmSync(path.join("/tmp", name), { recursive: true, force: true }));
 }
 
@@ -138,6 +209,7 @@ function hardTerminate() {
   });
   pkill(HEADLESS_FIREFOX, "KILL");
   pkill(CHROMIUM_SMOKE, "KILL");
+  removeGeneratedProfiles();
   process.exit(0);
 }
 
@@ -211,7 +283,7 @@ function playbackExpression(resetCaptions = false) {
     }, 750);
     document.querySelector(".ytp-skip-ad-button")?.click();
     const video = document.querySelector("video");
-    if (video) { video.muted = true; video.playbackRate = 2; video.play().catch(() => {}); }
+    if (video) { video.muted = true; video.playbackRate = ${rate}; video.play().catch(() => {}); }
     // Firefox must start playback at the early Fetch-hook point or initial SABR can be buffered first.
     return { hook: globalThis.fetch?.name === "uncensoredFetch", url: location.href };
   })()`;
@@ -337,7 +409,8 @@ async function chromium() {
     "--mute-audio", "--autoplay-policy=no-user-gesture-required", "--no-first-run",
     "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
     "--disable-backgrounding-occluded-windows",
-    ...(headless ? ["--headless=new"] : []),
+    ...(headless && !workspace ? ["--headless=new"] : []),
+    ...(workspace ? ["--class=uncensored-smoke"] : []),
     "--window-position=-2000,0", "--window-size=1280,900", "about:blank"
   ]);
   const target = await retry(async () => {
@@ -357,22 +430,17 @@ async function chromium() {
   await client.ready;
   await client.send("Runtime.enable");
   await client.send("Page.enable");
-  if (mode) {
-    const extensionId = chromiumExtensionId(extensionPaths[0]);
-    const extensionUrl = `chrome-extension://${extensionId}/src/popup.html`;
-    const values = {
-      rulesEnabled: mode !== "whisper-only" && mode !== "both-off",
-      whisperEnabled: mode !== "rules-only" && mode !== "both-off"
-    };
+  if (modeValues) {
+    const extensionUrl = `chrome-extension://${chromiumExtensionId(extensionPaths[0])}/src/popup.html`;
     await client.send("Page.navigate", { url: extensionUrl });
     await retry(async () => {
       const response = await client.send("Runtime.evaluate", {
-        expression: `chrome.storage.local.set(${JSON.stringify(values)}).then(() => true)`,
+        expression: `chrome.storage.local.set(${JSON.stringify(modeValues)}).then(() => true)`,
         awaitPromise: true, returnByValue: true
       });
       return response.result.value === true;
     });
-    console.log(`Chromium mode ${mode}: ${JSON.stringify(values)}.`);
+    console.log(`Chromium mode ${mode}: ${JSON.stringify(modeValues)}.`);
   }
   await client.send("Page.navigate", { url: launchUrl.href });
   if (!firstSeekTime) await wait(10000);
@@ -418,9 +486,11 @@ async function chromium() {
         paused: document.querySelector("video")?.paused,
         captions: document.querySelector(".ytp-subtitles-button")?.getAttribute("aria-pressed")})`, returnByValue: true
     });
-    throw new Error(`No initial Chromium audio or clean-caption decision. State: ${state.result.value}`);
+    // Not every mode logs early (Chromium drops some content-script lines); playback checks decide.
+    if (!playUntil) throw new Error(`No initial Chromium audio or clean-caption decision. State: ${state.result.value}`);
+    console.log(`Chromium readiness not logged; continuing to playback. State: ${state.result.value}`);
   }
-  if (expectedWords.length || mode === "both-off") {
+  if (expectedWords.length) {
     try {
       const visible = await retry(async () => {
         await client.send("Runtime.evaluate", { expression: `(() => {
@@ -453,10 +523,10 @@ async function chromium() {
         if (verbose && state.text) console.log(`Visible captions: ${JSON.stringify(state)}`);
         const found = expectedWords.every((word) =>
           new RegExp("(?:^| )" + word.replace(/[^a-z0-9' ]/g, "") + "(?: |$)").test(state.text));
-        const disabled = mode === "both-off" && state.placeholders > 0;
+        const disabled = mode === "off" && state.placeholders > 0;
         return (found && (!mode || state.selectedTrack.kind === "asr") || disabled) && state;
       }, 20000);
-      if (mode === "both-off") {
+      if (mode === "off") {
         if (!visible.placeholders) {
           throw new Error(`Disabled mode did not preserve a [__] slot: ${JSON.stringify(visible)}.`);
         }
@@ -487,13 +557,13 @@ async function chromium() {
     console.log(`Chromium pause/resume smoke passed (${pauseFor}s).`);
   }
   if (playUntil) {
-    await retry(async () => {
-      const state = await client.send("Runtime.evaluate", { expression: playbackExpression(), returnByValue: true });
-      const time = await client.send("Runtime.evaluate", {
-        expression: "document.querySelector('video')?.currentTime", returnByValue: true
-      });
-      return state.result.value.hook && time.result.value >= playUntil;
-    }, (playUntil + 60) * 1000);
+    const run = async (expression) => (await client.send("Runtime.evaluate", { expression, returnByValue: true })).result.value;
+    let nudged = 0;
+    await playThrough("Chromium", logs, async () => {
+      // Re-applying playback re-selects the caption track, which clears the visible captions.
+      if (Date.now() - nudged > 15000) { nudged = Date.now(); await run(playbackExpression()); }
+      return run("document.querySelector('video')?.currentTime");
+    }, run);
     const decoded = decodedThrough(logs);
     if (audioMode && !cleanDecision(logs) && decoded < playUntil - 20) {
       throw new Error(`Audio stopped at ${decoded}s.`);
@@ -612,8 +682,20 @@ async function chromium() {
 }
 
 async function firefox() {
-  launch("web-ext", ["run", "--source-dir", "dist/firefox", "--firefox", "/usr/bin/firefox",
-    "--start-url", firstUrl, "--no-reload", "--no-input", "--arg=-headless",
+  const profile = `/tmp/uncensored-firefox-smoke-${process.pid}`;
+  const source = `/tmp/uncensored-firefox-extension-${process.pid}`;
+  [profile, source].forEach((item) => fs.rmSync(item, { recursive: true, force: true }));
+  fs.cpSync(path.join(root, "dist/firefox"), source, { recursive: true });
+  if (modeValues) {
+    const content = path.join(source, "src/content.js");
+    fs.writeFileSync(content, fs.readFileSync(content, "utf8").replace(
+      "mode: null,", `mode: ${JSON.stringify(mode)},`));
+  }
+  launch("web-ext", ["run", "--source-dir", source, "--firefox", "/usr/bin/firefox",
+    "--firefox-profile", profile, "--profile-create-if-missing", "--keep-profile-changes",
+    "--start-url", "about:blank", "--no-reload", "--no-input",
+    // Firefox does not play media in a window on a hidden workspace, so it stays headless.
+    "--arg=-headless",
     `--arg=--remote-debugging-port=${firefoxPort}`]);
   const logs = [];
   let timedTextRequests = 0;
@@ -628,10 +710,7 @@ async function firefox() {
   });
   await client.ready;
   await client.send("session.new", { capabilities: { alwaysMatch: {} } });
-  const page = await retry(async () => {
-    const tree = await client.send("browsingContext.getTree");
-    return tree.contexts.find((item) => item.url.includes("youtube.com/watch"));
-  });
+  const page = await retry(async () => (await client.send("browsingContext.getTree")).contexts[0]);
   const context = page.context;
   await client.send("session.subscribe", {
     events: ["log.entryAdded", "network.beforeRequestSent"], contexts: [context]
@@ -642,17 +721,43 @@ async function firefox() {
     });
     return response.result && response.result.value;
   }
+  if (modeValues) console.log(`Firefox mode ${mode}: ${JSON.stringify(modeValues)}.`);
+  await client.send("browsingContext.navigate", { context, url: launchUrl.href, wait: "none" });
   let state = await retry(async () => {
     const value = JSON.parse(await evaluate(`JSON.stringify(${playbackExpression()})`));
     return value.hook && value;
   });
   if (!await evaluate(fetchTransparencyExpression())) throw new Error("Firefox Fetch transparency check failed.");
   console.log("Firefox Fetch transparency check passed.");
+  if (firstSeekTime) await retry(async () => {
+    const sought = await evaluate(`(() => { const video = document.querySelector("video");
+      const player = document.querySelector("#movie_player");
+      if (!video || !player?.seekTo || !(video.duration > ${firstSeekTime})) return false;
+      player.seekTo(${firstSeekTime}, true); video.play().catch(() => {}); return true; })()`);
+    await wait(500);
+    return sought && Math.abs(await evaluate("document.querySelector('video')?.currentTime") - firstSeekTime) < 2;
+  });
   await retry(() => timedTextRequests > 0 || cleanDecision(logs));
   try {
     await retry(() => inferenceReady(logs), 90000);
   } catch (error) {
-    throw new Error(`No initial Firefox audio or clean-caption decision. Logs: ${logs.slice(-12).join(" | ")}`);
+    if (!playUntil) throw new Error(`No initial Firefox audio or clean-caption decision. Logs: ${logs.slice(-12).join(" | ")}`);
+    console.log("Firefox readiness not logged; continuing to playback.");
+  }
+  if (expectedWords.length) {
+    const visible = await retry(async () => {
+      await evaluate(`(() => { const player = document.querySelector("#movie_player");
+        const track = player?.getPlayerResponse?.()?.captions?.playerCaptionsTracklistRenderer
+          ?.captionTracks?.find(item => item.languageCode === "en" && item.kind === "asr");
+        if (track) player.setOption("captions", "track", { languageCode: "en", kind: "asr", vssId: track.vssId || "" });
+        const button = document.querySelector(".ytp-subtitles-button");
+        if (button?.getAttribute("aria-pressed") !== "true") button?.click(); return true; })()`);
+      const value = JSON.parse(await evaluate(`JSON.stringify(${visibleCaptionExpression()})`));
+      const found = expectedWords.every((word) => new RegExp("(?:^| )" +
+        word.replace(/[^a-z0-9' ]/g, "") + "(?: |$)").test(value.text));
+      return (mode === "off" ? value.placeholders : found && !value.placeholders) && value;
+    }, 20000);
+    console.log(`Firefox DOM ${mode === "off" ? "disabled-mode check" : "expectation"} passed (${firstUrl}, ${JSON.stringify(visible)}).`);
   }
   if (pauseFor) {
     await evaluate("document.querySelector('video')?.pause()");
@@ -667,10 +772,11 @@ async function firefox() {
     console.log(`Firefox pause/resume smoke passed (${pauseFor}s).`);
   }
   if (playUntil) {
-    await retry(async () => {
-      await evaluate(playbackExpression());
-      return await evaluate("document.querySelector('video')?.currentTime") >= playUntil;
-    }, (playUntil + 60) * 1000);
+    let nudged = 0;
+    await playThrough("Firefox", logs, async () => {
+      if (Date.now() - nudged > 15000) { nudged = Date.now(); await evaluate(playbackExpression()); }
+      return evaluate("document.querySelector('video')?.currentTime");
+    }, evaluate);
     const decoded = decodedThrough(logs);
     if (audioMode && !cleanDecision(logs) && decoded < playUntil - 20) {
       throw new Error(`Firefox audio stopped at ${decoded}s.`);
@@ -740,6 +846,7 @@ async function firefox() {
     return;
   }
   try {
+    ensureWorkspaceRule();
     if (!firefoxOnly) {
       await chromium();
       terminateChildren();

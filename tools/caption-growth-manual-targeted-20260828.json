@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "target": "manual-auto",
+  "targetContexts": [
+    "oh [fuck|shit] that",
+    "cool as [fuck|shit]"
+  ],
+  "selectionRationale": "Metadata-only manual scout candidates for creator-diverse validation of the two deferred candidate-only contexts; stop after the bounded pilot rather than broaden the queue.",
+  "channels": [
+    {
+      "name": "Rhett & Link",
+      "sources": ["https://www.youtube.com/@GoodMythicalMorning/videos"]
+    },
+    {
+      "name": "The Try Guys",
+      "sources": ["https://www.youtube.com/@tryguys/videos"]
+    },
+    {
+      "name": "Watcher",
+      "sources": ["https://www.youtube.com/@watcher/videos"]
+    },
+    {
+      "name": "Ryan Trahan",
+      "sources": ["https://www.youtube.com/@RyanTrahan/videos"]
+    },
+    {
+      "name": "Scott Cramer",
+      "sources": ["https://www.youtube.com/@ScottCramer/videos"]
+    },
+    {
+      "name": "Swell Entertainment",
+      "sources": ["https://www.youtube.com/@SwellEntertainment/videos"]
+    }
+  ]
+}

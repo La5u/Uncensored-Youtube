@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "captionOnly": true,
+  "target": "manual-auto",
+  "targetContexts": [
+    "they [__] love",
+    "copula+gerund/is [__] him",
+    "would I [__]",
+    "keep [__] myself/on/in",
+    "oh [fuck|shit] that",
+    "cool as [fuck|shit]"
+  ],
+  "channels": [
+    {
+      "name": "Filmot exact: they love",
+      "targetContext": "they [__] love",
+      "sources": [
+        "https://www.youtube.com/watch?v=j7GZrgWKj9o",
+        "https://www.youtube.com/watch?v=28BPUdW6Kik"
+      ]
+    },
+    {
+      "name": "Filmot exact: copula him",
+      "targetContext": "copula+gerund/is [__] him",
+      "sources": ["https://www.youtube.com/watch?v=4Vl2_5vgdOo"]
+    },
+    {
+      "name": "Filmot exact: oh that",
+      "targetContext": "oh [fuck|shit] that",
+      "sources": ["https://www.youtube.com/watch?v=7qV4MQobm4w"]
+    },
+    {
+      "name": "Filmot exact: cool as",
+      "targetContext": "cool as [fuck|shit]",
+      "sources": ["https://www.youtube.com/watch?v=2ThxVtJkFYg"]
+    },
+    {
+      "name": "Filmot exact: cool as variants",
+      "targetContext": "cool as [fuck|shit]",
+      "sources": [
+        "https://www.youtube.com/watch?v=f-EJKZUI2f8",
+        "https://www.youtube.com/watch?v=iDyZxmz8nzE",
+        "https://www.youtube.com/watch?v=ACq7tgjHdGA"
+      ]
+    },
+    {
+      "name": "Filmot exact: oh that variants",
+      "targetContext": "oh [fuck|shit] that",
+      "sources": [
+        "https://www.youtube.com/watch?v=KSwj4CJHKBE",
+        "https://www.youtube.com/watch?v=K6PJyAOyuzw"
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "name": "they-love",
+      "context": "they [__] love",
+      "terms": ["\"they fucking love\"", "\"they shit love\""]
+    },
+    {
+      "name": "copula-gerund-him",
+      "context": "copula+gerund/is [__] him",
+      "terms": [
+        "\"is fucking him\"", "\"was fucking him\"",
+        "\"are fucking him\"", "\"were fucking him\"",
+        "\"is shitting him\"", "\"was shitting him\""
+      ]
+    },
+    {
+      "name": "would-i",
+      "context": "would I [__]",
+      "terms": ["\"would I fuck\"", "\"would I shit\""]
+    },
+    {
+      "name": "keep-contexts",
+      "context": "keep [__] myself/on/in",
+      "terms": [
+        "\"keep fucking myself\"", "\"keep shitting myself\"",
+        "\"keep fucking on\"", "\"keep shitting on\"",
+        "\"keep fucking in\"", "\"keep shitting in\""
+      ]
+    },
+    {
+      "name": "ambiguous-fuck-shit",
+      "context": "oh [fuck|shit] that / cool as [fuck|shit]",
+      "terms": [
+        "\"oh fuck that\"", "\"oh shit that\"",
+        "\"cool as fuck\"", "\"cool as shit\""
+      ]
+    }
+  ]
+}

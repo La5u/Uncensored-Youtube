@@ -9,23 +9,14 @@ and follow TalkBank rules. The generated text stays ignored/local because
 adapted or censored redistribution may be restricted by the no-derivatives
 license.
 
-To reproduce, download the transcript archive from TalkBank, unpack its
-`SBCSAE/` directory under `corpus/santa-barbara/`, then run:
+To reproduce the source download, unpack the transcript archive from TalkBank
+into `corpus/santa-barbara/`:
 
 ```sh
 mkdir -p corpus/santa-barbara
 curl -L 'https://talkbank.org/data/ca/SBCSAE?f=zip' -o /tmp/sbcsae-talkbank.zip
 unzip -q /tmp/sbcsae-talkbank.zip -d corpus/santa-barbara
-node tools/prepare-sbcsae-corpus.js \
-  corpus/santa-barbara/SBCSAE \
-  corpus/generated/sbcsae-conversation
 ```
 
-The adapter emits the JSONL contract accepted by `tools/mine-rule-opportunities.js`:
-
-```sh
-node tools/mine-rule-opportunities.js \
-  corpus/generated/paired-rules-only-report.json \
-  corpus/generated/sbcsae-conversation/rule-opportunities.json \
-  --sample sbcsae=corpus/generated/sbcsae-conversation/sbcsae-samples.jsonl
-```
+The SBCSAE adapter and the miner that consumed its JSONL were removed as unused
+pipeline code; recover them from git history to rebuild the local slice.

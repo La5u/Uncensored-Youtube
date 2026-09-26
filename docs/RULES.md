@@ -23,9 +23,28 @@ ambiguous words can therefore remain available to audio inference without
 enabling context guesses. Keep `ALLOWED_WORDS` order stable because Whisper uses
 it for tie-breaking.
 
+In hybrid mode a rule provides an immediate provisional fill and remains when
+Whisper abstains, but never replaces a word heard by Whisper. (A per-rule
+override list was removed on 2026-09-24 while empty; reintroduce it only with
+creator-diverse audio labels on Whisper disagreements.)
+
 Groups have explicit priorities. Compiled rules derive a stable priority from their
 group, authored position, and expansion position. Source groups may therefore be
 reordered without changing matching behavior.
+
+The current-rule audit distinguishes coverage-preserving `remove` from
+precision-first `retire`: a below-gate selector may warrant retirement even when
+it recovers some correct words. Review creator-diverse manual-auto evidence,
+wrong outputs avoided, correct answers lost, and same-population benchmarks;
+recommendations never automatically modify runtime. See
+[`RULE_ARCHITECTURE_PLAN.md`](RULE_ARCHITECTURE_PLAN.md) for the structural roadmap.
+
+Admission gates (first-choice precision on manual-auto evidence, ≥2 named creators):
+one-answer literals 90% at 4–5 matches or 85% at 6+; generalized rules 92% at 10+;
+two-, three- and four-plus-candidate rules 92% at 6+, 95% at 10+ and 97% at 20+.
+Prefer narrow exact phrases over frames. Synthetic pairs and Filmot snippets may
+support or contradict a rule but never justify it alone. Add positive, near-miss,
+ambiguity, punctuation and priority tests with every change.
 
 Mining provenance and validation thresholds are not runtime rules. They live in
 `corpus/rules/evidence.jsonl`, one reviewable record per line. Add detailed

@@ -1,0 +1,2544 @@
+{
+  "schemaVersion": 1,
+  "title": "Prospective UNCENSORED automatic-caption creator prospects",
+  "prospective": true,
+  "evidenceScope": "Prospective acquisition leads only. Automatic/ASR caption evidence is sampled from the cited videos and is not a channel-wide claim; ASR text is not audio-verified and does not establish that every upload is uncensored.",
+  "selectionBasis": {
+    "sources": "All 20 research shards plus the adversarial audit.",
+    "researchShards": [
+      "01-standup.json",
+      "02-comedy-podcasts.json",
+      "03-gaming.json",
+      "04-video-essays.json",
+      "05-tabletop.json",
+      "06-animation.json",
+      "07-tech-internet.json",
+      "08-film-tv.json",
+      "09-music.json",
+      "10-sports.json",
+      "11-street.json",
+      "12-social-commentary.json",
+      "13-politics.json",
+      "14-horror.json",
+      "15-food-travel.json",
+      "16-education.json",
+      "17-sketch.json",
+      "18-streamers.json",
+      "19-makers.json",
+      "20-documentary.json"
+    ],
+    "adversarialAudit": "tmp/channel-research/audit.json",
+    "corpusExclusion": "Only creators actually represented by the paired/saved or provenance-backed corpus were excluded. Presence in tmp/channel-research/manual-shortlist.json was not used as an exclusion.",
+    "evidenceRule": "Each entry retains at least one cited automatic/ASR caption excerpt containing a literal, non-masked English swear; masked slots and title/description-only signals are not counted."
+  },
+  "entries": [
+    {
+      "rank": 1,
+      "name": "MeatCanyon",
+      "channelId": "UC91V6D3nkhP89wUb9f_h17g",
+      "channelUrl": "https://www.youtube.com/channel/UC91V6D3nkhP89wUb9f_h17g",
+      "lane": "adult horror/comedy animation",
+      "evidenceVideos": [
+        {
+          "videoId": "DQJ3F4ZOkzk",
+          "url": "https://www.youtube.com/watch?v=DQJ3F4ZOkzk",
+          "captionTrack": "English (auto-generated), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:00:14",
+              "excerpt": "this shit's going to be so spooky ... I've been pissing myself all night",
+              "sourceRef": "tmp/channel-research/shards/06-animation.json:358",
+              "observedForms": [
+                "shit",
+                "pissing"
+              ]
+            },
+            {
+              "timestamp": "00:03:18",
+              "excerpt": "wait a goddamn second ... I fell flat on my ass",
+              "sourceRef": "tmp/channel-research/shards/06-animation.json:358",
+              "observedForms": [
+                "goddamn",
+                "ass"
+              ]
+            },
+            {
+              "timestamp": "00:05:31",
+              "excerpt": "Jeff Dunham tickets, dumbass",
+              "sourceRef": "tmp/channel-research/shards/06-animation.json:358",
+              "observedForms": [
+                "dumbass"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "vEikBm04-FI",
+          "url": "https://www.youtube.com/watch?v=vEikBm04-FI",
+          "captionTrack": "English (auto-generated), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:01:22",
+              "excerpt": "God, I love that son-of-a-bitch",
+              "sourceRef": "tmp/channel-research/shards/06-animation.json:369",
+              "observedForms": [
+                "bitch"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "shit",
+        "pissing",
+        "goddamn",
+        "ass",
+        "dumbass",
+        "bitch"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "06-animation",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 2,
+      "name": "Veibae",
+      "channelId": "UCsBFeCb82qOXyUP19nmD9xw",
+      "channelUrl": "https://www.youtube.com/channel/UCsBFeCb82qOXyUP19nmD9xw",
+      "lane": "English VTuber gaming, IRL stories, and stream highlights",
+      "evidenceVideos": [
+        {
+          "videoId": "MYLEhIdJT3U",
+          "url": "https://www.youtube.com/watch?v=MYLEhIdJT3U",
+          "captionTrack": "English (auto-generated), YouTube ASR via public web relay",
+          "captionObservations": [
+            {
+              "timestamp": "00:02:26",
+              "excerpt": "hell's not worth it.",
+              "sourceRef": "tmp/channel-research/shards/18-streamers.json:29",
+              "observedForms": [
+                "hell"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "MEZaZVGqKxw",
+          "url": "https://www.youtube.com/watch?v=MEZaZVGqKxw",
+          "captionTrack": "English (auto-generated), YouTube ASR via public web relay",
+          "captionObservations": [
+            {
+              "timestamp": "00:02:04",
+              "excerpt": "now you can eat your own ass",
+              "sourceRef": "tmp/channel-research/shards/18-streamers.json:29",
+              "observedForms": [
+                "ass"
+              ]
+            },
+            {
+              "timestamp": "00:05:52",
+              "excerpt": "dick what the",
+              "sourceRef": "tmp/channel-research/shards/18-streamers.json:29",
+              "observedForms": [
+                "dick"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "d67CvouX68M",
+          "url": "https://www.youtube.com/watch?v=d67CvouX68M",
+          "captionTrack": "English (auto-generated), YouTube ASR via public web relay",
+          "captionObservations": [
+            {
+              "timestamp": "00:05:54",
+              "excerpt": "bastard oh",
+              "sourceRef": "tmp/channel-research/shards/18-streamers.json:29",
+              "observedForms": [
+                "bastard"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "hell",
+        "ass",
+        "dick",
+        "bastard"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "18-streamers",
+      "sampledAutomaticVideoCount": 3,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 3,
+      "name": "GoodNeighborStuff",
+      "channelId": "UC0vSB46MmHTwwxQrAo62Dgg",
+      "channelUrl": "https://www.youtube.com/channel/UC0vSB46MmHTwwxQrAo62Dgg",
+      "lane": "Good Neighbor sketch-comedy troupe archive",
+      "evidenceVideos": [
+        {
+          "videoId": "oaYtFLGELB8",
+          "url": "https://www.youtube.com/watch?v=oaYtFLGELB8",
+          "captionTrack": "English auto-generated, YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:00:25",
+              "excerpt": "you're certifiably crazy insane mofo yeah who sometimes gets me a little pissed but",
+              "sourceRef": "tmp/channel-research/shards/17-sketch.json:238",
+              "observedForms": [
+                "mofo",
+                "pissed"
+              ]
+            },
+            {
+              "timestamp": "00:01:04",
+              "excerpt": "thanks let's have a freaking fun ass Saturday yes here we go",
+              "sourceRef": "tmp/channel-research/shards/17-sketch.json:238",
+              "observedForms": [
+                "ass"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "Lo2LL_of9So",
+          "url": "https://www.youtube.com/watch?v=Lo2LL_of9So",
+          "captionTrack": "English auto-generated, YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:02:00",
+              "excerpt": "SURE, NICK. GOD damn it. THIS IS [ __ ] THIS IS [ __ ]",
+              "sourceRef": "tmp/channel-research/shards/17-sketch.json:248",
+              "observedForms": [
+                "damn"
+              ]
+            },
+            {
+              "timestamp": "00:02:54",
+              "excerpt": "Two to you. Three to me. Fours for [ __ ] Six for dicks.",
+              "sourceRef": "tmp/channel-research/shards/17-sketch.json:248",
+              "observedForms": [
+                "dicks"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "mofo",
+        "pissed",
+        "ass",
+        "damn",
+        "dicks"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "17-sketch",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 4,
+      "name": "The Adam Carolla Show / Adam Carolla",
+      "channelId": "UC7qCAvNXX0Pi05tufrDN0XQ",
+      "channelUrl": "https://www.youtube.com/channel/UC7qCAvNXX0Pi05tufrDN0XQ/videos",
+      "lane": "comedy and comedian interview podcast",
+      "evidenceVideos": [
+        {
+          "videoId": "uvONXKiMPSM",
+          "url": "https://www.youtube.com/watch?v=uvONXKiMPSM",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:24:43",
+              "excerpt": "Michelin food tastes like shit",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:192",
+              "observedForms": [
+                "shit"
+              ]
+            },
+            {
+              "timestamp": "00:30:44",
+              "excerpt": "seen off THE DAMN INTERNET",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:192",
+              "observedForms": [
+                "damn"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "M6dIhjrXLrY",
+          "url": "https://www.youtube.com/watch?v=M6dIhjrXLrY",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:28:57",
+              "excerpt": "the holy trinity of bullshit",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:202",
+              "observedForms": [
+                "bullshit"
+              ]
+            },
+            {
+              "timestamp": "01:43:18",
+              "excerpt": "I'm already pissed as hell",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:202",
+              "observedForms": [
+                "pissed",
+                "hell"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "shit",
+        "damn",
+        "bullshit",
+        "pissed",
+        "hell"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "02-comedy-podcasts",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 5,
+      "name": "The Bald and the Beautiful / Trixie & Katya",
+      "channelId": "UC2sgoh6YCrf8df1UMpUciTw",
+      "channelUrl": "https://www.youtube.com/channel/UC2sgoh6YCrf8df1UMpUciTw/videos",
+      "lane": "drag-comedy interview podcast",
+      "evidenceVideos": [
+        {
+          "videoId": "9593ahDSRCI",
+          "url": "https://www.youtube.com/watch?v=9593ahDSRCI",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:25:55",
+              "excerpt": "Fuck you, [ __ ] I'm not giving",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:332",
+              "observedForms": [
+                "fuck"
+              ]
+            },
+            {
+              "timestamp": "00:27:50",
+              "excerpt": "Isn't that shitty?",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:332",
+              "observedForms": [
+                "shitty"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "qiQiNVhxBYc",
+          "url": "https://www.youtube.com/watch?v=qiQiNVhxBYc",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:28:46",
+              "excerpt": "tear dick off",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:342",
+              "observedForms": [
+                "dick"
+              ]
+            },
+            {
+              "timestamp": "00:28:53",
+              "excerpt": "Avana Big Dick up my ass",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:342",
+              "observedForms": [
+                "dick",
+                "ass"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "fuck",
+        "shitty",
+        "dick",
+        "ass"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "02-comedy-podcasts",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 6,
+      "name": "Foil Arms and Hog",
+      "channelId": "UCzb-6smlTg5UPirLdsdQ_cQ",
+      "channelUrl": "https://www.youtube.com/channel/UCzb-6smlTg5UPirLdsdQ_cQ",
+      "lane": "Irish sketch comedy trio / live comedy",
+      "evidenceVideos": [
+        {
+          "videoId": "GTq4xoqsLCs",
+          "url": "https://www.youtube.com/watch?v=GTq4xoqsLCs",
+          "captionTrack": "English auto-generated, YouTube ASR; English creator/manual subtitle track; English auto-generated ASR also exposed",
+          "captionObservations": [
+            {
+              "timestamp": "00:00:36",
+              "excerpt": "Ah fuck he did. He just let us in in traffic after he saw ya down the vodka",
+              "sourceRef": "tmp/channel-research/shards/17-sketch.json:61",
+              "observedForms": [
+                "fuck"
+              ]
+            },
+            {
+              "timestamp": "00:04:23",
+              "excerpt": "Oh God, Oh god. Alright, drive on there now. ... Faster! Faster, for fuck's sake",
+              "sourceRef": "tmp/channel-research/shards/17-sketch.json:61",
+              "observedForms": [
+                "fuck"
+              ]
+            },
+            {
+              "timestamp": "00:04:34",
+              "excerpt": "Fucking curbs (?)",
+              "sourceRef": "tmp/channel-research/shards/17-sketch.json:61",
+              "observedForms": [
+                "fucking"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "IJQkk7sD1CY",
+          "url": "https://www.youtube.com/watch?v=IJQkk7sD1CY",
+          "captionTrack": "English auto-generated, YouTube ASR; English creator/manual subtitle track; English auto-generated ASR also exposed",
+          "captionObservations": [
+            {
+              "timestamp": "00:02:00",
+              "excerpt": "it's just that he was a massive prick besides he was from wales so he was a welsh prick now he was a prick who happened to be welsh",
+              "sourceRef": "tmp/channel-research/shards/17-sketch.json:72",
+              "observedForms": [
+                "prick"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "fuck",
+        "fucking",
+        "prick"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "17-sketch",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 7,
+      "name": "Michael Malice / YOUR WELCOME",
+      "channelId": "UC5tj5QCpJKIl-KIa4Gib5Xw",
+      "channelUrl": "https://www.youtube.com/channel/UC5tj5QCpJKIl-KIa4Gib5Xw/videos",
+      "lane": "comedian and public-figure interview podcast",
+      "evidenceVideos": [
+        {
+          "videoId": "h1uvFDo7Ra0",
+          "url": "https://www.youtube.com/watch?v=h1uvFDo7Ra0",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:25:12",
+              "excerpt": "you dumb fuck. The other",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:367",
+              "observedForms": [
+                "fuck"
+              ]
+            },
+            {
+              "timestamp": "00:04:56",
+              "excerpt": "Where's this asshole?",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:367",
+              "observedForms": [
+                "asshole"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "H3FwqPkPSHE",
+          "url": "https://www.youtube.com/watch?v=H3FwqPkPSHE",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:50:52",
+              "excerpt": "Fuck, what did I just",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:377",
+              "observedForms": [
+                "fuck"
+              ]
+            },
+            {
+              "timestamp": "01:18:05",
+              "excerpt": "Fucking great question",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:377",
+              "observedForms": [
+                "fucking"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "fuck",
+        "asshole",
+        "fucking"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "02-comedy-podcasts",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 8,
+      "name": "chibidoki",
+      "channelId": "UCoqNvjhUxJRYW4JsT5fBK6w",
+      "channelUrl": "https://www.youtube.com/channel/UCoqNvjhUxJRYW4JsT5fBK6w",
+      "lane": "English VTuber gaming and reaction highlights",
+      "evidenceVideos": [
+        {
+          "videoId": "__Cz4SACPDI",
+          "url": "https://www.youtube.com/watch?v=__Cz4SACPDI",
+          "captionTrack": "English (auto-generated), YouTube ASR via public web relay",
+          "captionObservations": [
+            {
+              "timestamp": "00:00:08",
+              "excerpt": "this game sucks.",
+              "sourceRef": "tmp/channel-research/shards/18-streamers.json:28",
+              "observedForms": [
+                "sucks"
+              ]
+            },
+            {
+              "timestamp": "00:06:42",
+              "excerpt": "gets so pissed off. It's so freaking",
+              "sourceRef": "tmp/channel-research/shards/18-streamers.json:28",
+              "observedForms": [
+                "pissed"
+              ]
+            },
+            {
+              "timestamp": "00:19:17",
+              "excerpt": ">> You suck. You suck.",
+              "sourceRef": "tmp/channel-research/shards/18-streamers.json:28",
+              "observedForms": [
+                "suck"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "xB-r1fWyNHw",
+          "url": "https://www.youtube.com/watch?v=xB-r1fWyNHw",
+          "captionTrack": "English (auto-generated), YouTube ASR via public web relay",
+          "captionObservations": [
+            {
+              "timestamp": "00:03:19",
+              "excerpt": "actually I'm getting pissed off at the",
+              "sourceRef": "tmp/channel-research/shards/18-streamers.json:28",
+              "observedForms": [
+                "pissed"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "sucks",
+        "pissed",
+        "suck"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "18-streamers",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 9,
+      "name": "LoadingReadyRun",
+      "channelId": "UCwjN2uVdL9A0i3gaIHKFzuA",
+      "channelUrl": "https://www.youtube.com/channel/UCwjN2uVdL9A0i3gaIHKFzuA",
+      "lane": "Canadian sketch comedy troupe / live ensemble",
+      "evidenceVideos": [
+        {
+          "videoId": "Ht8ugtScVyA",
+          "url": "https://www.youtube.com/watch?v=Ht8ugtScVyA",
+          "captionTrack": "English auto-generated, YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:00:58",
+              "excerpt": "So, we can call the bit loading ready run and eat ass. >> ass.",
+              "sourceRef": "tmp/channel-research/shards/17-sketch.json:97",
+              "observedForms": [
+                "ass"
+              ]
+            },
+            {
+              "timestamp": "00:01:55",
+              "excerpt": "What the hell is going on? What the hell is going on is satisfying",
+              "sourceRef": "tmp/channel-research/shards/17-sketch.json:97",
+              "observedForms": [
+                "hell"
+              ]
+            },
+            {
+              "timestamp": "00:02:27",
+              "excerpt": "or even [ __ ] sucks, don't it?",
+              "sourceRef": "tmp/channel-research/shards/17-sketch.json:97",
+              "observedForms": [
+                "sucks"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "Y2dr6wUHOP0",
+          "url": "https://www.youtube.com/watch?v=Y2dr6wUHOP0",
+          "captionTrack": "English auto-generated, YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:00:57",
+              "excerpt": "haunted perogis square poops hard piss unmuted in meetings.",
+              "sourceRef": "tmp/channel-research/shards/17-sketch.json:109",
+              "observedForms": [
+                "poops",
+                "piss"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "ass",
+        "hell",
+        "sucks",
+        "poops",
+        "piss"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "17-sketch",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 10,
+      "name": "The Pete & Sebastian Show / Sebastian Maniscalco",
+      "channelId": "UCxPmXKxJcDAhuYVHeFFyGTA",
+      "channelUrl": "https://www.youtube.com/channel/UCxPmXKxJcDAhuYVHeFFyGTA/videos",
+      "lane": "comedian duo podcast / guest interviews",
+      "evidenceVideos": [
+        {
+          "videoId": "DAwBFpz33MM",
+          "url": "https://www.youtube.com/watch?v=DAwBFpz33MM",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:36:14",
+              "excerpt": "Because if you can't get the goddamn",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:227",
+              "observedForms": [
+                "goddamn"
+              ]
+            },
+            {
+              "timestamp": "01:03:41",
+              "excerpt": "get him the hell out of there",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:227",
+              "observedForms": [
+                "hell"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "BzLu4M7PYp0",
+          "url": "https://www.youtube.com/watch?v=BzLu4M7PYp0",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:30:44",
+              "excerpt": "THIS ASSHOLE",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:237",
+              "observedForms": [
+                "asshole"
+              ]
+            },
+            {
+              "timestamp": "00:20:30",
+              "excerpt": "Did he take Did he piss?",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:237",
+              "observedForms": [
+                "piss"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "goddamn",
+        "hell",
+        "asshole",
+        "piss"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "02-comedy-podcasts",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 11,
+      "name": "The Sloppy Boys",
+      "channelId": "UCXXmCrxiL0udlmlF-x2bkyg",
+      "channelUrl": "https://www.youtube.com/channel/UCXXmCrxiL0udlmlF-x2bkyg/videos",
+      "lane": "comedy podcast / drinks and pop-culture conversation",
+      "evidenceVideos": [
+        {
+          "videoId": "HHyO7_ebDS8",
+          "url": "https://www.youtube.com/watch?v=HHyO7_ebDS8",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:47:33",
+              "excerpt": "shitty but there's something good about",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:297",
+              "observedForms": [
+                "shitty"
+              ]
+            },
+            {
+              "timestamp": "00:19:20",
+              "excerpt": "brain heart and Dick",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:297",
+              "observedForms": [
+                "dick"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "JwyLTpV57hY",
+          "url": "https://www.youtube.com/watch?v=JwyLTpV57hY",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:06:53",
+              "excerpt": "the hell out",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:307",
+              "observedForms": [
+                "hell"
+              ]
+            },
+            {
+              "timestamp": "00:17:15",
+              "excerpt": "damn wow damn",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:307",
+              "observedForms": [
+                "damn"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "shitty",
+        "dick",
+        "hell",
+        "damn"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "02-comedy-podcasts",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 12,
+      "name": "The Fighter and The Kid",
+      "channelId": "UC6AbsTfBMQ_dHjtipwh3bZg",
+      "channelUrl": "https://www.youtube.com/channel/UC6AbsTfBMQ_dHjtipwh3bZg/videos",
+      "lane": "comedy / MMA and current-events interview podcast",
+      "evidenceVideos": [
+        {
+          "videoId": "HsLxLuWeyDc",
+          "url": "https://www.youtube.com/watch?v=HsLxLuWeyDc",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:04:42",
+              "excerpt": "I'm like, What the fuck?",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:90",
+              "observedForms": [
+                "fuck"
+              ]
+            },
+            {
+              "timestamp": "00:04:36",
+              "excerpt": "I always yell at him not to piss on my new trees",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:90",
+              "observedForms": [
+                "piss"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "sNR7lEhWQX8",
+          "url": "https://www.youtube.com/watch?v=sNR7lEhWQX8",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:23:01",
+              "excerpt": "This shit's so embarrassing to me",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:100",
+              "observedForms": [
+                "shit"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "fuck",
+        "piss",
+        "shit"
+      ],
+      "evidenceStrength": "strong",
+      "sourceShard": "02-comedy-podcasts",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 3
+    },
+    {
+      "rank": 13,
+      "name": "Quinton Reviews",
+      "channelId": "UCM0V8r4kuIWIl6Sy-NHj2lg",
+      "channelUrl": "https://www.youtube.com/channel/UCM0V8r4kuIWIl6Sy-NHj2lg",
+      "lane": "long-form pop-culture documentaries and media criticism",
+      "evidenceVideos": [
+        {
+          "videoId": "QPmVFGgaasg",
+          "url": "https://www.youtube.com/watch?v=QPmVFGgaasg",
+          "captionTrack": "English (auto-generated), YouTube ASR, read via public caption relay",
+          "captionObservations": [
+            {
+              "timestamp": "00:02:50",
+              "excerpt": "I've triumphed over the re pod. This [ __ ] sucks. Ghost hunting isn't real.",
+              "sourceRef": "tmp/channel-research/shards/20-documentary.json:23",
+              "observedForms": [
+                "sucks"
+              ]
+            },
+            {
+              "timestamp": "00:30:33",
+              "excerpt": "Is it a real thing? What the hell is it? It's not a thing. Who the [ __ ] IS THIS GUY?",
+              "sourceRef": "tmp/channel-research/shards/20-documentary.json:23",
+              "observedForms": [
+                "hell"
+              ]
+            },
+            {
+              "timestamp": "00:41:19",
+              "excerpt": "But like a badass, Esther then killed him with a revolver.",
+              "sourceRef": "tmp/channel-research/shards/20-documentary.json:23",
+              "observedForms": [
+                "badass"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "yA-rsBH1NP4",
+          "url": "https://www.youtube.com/watch?v=yA-rsBH1NP4",
+          "captionTrack": "English (auto-generated), YouTube ASR, read via public caption relay",
+          "captionObservations": [
+            {
+              "timestamp": "00:07:41",
+              "excerpt": "before I say a bunch of hot takes that'll probably piss off the Ariana stans",
+              "sourceRef": "tmp/channel-research/shards/20-documentary.json:23",
+              "observedForms": [
+                "piss"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "sucks",
+        "hell",
+        "badass",
+        "piss"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "20-documentary",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 14,
+      "name": "Sam O'Nella Academy",
+      "channelId": "UC1DTYW241WD64ah5BFWn4JA",
+      "channelUrl": "https://www.youtube.com/channel/UC1DTYW241WD64ah5BFWn4JA",
+      "lane": "history, natural history, and comic education",
+      "evidenceVideos": [
+        {
+          "videoId": "_kgTL-Z9sBU",
+          "url": "https://www.youtube.com/watch?v=_kgTL-Z9sBU",
+          "captionTrack": "English (auto-generated), YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:00:31",
+              "excerpt": "what the hell happened to three through six?",
+              "sourceRef": "tmp/channel-research/shards/16-education.json:20",
+              "observedForms": [
+                "hell"
+              ]
+            },
+            {
+              "timestamp": "00:08:26",
+              "excerpt": "pissed. He went back to the slave dealer like, \"What the hell, dude? You charged",
+              "sourceRef": "tmp/channel-research/shards/16-education.json:20",
+              "observedForms": [
+                "pissed",
+                "hell"
+              ]
+            },
+            {
+              "timestamp": "00:14:32",
+              "excerpt": "Cato kicked ass at all of them, which is why he was acquitted from all 44 of his",
+              "sourceRef": "tmp/channel-research/shards/16-education.json:20",
+              "observedForms": [
+                "ass"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "ORmUUhh6O-8",
+          "url": "https://www.youtube.com/watch?v=ORmUUhh6O-8",
+          "captionTrack": "English (auto-generated), YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:02:17",
+              "excerpt": "nope no that's piss you feel something furry rub up against your elbow",
+              "sourceRef": "tmp/channel-research/shards/16-education.json:20",
+              "observedForms": [
+                "piss"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "hell",
+        "pissed",
+        "ass",
+        "piss"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "16-education",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 15,
+      "name": "TREY the Explainer",
+      "channelId": "UCOuWeOkMrq84u5LY6apWQ8Q",
+      "channelUrl": "https://www.youtube.com/channel/UCOuWeOkMrq84u5LY6apWQ8Q",
+      "lane": "archaeology, paleontology, and historical/cultural explanation",
+      "evidenceVideos": [
+        {
+          "videoId": "Dxv7p8wXQ9c",
+          "url": "https://www.youtube.com/watch?v=Dxv7p8wXQ9c",
+          "captionTrack": "English (auto-generated), YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:18:53",
+              "excerpt": "literally translated to piss pots in Sumerian",
+              "sourceRef": "tmp/channel-research/shards/16-education.json:36",
+              "observedForms": [
+                "piss"
+              ]
+            },
+            {
+              "timestamp": "00:19:00",
+              "excerpt": "public restrooms called fart houses. There was no toilet paper in ancient",
+              "sourceRef": "tmp/channel-research/shards/16-education.json:36",
+              "observedForms": [
+                "fart"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "Wmv-75ffpUg",
+          "url": "https://www.youtube.com/watch?v=Wmv-75ffpUg",
+          "captionTrack": "English (auto-generated), YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:16:11",
+              "excerpt": "I think some of the costumes suck. The costumes kind of just suck.",
+              "sourceRef": "tmp/channel-research/shards/16-education.json:36",
+              "observedForms": [
+                "suck"
+              ]
+            },
+            {
+              "timestamp": "00:18:07",
+              "excerpt": "It just feels like crappy Game of Thrones.",
+              "sourceRef": "tmp/channel-research/shards/16-education.json:36",
+              "observedForms": [
+                "crappy"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "piss",
+        "fart",
+        "suck",
+        "crappy"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "16-education",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 16,
+      "name": "Explosions&Fire",
+      "channelId": "UCVovvq34gd0ps5cVYNZrc7A",
+      "channelUrl": "https://www.youtube.com/channel/UCVovvq34gd0ps5cVYNZrc7A",
+      "lane": "chemistry, pyrotechnics, and science culture",
+      "evidenceVideos": [
+        {
+          "videoId": "4CbdVkcr-Nw",
+          "url": "https://www.youtube.com/watch?v=4CbdVkcr-Nw",
+          "captionTrack": "English (auto-generated), YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:02:11",
+              "excerpt": "Oh, I hate my PhD. It sucks. It sucks.",
+              "sourceRef": "tmp/channel-research/shards/16-education.json:39",
+              "observedForms": [
+                "sucks"
+              ]
+            },
+            {
+              "timestamp": "00:03:06",
+              "excerpt": "God damn, we're talking about science. Let's get into it.",
+              "sourceRef": "tmp/channel-research/shards/16-education.json:39",
+              "observedForms": [
+                "damn"
+              ]
+            },
+            {
+              "timestamp": "00:21:27",
+              "excerpt": "you do that shitty online web portal that looks like it was made in",
+              "sourceRef": "tmp/channel-research/shards/16-education.json:39",
+              "observedForms": [
+                "shitty"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "PDapGJ9jWZk",
+          "url": "https://www.youtube.com/watch?v=PDapGJ9jWZk",
+          "captionTrack": "English (auto-generated), YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:05:08",
+              "excerpt": "the whole purpose of the thing and be really shitty",
+              "sourceRef": "tmp/channel-research/shards/16-education.json:39",
+              "observedForms": [
+                "shitty"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "sucks",
+        "damn",
+        "shitty"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "16-education",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 17,
+      "name": "History Buffs",
+      "channelId": "UCggHoXaj8BQHIiPmOxezeWA",
+      "channelUrl": "https://www.youtube.com/channel/UCggHoXaj8BQHIiPmOxezeWA",
+      "lane": "historical film criticism and history commentary",
+      "evidenceVideos": [
+        {
+          "videoId": "Zj9S0y3Y430",
+          "url": "https://www.youtube.com/watch?v=Zj9S0y3Y430",
+          "captionTrack": "English (auto-generated), YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:30:28",
+              "excerpt": "this is a really piss poor effort did you guys maybe forget something",
+              "sourceRef": "tmp/channel-research/shards/16-education.json:24",
+              "observedForms": [
+                "piss"
+              ]
+            },
+            {
+              "timestamp": "00:30:35",
+              "excerpt": "quickly thanks to Robin Hood's shitty cremation",
+              "sourceRef": "tmp/channel-research/shards/16-education.json:24",
+              "observedForms": [
+                "shitty"
+              ]
+            },
+            {
+              "timestamp": "00:32:02",
+              "excerpt": "completely uncontested but to hell with accuracy right",
+              "sourceRef": "tmp/channel-research/shards/16-education.json:24",
+              "observedForms": [
+                "hell"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "j_FAVWRRLmg",
+          "url": "https://www.youtube.com/watch?v=j_FAVWRRLmg",
+          "captionTrack": "English (auto-generated), YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:21:03",
+              "excerpt": "For all we know, they're taking the piss out of him.",
+              "sourceRef": "tmp/channel-research/shards/16-education.json:24",
+              "observedForms": [
+                "piss"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "piss",
+        "shitty",
+        "hell"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "16-education",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 18,
+      "name": "Mighty Car Mods",
+      "channelId": "UCgJRL30YS6XFxq9Ga8W2J3A",
+      "channelUrl": "https://www.youtube.com/channel/UCgJRL30YS6XFxq9Ga8W2J3A",
+      "lane": "Australian automotive builds, repairs, modifications, and road trips",
+      "evidenceVideos": [
+        {
+          "videoId": "3nI9yStzUJA",
+          "url": "https://www.youtube.com/watch?v=3nI9yStzUJA",
+          "captionTrack": "English (auto-generated), YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:03:42",
+              "excerpt": "the best damn honda civic on this",
+              "sourceRef": "tmp/channel-research/shards/19-makers.json:16",
+              "observedForms": [
+                "damn"
+              ]
+            },
+            {
+              "timestamp": "00:06:38",
+              "excerpt": "you can't kind of sucks man haven't you",
+              "sourceRef": "tmp/channel-research/shards/19-makers.json:16",
+              "observedForms": [
+                "sucks"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "5wW5VLFqtxw",
+          "url": "https://www.youtube.com/watch?v=5wW5VLFqtxw",
+          "captionTrack": "English (auto-generated), YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:02:23",
+              "excerpt": "uses too much fuel and it kind of sucks",
+              "sourceRef": "tmp/channel-research/shards/19-makers.json:16",
+              "observedForms": [
+                "sucks"
+              ]
+            },
+            {
+              "timestamp": "00:15:20",
+              "excerpt": "raining or it like literally pissing",
+              "sourceRef": "tmp/channel-research/shards/19-makers.json:16",
+              "observedForms": [
+                "pissing"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "damn",
+        "sucks",
+        "pissing"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "19-makers",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 19,
+      "name": "The Kavernacle",
+      "channelId": "UCoG5ya-sMXNMkqkIz1sZ_Lw",
+      "channelUrl": "https://www.youtube.com/channel/UCoG5ya-sMXNMkqkIz1sZ_Lw",
+      "lane": "left politics, anti-SJW culture, and social commentary",
+      "evidenceVideos": [
+        {
+          "videoId": "ShzZ65Mmdh4",
+          "url": "https://www.youtube.com/watch?v=ShzZ65Mmdh4",
+          "captionTrack": "English (auto-generated), YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:04:36",
+              "excerpt": "really guess what we're shitty people",
+              "sourceRef": "tmp/channel-research/shards/12-social-commentary.json:23",
+              "observedForms": [
+                "shitty"
+              ]
+            },
+            {
+              "timestamp": "00:04:53",
+              "excerpt": "you for all those goddamn years i took",
+              "sourceRef": "tmp/channel-research/shards/12-social-commentary.json:23",
+              "observedForms": [
+                "goddamn"
+              ]
+            },
+            {
+              "timestamp": "00:10:24",
+              "excerpt": "pandering to are pissed that naughty dog",
+              "sourceRef": "tmp/channel-research/shards/12-social-commentary.json:23",
+              "observedForms": [
+                "pissed"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "tlZfD5Ayl_U",
+          "url": "https://www.youtube.com/watch?v=tlZfD5Ayl_U",
+          "captionTrack": "English (auto-generated), YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:04:32",
+              "excerpt": "like if the person behind it is shitty",
+              "sourceRef": "tmp/channel-research/shards/12-social-commentary.json:23",
+              "observedForms": [
+                "shitty"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "shitty",
+        "goddamn",
+        "pissed"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "12-social-commentary",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 20,
+      "name": "Painkiller Already (PKA) / WoodysGamertag",
+      "channelId": "UCIPVJoHb_A5S3kcv3TJlyEg",
+      "channelUrl": "https://www.youtube.com/channel/UCIPVJoHb_A5S3kcv3TJlyEg/videos",
+      "lane": "gaming-comedy podcast / guest interviews",
+      "evidenceVideos": [
+        {
+          "videoId": "cPWz3YVdmck",
+          "url": "https://www.youtube.com/watch?v=cPWz3YVdmck",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:52:14",
+              "excerpt": "[ __ ] I will be the best goddamn pimp",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:125",
+              "observedForms": [
+                "goddamn"
+              ]
+            },
+            {
+              "timestamp": "00:46:43",
+              "excerpt": "have him pay for her to suck my dick",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:125",
+              "observedForms": [
+                "dick"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "fgeWmPYi2fM",
+          "url": "https://www.youtube.com/watch?v=fgeWmPYi2fM",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "04:08:42",
+              "excerpt": "that's shitty that kid is a [ __ ] [ __ ]",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:135",
+              "observedForms": [
+                "shitty"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "goddamn",
+        "dick",
+        "shitty"
+      ],
+      "evidenceStrength": "strong",
+      "sourceShard": "02-comedy-podcasts",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 3
+    },
+    {
+      "rank": 21,
+      "name": "Amanda the Jedi",
+      "channelId": "UCiHwDqiw6-2dpSJEXkaCi9Q",
+      "channelUrl": "https://www.youtube.com/channel/UCiHwDqiw6-2dpSJEXkaCi9Q",
+      "lane": "film reviews and explained commentary",
+      "evidenceVideos": [
+        {
+          "videoId": "bltYx5LRmWg",
+          "url": "https://www.youtube.com/watch?v=bltYx5LRmWg",
+          "captionTrack": "English (auto-generated), YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:02:37",
+              "excerpt": "pretty damn high with her father being",
+              "sourceRef": "tmp/channel-research/shards/08-film-tv.json:13",
+              "observedForms": [
+                "damn"
+              ]
+            },
+            {
+              "timestamp": "00:06:34",
+              "excerpt": "yo Mina where the hell you been Loca",
+              "sourceRef": "tmp/channel-research/shards/08-film-tv.json:13",
+              "observedForms": [
+                "hell"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "MDP3x6Pn1Zg",
+          "url": "https://www.youtube.com/watch?v=MDP3x6Pn1Zg",
+          "captionTrack": "English (auto-generated), YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:06:59",
+              "excerpt": "uncomfortable than like a shitty house",
+              "sourceRef": "tmp/channel-research/shards/08-film-tv.json:13",
+              "observedForms": [
+                "shitty"
+              ]
+            },
+            {
+              "timestamp": "00:08:53",
+              "excerpt": "horrifying we've got a dirty bloody bed",
+              "sourceRef": "tmp/channel-research/shards/08-film-tv.json:13",
+              "observedForms": [
+                "bloody"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "damn",
+        "hell",
+        "shitty",
+        "bloody"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "08-film-tv",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 22,
+      "name": "Brain Blaze",
+      "channelId": "UCYY5GWf7MHFJ6DZeHreoXgw",
+      "channelUrl": "https://www.youtube.com/channel/UCYY5GWf7MHFJ6DZeHreoXgw",
+      "lane": "comic facts, history, science, and miscellaneous documentary commentary",
+      "evidenceVideos": [
+        {
+          "videoId": "aeiHv-m3bcM",
+          "url": "https://www.youtube.com/watch?v=aeiHv-m3bcM",
+          "captionTrack": "English (auto-generated), YouTube ASR, read via public caption relay",
+          "captionObservations": [
+            {
+              "timestamp": "00:02:11",
+              "excerpt": "his name was mr blobby and he was a giant crap pink rubber jelly monster",
+              "sourceRef": "tmp/channel-research/shards/20-documentary.json:18",
+              "observedForms": [
+                "crap"
+              ]
+            },
+            {
+              "timestamp": "00:03:40",
+              "excerpt": "i'm just a dick and that works and look it works for all those other classic",
+              "sourceRef": "tmp/channel-research/shards/20-documentary.json:18",
+              "observedForms": [
+                "dick"
+              ]
+            },
+            {
+              "timestamp": "00:07:17",
+              "excerpt": "the bbc don't give a damn they just want viewers",
+              "sourceRef": "tmp/channel-research/shards/20-documentary.json:18",
+              "observedForms": [
+                "damn"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "JGXuIZC1jRU",
+          "url": "https://www.youtube.com/watch?v=JGXuIZC1jRU",
+          "captionTrack": "English (auto-generated), YouTube ASR, read via public caption relay",
+          "captionObservations": [
+            {
+              "timestamp": "00:09:26",
+              "excerpt": "it's an absolute bloody outrage",
+              "sourceRef": "tmp/channel-research/shards/20-documentary.json:18",
+              "observedForms": [
+                "bloody"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "crap",
+        "dick",
+        "damn",
+        "bloody"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "20-documentary",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 23,
+      "name": "Food Review UK",
+      "channelId": "UCwYOFq7ytT-jMWL5cAoqDow",
+      "channelUrl": "https://www.youtube.com/channel/UCwYOFq7ytT-jMWL5cAoqDow",
+      "lane": "British food reviews / restaurant and snack commentary",
+      "evidenceVideos": [
+        {
+          "videoId": "FeYGjp4pCOs",
+          "url": "https://www.youtube.com/watch?v=FeYGjp4pCOs",
+          "captionTrack": "English (auto-generated), YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:00:07",
+              "excerpt": "damn mouths on Bits of Paper or",
+              "sourceRef": "tmp/channel-research/shards/15-food-travel.json:26",
+              "observedForms": [
+                "damn"
+              ]
+            },
+            {
+              "timestamp": "00:01:07",
+              "excerpt": "as well absolutely piss take",
+              "sourceRef": "tmp/channel-research/shards/15-food-travel.json:26",
+              "observedForms": [
+                "piss"
+              ]
+            },
+            {
+              "timestamp": "00:01:15",
+              "excerpt": "give me a goddamn break Jesus or",
+              "sourceRef": "tmp/channel-research/shards/15-food-travel.json:26",
+              "observedForms": [
+                "goddamn"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "b0ykIMAeWss",
+          "url": "https://www.youtube.com/watch?v=b0ykIMAeWss",
+          "captionTrack": "English (auto-generated), YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:01:48",
+              "excerpt": "shitness of Twizzlers and the shitness",
+              "sourceRef": "tmp/channel-research/shards/15-food-travel.json:26",
+              "observedForms": [
+                "shitness"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "damn",
+        "piss",
+        "goddamn",
+        "shitness"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "15-food-travel",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 24,
+      "name": "Nyanners",
+      "channelId": "UCO5Jvsc_sKuZi3MhnJxrlzQ",
+      "channelUrl": "https://www.youtube.com/channel/UCO5Jvsc_sKuZi3MhnJxrlzQ",
+      "lane": "English VTuber comedy, commentary, and edited stream clips",
+      "evidenceVideos": [
+        {
+          "videoId": "ILp_TxjB8nY",
+          "url": "https://www.youtube.com/watch?v=ILp_TxjB8nY",
+          "captionTrack": "English (auto-generated), YouTube ASR via public web relay",
+          "captionObservations": [
+            {
+              "timestamp": "00:23:14",
+              "excerpt": "his dick out and he's like peeing in the",
+              "sourceRef": "tmp/channel-research/shards/18-streamers.json:22",
+              "observedForms": [
+                "dick"
+              ]
+            },
+            {
+              "timestamp": "00:34:50",
+              "excerpt": "Holy crap,",
+              "sourceRef": "tmp/channel-research/shards/18-streamers.json:22",
+              "observedForms": [
+                "crap"
+              ]
+            },
+            {
+              "timestamp": "00:44:08",
+              "excerpt": ">> You're a goddamn liar.",
+              "sourceRef": "tmp/channel-research/shards/18-streamers.json:22",
+              "observedForms": [
+                "goddamn"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "SxV00BpNzhI",
+          "url": "https://www.youtube.com/watch?v=SxV00BpNzhI",
+          "captionTrack": "English (auto-generated), YouTube ASR via public web relay",
+          "captionObservations": [
+            {
+              "timestamp": "00:12:15",
+              "excerpt": "hell. Like my mom is probably like taken",
+              "sourceRef": "tmp/channel-research/shards/18-streamers.json:22",
+              "observedForms": [
+                "hell"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "dick",
+        "crap",
+        "goddamn",
+        "hell"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "18-streamers",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 25,
+      "name": "Pretty Much It",
+      "channelId": "UCGJs45Q1VsRt3CEF0z46vmA",
+      "channelUrl": "https://www.youtube.com/channel/UCGJs45Q1VsRt3CEF0z46vmA",
+      "lane": "comedic movie watchalong/commentary",
+      "evidenceVideos": [
+        {
+          "videoId": "_qGVZQixPGI",
+          "url": "https://www.youtube.com/watch?v=_qGVZQixPGI",
+          "captionTrack": "English (auto-generated), YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:04:24",
+              "excerpt": "Oh my. I MEAN, HE'S LIKE, \"FUCK,",
+              "sourceRef": "tmp/channel-research/shards/08-film-tv.json:14",
+              "observedForms": [
+                "fuck"
+              ]
+            },
+            {
+              "timestamp": "00:16:16",
+              "excerpt": "Wait, what the hell? He's doing this",
+              "sourceRef": "tmp/channel-research/shards/08-film-tv.json:14",
+              "observedForms": [
+                "hell"
+              ]
+            },
+            {
+              "timestamp": "00:17:37",
+              "excerpt": "GOD DAMN RIGHT.",
+              "sourceRef": "tmp/channel-research/shards/08-film-tv.json:14",
+              "observedForms": [
+                "damn"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "PZVntqxKp44",
+          "url": "https://www.youtube.com/watch?v=PZVntqxKp44",
+          "captionTrack": "English (auto-generated), YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:07:02",
+              "excerpt": "all that crap you know baby's got made",
+              "sourceRef": "tmp/channel-research/shards/08-film-tv.json:14",
+              "observedForms": [
+                "crap"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "fuck",
+        "hell",
+        "damn",
+        "crap"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "08-film-tv",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 26,
+      "name": "SomeThingElseYT",
+      "channelId": "UCvUmwreRrbxeR1mbmojj8fg",
+      "channelUrl": "https://www.youtube.com/channel/UCvUmwreRrbxeR1mbmojj8fg",
+      "lane": "animated storytime / comedy",
+      "evidenceVideos": [
+        {
+          "videoId": "8hkLdMSiRnE",
+          "url": "https://www.youtube.com/watch?v=8hkLdMSiRnE",
+          "captionTrack": "English (auto-generated), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:01:43",
+              "excerpt": "the goddamn chalky milk",
+              "sourceRef": "tmp/channel-research/shards/06-animation.json:212",
+              "observedForms": [
+                "goddamn"
+              ]
+            },
+            {
+              "timestamp": "00:02:41",
+              "excerpt": "I found like a crap ton of potential new places",
+              "sourceRef": "tmp/channel-research/shards/06-animation.json:212",
+              "observedForms": [
+                "crap"
+              ]
+            },
+            {
+              "timestamp": "00:04:51",
+              "excerpt": "I rented a tall shitty apartment",
+              "sourceRef": "tmp/channel-research/shards/06-animation.json:212",
+              "observedForms": [
+                "shitty"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "1ODypSlriLM",
+          "url": "https://www.youtube.com/watch?v=1ODypSlriLM",
+          "captionTrack": "English (auto-generated), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:05:55",
+              "excerpt": "that sucks so much ass",
+              "sourceRef": "tmp/channel-research/shards/06-animation.json:224",
+              "observedForms": [
+                "ass"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "goddamn",
+        "crap",
+        "shitty",
+        "ass"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "06-animation",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 27,
+      "name": "Spectrum Pulse",
+      "channelId": "UCvqQeWFnzetSkyD1AAL9W1g",
+      "channelUrl": "https://www.youtube.com/channel/UCvqQeWFnzetSkyD1AAL9W1g",
+      "lane": "music criticism / pop-culture essays",
+      "evidenceVideos": [
+        {
+          "videoId": "Lq6tt_0zn5Y",
+          "url": "https://www.youtube.com/watch?v=Lq6tt_0zn5Y",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:00:55",
+              "excerpt": "songs that ... still blow ass to this very day",
+              "sourceRef": "tmp/channel-research/shards/04-video-essays.json:412",
+              "observedForms": [
+                "ass"
+              ]
+            },
+            {
+              "timestamp": "00:01:11",
+              "excerpt": "boringly shitty",
+              "sourceRef": "tmp/channel-research/shards/04-video-essays.json:412",
+              "observedForms": [
+                "shitty"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "rzTOwW6SGS4",
+          "url": "https://www.youtube.com/watch?v=rzTOwW6SGS4",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:04:14",
+              "excerpt": "damn near her entire career",
+              "sourceRef": "tmp/channel-research/shards/04-video-essays.json:422",
+              "observedForms": [
+                "damn"
+              ]
+            },
+            {
+              "timestamp": "00:01:31",
+              "excerpt": "the album had been already delayed ... hell",
+              "sourceRef": "tmp/channel-research/shards/04-video-essays.json:422",
+              "observedForms": [
+                "hell"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "ass",
+        "shitty",
+        "damn",
+        "hell"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "04-video-essays",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 28,
+      "name": "The Casual Criminalist",
+      "channelId": "UCp1tsmksyf6TgKFMdt8-05Q",
+      "channelUrl": "https://www.youtube.com/channel/UCp1tsmksyf6TgKFMdt8-05Q",
+      "lane": "true-crime documentary narration and informal case commentary",
+      "evidenceVideos": [
+        {
+          "videoId": "As_8KsfHIrM",
+          "url": "https://www.youtube.com/watch?v=As_8KsfHIrM",
+          "captionTrack": "English (auto-generated), YouTube ASR, read via public caption relay",
+          "captionObservations": [
+            {
+              "timestamp": "00:27:09",
+              "excerpt": "January, they already had a list of possible witnesses to question, had determined that Miguel was their main suspect. You goddamn right he is.",
+              "sourceRef": "tmp/channel-research/shards/20-documentary.json:17",
+              "observedForms": [
+                "goddamn"
+              ]
+            },
+            {
+              "timestamp": "01:06:48",
+              "excerpt": "Miguel claimed that Alcutraz became angry and then punched Marta in the face. God damn. Feel like this is a bit of an excuse, though.",
+              "sourceRef": "tmp/channel-research/shards/20-documentary.json:17",
+              "observedForms": [
+                "damn"
+              ]
+            },
+            {
+              "timestamp": "01:09:41",
+              "excerpt": "what they really wanted to do was grab the bastard and hang him upside down out of a window until he told the damn truth.",
+              "sourceRef": "tmp/channel-research/shards/20-documentary.json:17",
+              "observedForms": [
+                "bastard",
+                "damn"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "k_eclBWtZCk",
+          "url": "https://www.youtube.com/watch?v=k_eclBWtZCk",
+          "captionTrack": "English (auto-generated), YouTube ASR, read via public caption relay",
+          "captionObservations": [
+            {
+              "timestamp": "00:12:02",
+              "excerpt": "For every person claiming that Epstein was some kind of eal genius, there's another who characterizes him as a dumbass poser.",
+              "sourceRef": "tmp/channel-research/shards/20-documentary.json:17",
+              "observedForms": [
+                "dumbass"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "goddamn",
+        "damn",
+        "bastard",
+        "dumbass"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "20-documentary",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 29,
+      "name": "The Paranormal Files (Official Channel)",
+      "channelId": "UCsSRxYAK0PiA7d0XUR6sPFA",
+      "channelUrl": "https://www.youtube.com/channel/UCsSRxYAK0PiA7d0XUR6sPFA",
+      "lane": "paranormal investigations / haunted-history documentaries",
+      "evidenceVideos": [
+        {
+          "videoId": "qZzR2bEomGo",
+          "url": "https://www.youtube.com/watch?v=qZzR2bEomGo",
+          "captionTrack": "English (auto-generated), YouTube ASR, read via public caption relay",
+          "captionObservations": [
+            {
+              "timestamp": "00:11:43",
+              "excerpt": "this is going to be creepy as hell wrong",
+              "sourceRef": "tmp/channel-research/shards/14-horror.json:19",
+              "observedForms": [
+                "hell"
+              ]
+            },
+            {
+              "timestamp": "01:02:44",
+              "excerpt": "get pissed up and never came home for",
+              "sourceRef": "tmp/channel-research/shards/14-horror.json:19",
+              "observedForms": [
+                "pissed"
+              ]
+            },
+            {
+              "timestamp": "01:30:14",
+              "excerpt": "bloody hell I've never seen that tip",
+              "sourceRef": "tmp/channel-research/shards/14-horror.json:19",
+              "observedForms": [
+                "bloody",
+                "hell"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "g5COtrkrpEQ",
+          "url": "https://www.youtube.com/watch?v=g5COtrkrpEQ",
+          "captionTrack": "English (auto-generated), YouTube ASR, read via public caption relay",
+          "captionObservations": [
+            {
+              "timestamp": "02:28:36",
+              "excerpt": "I'm sitting in this old ass house with",
+              "sourceRef": "tmp/channel-research/shards/14-horror.json:19",
+              "observedForms": [
+                "ass"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "hell",
+        "pissed",
+        "bloody",
+        "ass"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "14-horror",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 30,
+      "name": "Jack Saint",
+      "channelId": "UCdQKvqmHKe_8fv4Rwe7ag9Q",
+      "channelUrl": "https://www.youtube.com/channel/UCdQKvqmHKe_8fv4Rwe7ag9Q",
+      "lane": "film/TV and internet-culture essays",
+      "evidenceVideos": [
+        {
+          "videoId": "05rlD6L-Cew",
+          "url": "https://www.youtube.com/watch?v=05rlD6L-Cew",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:03:28",
+              "excerpt": "was like, \"Fuck yeah.\"",
+              "sourceRef": "tmp/channel-research/shards/04-video-essays.json:220",
+              "observedForms": [
+                "fuck"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "SieAdCQdKq0",
+          "url": "https://www.youtube.com/watch?v=SieAdCQdKq0",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:02:02",
+              "excerpt": "I am just covering my ass for calling Phil Jeff",
+              "sourceRef": "tmp/channel-research/shards/04-video-essays.json:229",
+              "observedForms": [
+                "ass"
+              ]
+            },
+            {
+              "timestamp": "00:21:11",
+              "excerpt": "I'm okay, bitch",
+              "sourceRef": "tmp/channel-research/shards/04-video-essays.json:229",
+              "observedForms": [
+                "bitch"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "fuck",
+        "ass",
+        "bitch"
+      ],
+      "evidenceStrength": "strong",
+      "sourceShard": "04-video-essays",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 3
+    },
+    {
+      "rank": 31,
+      "name": "Innuendo Studios",
+      "channelId": "UC5fdssPqmmGhkhsJi4VcckA",
+      "channelUrl": "https://www.youtube.com/channel/UC5fdssPqmmGhkhsJi4VcckA",
+      "lane": "political and internet-culture essays",
+      "evidenceVideos": [
+        {
+          "videoId": "dbEiVrnhwlU",
+          "url": "https://www.youtube.com/watch?v=dbEiVrnhwlU",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:00:31",
+              "excerpt": "I have shitty Wi-Fi",
+              "sourceRef": "tmp/channel-research/shards/04-video-essays.json:251",
+              "observedForms": [
+                "shitty"
+              ]
+            },
+            {
+              "timestamp": "00:14:07",
+              "excerpt": "the stuff is crap ... crap enough to ruin the other",
+              "sourceRef": "tmp/channel-research/shards/04-video-essays.json:251",
+              "observedForms": [
+                "crap"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "wmVkJvieaOA",
+          "url": "https://www.youtube.com/watch?v=wmVkJvieaOA",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:00:40",
+              "excerpt": "a shitty little project",
+              "sourceRef": "tmp/channel-research/shards/04-video-essays.json:261",
+              "observedForms": [
+                "shitty"
+              ]
+            },
+            {
+              "timestamp": "00:07:46",
+              "excerpt": "the ignorant tight-ass club",
+              "sourceRef": "tmp/channel-research/shards/04-video-essays.json:261",
+              "observedForms": [
+                "ass"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "shitty",
+        "crap",
+        "ass"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "04-video-essays",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 32,
+      "name": "JCS - Criminal Psychology",
+      "channelId": "UCYwVxWpjeKFWwu8TML-Te9A",
+      "channelUrl": "https://www.youtube.com/channel/UCYwVxWpjeKFWwu8TML-Te9A",
+      "lane": "criminal-psychology documentary analysis and interrogation commentary",
+      "evidenceVideos": [
+        {
+          "videoId": "KnyERpdX_0g",
+          "url": "https://www.youtube.com/watch?v=KnyERpdX_0g",
+          "captionTrack": "English (auto-generated), YouTube ASR, read via public caption relay",
+          "captionObservations": [
+            {
+              "timestamp": "00:08:41",
+              "excerpt": "Um I can't believe you're still [ __ ] talking to this bitch.",
+              "sourceRef": "tmp/channel-research/shards/20-documentary.json:19",
+              "observedForms": [
+                "bitch"
+              ]
+            },
+            {
+              "timestamp": "00:09:40",
+              "excerpt": "I'm a I'm an independent person. I'm a I'm a very private person. I don't want to dump my crap on other people.",
+              "sourceRef": "tmp/channel-research/shards/20-documentary.json:19",
+              "observedForms": [
+                "crap"
+              ]
+            },
+            {
+              "timestamp": "00:40:30",
+              "excerpt": "And I don't know what the hell happened. It's just like a complete change.",
+              "sourceRef": "tmp/channel-research/shards/20-documentary.json:19",
+              "observedForms": [
+                "hell"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "6d-kCW46kqs",
+          "url": "https://www.youtube.com/watch?v=6d-kCW46kqs",
+          "captionTrack": "English (auto-generated), YouTube ASR, read via public caption relay",
+          "captionObservations": [
+            {
+              "timestamp": "00:01:51",
+              "excerpt": "You might just ask someone what the hell is going on or what the status of your wife is",
+              "sourceRef": "tmp/channel-research/shards/20-documentary.json:19",
+              "observedForms": [
+                "hell"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "bitch",
+        "crap",
+        "hell"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "20-documentary",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 33,
+      "name": "Sr Pelo",
+      "channelId": "UCt-GOpCw4dOBlIyqL9A1ztA",
+      "channelUrl": "https://www.youtube.com/channel/UCt-GOpCw4dOBlIyqL9A1ztA",
+      "lane": "adult animated shorts / comedy",
+      "evidenceVideos": [
+        {
+          "videoId": "Yw0OeCMB1MM",
+          "url": "https://www.youtube.com/watch?v=Yw0OeCMB1MM",
+          "captionTrack": "English (auto-generated), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:03:16",
+              "excerpt": "Hell, well now it's time for what you came for",
+              "sourceRef": "tmp/channel-research/shards/06-animation.json:59",
+              "observedForms": [
+                "hell"
+              ]
+            },
+            {
+              "timestamp": "00:04:26",
+              "excerpt": "hell if I know",
+              "sourceRef": "tmp/channel-research/shards/06-animation.json:59",
+              "observedForms": [
+                "hell"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "3viekW3AnRA",
+          "url": "https://www.youtube.com/watch?v=3viekW3AnRA",
+          "captionTrack": "English (auto-generated), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:05:18",
+              "excerpt": "that was piss, we're gonna need reinforcements",
+              "sourceRef": "tmp/channel-research/shards/06-animation.json:69",
+              "observedForms": [
+                "piss"
+              ]
+            },
+            {
+              "timestamp": "00:11:09",
+              "excerpt": "really good damn, go check it out",
+              "sourceRef": "tmp/channel-research/shards/06-animation.json:69",
+              "observedForms": [
+                "damn"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "hell",
+        "piss",
+        "damn"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "06-animation",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 34,
+      "name": "Tabbes",
+      "channelId": "UCDQBZcjYKP1J1Nu-Y0_D37Q",
+      "channelUrl": "https://www.youtube.com/channel/UCDQBZcjYKP1J1Nu-Y0_D37Q",
+      "lane": "animated storytime / comedy",
+      "evidenceVideos": [
+        {
+          "videoId": "e_c_Rkkp-qw",
+          "url": "https://www.youtube.com/watch?v=e_c_Rkkp-qw",
+          "captionTrack": "English (auto-generated), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:01:39",
+              "excerpt": "some nasty ass Brown water",
+              "sourceRef": "tmp/channel-research/shards/06-animation.json:245",
+              "observedForms": [
+                "ass"
+              ]
+            },
+            {
+              "timestamp": "00:02:51",
+              "excerpt": "holy [ __ ] ... a pretty shitty situation",
+              "sourceRef": "tmp/channel-research/shards/06-animation.json:245",
+              "observedForms": [
+                "shitty"
+              ]
+            },
+            {
+              "timestamp": "00:03:40",
+              "excerpt": "a big ass dump",
+              "sourceRef": "tmp/channel-research/shards/06-animation.json:245",
+              "observedForms": [
+                "ass"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "8mCD3vNZcNg",
+          "url": "https://www.youtube.com/watch?v=8mCD3vNZcNg",
+          "captionTrack": "English (auto-generated), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:01:29",
+              "excerpt": "clowns must be out of your goddamn minds",
+              "sourceRef": "tmp/channel-research/shards/06-animation.json:256",
+              "observedForms": [
+                "goddamn"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "ass",
+        "shitty",
+        "goddamn"
+      ],
+      "evidenceStrength": "very strong",
+      "sourceShard": "06-animation",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 4
+    },
+    {
+      "rank": 35,
+      "name": "The Basement Yard",
+      "channelId": "UC_a6c3KLo9reMOqn2pbvMqg",
+      "channelUrl": "https://www.youtube.com/channel/UC_a6c3KLo9reMOqn2pbvMqg/videos",
+      "lane": "comedy podcast / conversational duo",
+      "evidenceVideos": [
+        {
+          "videoId": "JEdQCfQhIj4",
+          "url": "https://www.youtube.com/watch?v=JEdQCfQhIj4",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "01:15:47",
+              "excerpt": "fuck? Like, Yo, this [ __ ] is crazy.",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:56",
+              "observedForms": [
+                "fuck"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "BI4-Ige_GJk",
+          "url": "https://www.youtube.com/watch?v=BI4-Ige_GJk",
+          "captionTrack": "English (Original), automatic",
+          "captionObservations": [
+            {
+              "timestamp": "00:38:29",
+              "excerpt": "I got a big ass nose though",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:65",
+              "observedForms": [
+                "ass"
+              ]
+            },
+            {
+              "timestamp": "00:39:37",
+              "excerpt": "what the hell that is",
+              "sourceRef": "tmp/channel-research/shards/02-comedy-podcasts.json:65",
+              "observedForms": [
+                "hell"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "fuck",
+        "ass",
+        "hell"
+      ],
+      "evidenceStrength": "strong",
+      "sourceShard": "02-comedy-podcasts",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 3
+    },
+    {
+      "rank": 36,
+      "name": "Jubilee",
+      "channelId": "UCJjSDX-jUChzOEyok9XYRJQ",
+      "channelUrl": "https://www.youtube.com/channel/UCJjSDX-jUChzOEyok9XYRJQ",
+      "lane": "relationship formats / social-experiment discussions",
+      "evidenceVideos": [
+        {
+          "videoId": "j1nwWMLUCbE",
+          "url": "https://www.youtube.com/watch?v=j1nwWMLUCbE",
+          "captionTrack": "English (auto-generated), YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:17:18",
+              "excerpt": "right like damn no",
+              "sourceRef": "tmp/channel-research/shards/11-street.json:23",
+              "observedForms": [
+                "damn"
+              ]
+            },
+            {
+              "timestamp": "00:29:14",
+              "excerpt": "if I'm be honest but I'm be like damn that sucks like on to the next like",
+              "sourceRef": "tmp/channel-research/shards/11-street.json:23",
+              "observedForms": [
+                "damn",
+                "sucks"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "88pdoTk5oJE",
+          "url": "https://www.youtube.com/watch?v=88pdoTk5oJE",
+          "captionTrack": "English (auto-generated), YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:32:08",
+              "excerpt": "It was like what the what the hell are you doing?",
+              "sourceRef": "tmp/channel-research/shards/11-street.json:23",
+              "observedForms": [
+                "hell"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "damn",
+        "sucks",
+        "hell"
+      ],
+      "evidenceStrength": "strong",
+      "sourceShard": "11-street",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 3
+    },
+    {
+      "rank": 37,
+      "name": "David Pakman Show",
+      "channelId": "UCvixJtaXuNdMPUGdOPcY8Ag",
+      "channelUrl": "https://www.youtube.com/channel/UCvixJtaXuNdMPUGdOPcY8Ag",
+      "lane": "US political news and interview commentary",
+      "evidenceVideos": [
+        {
+          "videoId": "Lu3lD8tWN7c",
+          "url": "https://www.youtube.com/watch?v=Lu3lD8tWN7c",
+          "captionTrack": "English (auto-generated), kind=asr",
+          "captionObservations": [
+            {
+              "timestamp": "00:01:40",
+              "excerpt": "A crappy idea, guys.",
+              "sourceRef": "tmp/channel-research/shards/13-politics.json:34",
+              "observedForms": [
+                "crappy"
+              ]
+            },
+            {
+              "timestamp": "00:03:03",
+              "excerpt": "What a crappy way to make a point, don't you think?",
+              "sourceRef": "tmp/channel-research/shards/13-politics.json:34",
+              "observedForms": [
+                "crappy"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "5yYFyAmAwbU",
+          "url": "https://www.youtube.com/watch?v=5yYFyAmAwbU",
+          "captionTrack": "English (auto-generated), kind=asr",
+          "captionObservations": [
+            {
+              "timestamp": "00:01:08",
+              "excerpt": "What was the costume and what the hell was somebody thinking?",
+              "sourceRef": "tmp/channel-research/shards/13-politics.json:34",
+              "observedForms": [
+                "hell"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "crappy",
+        "hell"
+      ],
+      "evidenceStrength": "strong",
+      "sourceShard": "13-politics",
+      "sampledAutomaticVideoCount": 2,
+      "literalObservationCount": 3
+    },
+    {
+      "rank": 38,
+      "name": "The Cozy Representative",
+      "channelId": "UCHrdOTv5TYqOxt6-aPtuamg",
+      "channelUrl": "https://www.youtube.com/channel/UCHrdOTv5TYqOxt6-aPtuamg",
+      "lane": "music-scene documentaries and artist/band commentary",
+      "evidenceVideos": [
+        {
+          "videoId": "YiVfAO24bxc",
+          "url": "https://www.youtube.com/watch?v=YiVfAO24bxc",
+          "captionTrack": "English (auto-generated), YouTube ASR",
+          "captionObservations": [
+            {
+              "timestamp": "00:15:31",
+              "excerpt": "situations consisting of him being unreliable erratic and generally shitty to people",
+              "sourceRef": "tmp/channel-research/shards/09-music.json:30",
+              "observedForms": [
+                "shitty"
+              ]
+            },
+            {
+              "timestamp": "00:35:01",
+              "excerpt": "we were just you know we were pretty pissed or whatever",
+              "sourceRef": "tmp/channel-research/shards/09-music.json:30",
+              "observedForms": [
+                "pissed"
+              ]
+            },
+            {
+              "timestamp": "00:43:28",
+              "excerpt": "pissing off the people he leached off of",
+              "sourceRef": "tmp/channel-research/shards/09-music.json:30",
+              "observedForms": [
+                "pissing"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "shitty",
+        "pissed",
+        "pissing"
+      ],
+      "evidenceStrength": "moderate",
+      "sourceShard": "09-music",
+      "sampledAutomaticVideoCount": 1,
+      "literalObservationCount": 3
+    },
+    {
+      "rank": 39,
+      "name": "Ghost Theory",
+      "channelId": "UCRli9Ff8Qku7obfmlXf9zqg",
+      "channelUrl": "https://www.youtube.com/channel/UCRli9Ff8Qku7obfmlXf9zqg",
+      "lane": "UK ghost hunting / paranormal investigation",
+      "evidenceVideos": [
+        {
+          "videoId": "wFsG-7R416w",
+          "url": "https://www.youtube.com/watch?v=wFsG-7R416w",
+          "captionTrack": "English (auto-generated), YouTube ASR, read via public caption relay",
+          "captionObservations": [
+            {
+              "timestamp": "00:04:42",
+              "excerpt": "what the fuck is that through there",
+              "sourceRef": "tmp/channel-research/shards/14-horror.json:20",
+              "observedForms": [
+                "fuck"
+              ]
+            },
+            {
+              "timestamp": "00:05:19",
+              "excerpt": "shit asbestos",
+              "sourceRef": "tmp/channel-research/shards/14-horror.json:20",
+              "observedForms": [
+                "shit"
+              ]
+            },
+            {
+              "timestamp": "00:05:27",
+              "excerpt": "fuck's sake",
+              "sourceRef": "tmp/channel-research/shards/14-horror.json:20",
+              "observedForms": [
+                "fuck's sake"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "fuck",
+        "shit",
+        "fuck's sake"
+      ],
+      "evidenceStrength": "moderate",
+      "sourceShard": "14-horror",
+      "sampledAutomaticVideoCount": 1,
+      "literalObservationCount": 3
+    },
+    {
+      "rank": 40,
+      "name": "The Majority Report w/ Sam Seder",
+      "channelId": "UC-3jIAlnQmbbVMV6gR7K8aQ",
+      "channelUrl": "https://www.youtube.com/channel/UC-3jIAlnQmbbVMV6gR7K8aQ",
+      "lane": "US political news and progressive talk",
+      "evidenceVideos": [
+        {
+          "videoId": "TY-8QoP4ngw",
+          "url": "https://www.youtube.com/watch?v=TY-8QoP4ngw",
+          "captionTrack": "English (auto-generated), kind=asr",
+          "captionObservations": [
+            {
+              "timestamp": "00:00:59",
+              "excerpt": "Hell yeah. Let's have a good time today.",
+              "sourceRef": "tmp/channel-research/shards/13-politics.json:16",
+              "observedForms": [
+                "hell"
+              ]
+            },
+            {
+              "timestamp": "00:07:37",
+              "excerpt": "Oh, stupid ass. That's why you got to hide your face.",
+              "sourceRef": "tmp/channel-research/shards/13-politics.json:16",
+              "observedForms": [
+                "ass"
+              ]
+            },
+            {
+              "timestamp": "00:27:24",
+              "excerpt": "Damn it.",
+              "sourceRef": "tmp/channel-research/shards/13-politics.json:16",
+              "observedForms": [
+                "damn"
+              ]
+            }
+          ]
+        }
+      ],
+      "observedSwears": [
+        "hell",
+        "ass",
+        "damn"
+      ],
+      "evidenceStrength": "moderate",
+      "sourceShard": "13-politics",
+      "sampledAutomaticVideoCount": 1,
+      "literalObservationCount": 3
+    }
+  ]
+}

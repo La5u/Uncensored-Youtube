@@ -1,7 +1,12 @@
 {
   "private": true,
   "scripts": {
-    "test": "node tools/test.js"
+    "test": "node tools/test.js",
+    "test:unit": "node --test --test-concurrency=1 tests/*.test.js",
+    "test:release": "node tools/test.js --release",
+    "corpus:refresh": "node tools/refresh-caption-discovery.js",
+    "corpus:watch": "node tools/refresh-caption-discovery.js --watch 300",
+    "rules:review": "node tools/review-rules.js"
   },
   "devDependencies": {
     "@huggingface/transformers": "^4.2.0"

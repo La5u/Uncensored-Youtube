@@ -1,0 +1,263 @@
+{
+  "schemaVersion": 1,
+  "title": "Final prospective creators with observed manual English captions",
+  "generatedFrom": {
+    "audit": "tmp/channel-research/audit.json",
+    "auditedShardCount": 20,
+    "auditedShards": [
+      "tmp/channel-research/shards/01-standup.json",
+      "tmp/channel-research/shards/02-comedy-podcasts.json",
+      "tmp/channel-research/shards/03-gaming.json",
+      "tmp/channel-research/shards/04-video-essays.json",
+      "tmp/channel-research/shards/05-tabletop.json",
+      "tmp/channel-research/shards/06-animation.json",
+      "tmp/channel-research/shards/07-tech-internet.json",
+      "tmp/channel-research/shards/08-film-tv.json",
+      "tmp/channel-research/shards/09-music.json",
+      "tmp/channel-research/shards/10-sports.json",
+      "tmp/channel-research/shards/11-street.json",
+      "tmp/channel-research/shards/12-social-commentary.json",
+      "tmp/channel-research/shards/13-politics.json",
+      "tmp/channel-research/shards/14-horror.json",
+      "tmp/channel-research/shards/15-food-travel.json",
+      "tmp/channel-research/shards/16-education.json",
+      "tmp/channel-research/shards/17-sketch.json",
+      "tmp/channel-research/shards/18-streamers.json",
+      "tmp/channel-research/shards/19-makers.json",
+      "tmp/channel-research/shards/20-documentary.json"
+    ],
+    "pairedCorpusChecks": [
+      "tools/paired-caption-channels.json",
+      "tools/caption-pair-provenance.json"
+    ]
+  },
+  "selectionPolicy": {
+    "maximumCreators": 30,
+    "required": [
+      "The creator survives the 20-shard audit as a literal word-level English caption observation.",
+      "The creator is not represented by the paired/provenance corpus.",
+      "A concrete evidence video exposes an English manual/non-ASR subtitle track.",
+      "A concrete spoken-swear observation is attached to that channel and evidence video."
+    ],
+    "manualTrackScope": "Track availability is observed on the cited evidence video only; it is not generalized to every upload.",
+    "confidence": "High means the shard attributes literal swear observations to the manual/non-ASR track. Lower-confidence prospective means the manual track is observed but the literal swear observations are from automatic ASR."
+  },
+  "channels": [
+    {
+      "rank": 1,
+      "name": "Funny Or Die",
+      "channelId": "UCzS3-65Y91JhOxFiM7j6grg",
+      "channelUrl": "https://www.youtube.com/channel/UCzS3-65Y91JhOxFiM7j6grg",
+      "handleUrl": "https://www.youtube.com/@FunnyOrDie",
+      "lane": "comedy production collective / scripted sketches",
+      "newToPairedProvenanceCorpus": true,
+      "corpusCheck": {
+        "auditExistingCorpusMatch": false,
+        "pairedChannelConfigMatch": false,
+        "provenanceMatch": false
+      },
+      "confidence": "high",
+      "manualTrackObserved": true,
+      "manualTrackEvidence": {
+        "videoId": "SIdxVR_7ikg",
+        "url": "https://www.youtube.com/watch?v=SIdxVR_7ikg",
+        "title": "The Landlord [UNCENSORED] with Will Ferrell, Adam McKay, and Pearl",
+        "captionTrack": "English creator/manual subtitle track; English auto-generated ASR also exposed",
+        "basis": "The source shard identifies the English creator/manual subtitle track on this watch page."
+      },
+      "swearInManualTrack": true,
+      "swearEvidence": {
+        "type": "literal-caption-observations",
+        "track": "manual/non-ASR",
+        "observedForms": [
+          "bitch",
+          "crap",
+          "asshole"
+        ],
+        "videoId": "SIdxVR_7ikg",
+        "url": "https://www.youtube.com/watch?v=SIdxVR_7ikg",
+        "observations": [
+          {
+            "timestamp": "00:00:39",
+            "timestampUrl": "https://www.youtube.com/watch?v=SIdxVR_7ikg&t=39s",
+            "excerpt": "You pay... ...now, bitch!",
+            "observedForms": [
+              "bitch"
+            ]
+          },
+          {
+            "timestamp": "00:00:42",
+            "timestampUrl": "https://www.youtube.com/watch?v=SIdxVR_7ikg&t=42s",
+            "excerpt": "I'm tired of this crap.",
+            "observedForms": [
+              "crap"
+            ]
+          },
+          {
+            "timestamp": "00:00:56",
+            "timestampUrl": "https://www.youtube.com/watch?v=SIdxVR_7ikg&t=56s",
+            "excerpt": "You're an asshole! Uh-uh!",
+            "observedForms": [
+              "asshole"
+            ]
+          }
+        ],
+        "caveat": "The caption text is not audio-verified; the UNCENSORED title is not used as swear evidence."
+      },
+      "provenance": {
+        "shard": "tmp/channel-research/shards/17-sketch.json",
+        "shardRecord": "tmp/channel-research/shards/17-sketch.json:41",
+        "auditSurvivor": "tmp/channel-research/audit.json#survivors[126]",
+        "auditConfidence": "high",
+        "auditBasis": "literal word-level English caption observation(s)"
+      }
+    },
+    {
+      "rank": 2,
+      "name": "Foil Arms and Hog",
+      "channelId": "UCzb-6smlTg5UPirLdsdQ_cQ",
+      "channelUrl": "https://www.youtube.com/channel/UCzb-6smlTg5UPirLdsdQ_cQ",
+      "handleUrl": "https://www.youtube.com/@foilarmsandhog",
+      "lane": "Irish sketch comedy trio / live comedy",
+      "newToPairedProvenanceCorpus": true,
+      "corpusCheck": {
+        "auditExistingCorpusMatch": false,
+        "pairedChannelConfigMatch": false,
+        "provenanceMatch": false
+      },
+      "confidence": "high",
+      "manualTrackObserved": true,
+      "manualTrackEvidence": {
+        "videoId": "GTq4xoqsLCs",
+        "url": "https://www.youtube.com/watch?v=GTq4xoqsLCs",
+        "title": "Out-Takes Vol. 3 - Foil Arms and Hog",
+        "captionTrack": "English creator/manual subtitle track; English auto-generated ASR also exposed",
+        "basis": "The source shard states that the out-takes subtitle track directly preserves the cited fuck/fucking observations."
+      },
+      "swearInManualTrack": true,
+      "swearEvidence": {
+        "type": "literal-caption-observations",
+        "track": "manual/non-ASR",
+        "observedForms": [
+          "fuck",
+          "fucking"
+        ],
+        "videoId": "GTq4xoqsLCs",
+        "url": "https://www.youtube.com/watch?v=GTq4xoqsLCs",
+        "observations": [
+          {
+            "timestamp": "00:00:36",
+            "timestampUrl": "https://www.youtube.com/watch?v=GTq4xoqsLCs&t=36s",
+            "excerpt": "Ah fuck he did. He just let us in in traffic after he saw ya down the vodka",
+            "observedForms": [
+              "fuck"
+            ]
+          },
+          {
+            "timestamp": "00:04:23",
+            "timestampUrl": "https://www.youtube.com/watch?v=GTq4xoqsLCs&t=263s",
+            "excerpt": "Oh God, Oh god. Alright, drive on there now. ... Faster! Faster, for fuck's sake",
+            "observedForms": [
+              "fuck"
+            ]
+          },
+          {
+            "timestamp": "00:04:34",
+            "timestampUrl": "https://www.youtube.com/watch?v=GTq4xoqsLCs&t=274s",
+            "excerpt": "Fucking curbs (?)",
+            "observedForms": [
+              "fucking"
+            ]
+          }
+        ],
+        "caveat": "The caption text is not audio-verified."
+      },
+      "additionalAutomaticEvidence": {
+        "videoId": "IJQkk7sD1CY",
+        "url": "https://www.youtube.com/watch?v=IJQkk7sD1CY",
+        "title": "Non Offensive Football Chants | Foil Arms and Hog",
+        "captionTrack": "English auto-generated, YouTube ASR",
+        "observations": [
+          {
+            "timestamp": "00:02:00",
+            "timestampUrl": "https://www.youtube.com/watch?v=IJQkk7sD1CY&t=120s",
+            "excerpt": "it's just that he was a massive prick besides he was from wales so he was a welsh prick now he was a prick who happened to be welsh",
+            "observedForms": [
+              "prick"
+            ]
+          }
+        ],
+        "caveat": "This automatic observation is not counted as manual-track evidence."
+      },
+      "provenance": {
+        "shard": "tmp/channel-research/shards/17-sketch.json",
+        "shardRecord": "tmp/channel-research/shards/17-sketch.json:14",
+        "auditSurvivor": "tmp/channel-research/audit.json#survivors[120]",
+        "auditConfidence": "high",
+        "auditBasis": "literal word-level English caption observation(s)"
+      }
+    }
+  ],
+  "lowerConfidence": [
+    {
+      "rank": 3,
+      "name": "The Ring of Fire",
+      "channelId": "UCYWIEbibRcZav6xMLo9qWWw",
+      "channelUrl": "https://www.youtube.com/channel/UCYWIEbibRcZav6xMLo9qWWw",
+      "handleUrl": "https://www.youtube.com/@TheRingofFire/videos",
+      "lane": "US political news commentary",
+      "newToPairedProvenanceCorpus": true,
+      "corpusCheck": {
+        "auditExistingCorpusMatch": false,
+        "pairedChannelConfigMatch": false,
+        "provenanceMatch": false
+      },
+      "confidence": "lower-confidence prospective",
+      "manualTrackObserved": true,
+      "manualTrackEvidence": {
+        "videoId": "38cZkxCk1fM",
+        "url": "https://www.youtube.com/watch?v=38cZkxCk1fM",
+        "title": "Republican Governor Slams MyPillow CEO Over 'Crap' Pillows",
+        "captionTrack": "English (auto-generated), kind=asr; English (United States) manual track also exposed",
+        "basis": "The source shard reports an English manual/non-ASR track on this watch page alongside the automatic track."
+      },
+      "swearInManualTrack": false,
+      "swearEvidence": {
+        "type": "literal-caption-observations",
+        "track": "automatic/ASR",
+        "observedForms": [
+          "crap",
+          "crappy"
+        ],
+        "videoId": "38cZkxCk1fM",
+        "url": "https://www.youtube.com/watch?v=38cZkxCk1fM",
+        "observations": [
+          {
+            "timestamp": "00:00:36",
+            "timestampUrl": "https://www.youtube.com/watch?v=38cZkxCk1fM&t=36s",
+            "excerpt": "This guy's head is stuffed with more crap than his pillows.",
+            "observedForms": [
+              "crap"
+            ]
+          },
+          {
+            "timestamp": "00:02:14",
+            "timestampUrl": "https://www.youtube.com/watch?v=38cZkxCk1fM&t=134s",
+            "excerpt": "having such a crappy product.",
+            "observedForms": [
+              "crappy"
+            ]
+          }
+        ],
+        "caveat": "The literal forms come from automatic ASR, not the manual track, and are not audio-verified. The manual track is therefore a prospective acquisition lead only."
+      },
+      "provenance": {
+        "shard": "tmp/channel-research/shards/13-politics.json",
+        "shardRecord": "tmp/channel-research/shards/13-politics.json:17",
+        "auditSurvivor": "tmp/channel-research/audit.json#survivors[82]",
+        "auditConfidence": "high",
+        "auditBasis": "literal word-level English caption observation(s)"
+      }
+    }
+  ]
+}

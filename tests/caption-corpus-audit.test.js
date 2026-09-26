@@ -6,6 +6,7 @@ const {
   auditCaptionCorpus,
   buildProvenanceIndex,
   directSlotLabels,
+  reportEvidenceStatus,
   fixturePart
 } = require("../tools/audit-caption-corpus");
 
@@ -31,6 +32,12 @@ assert.deepStrictEqual(directSlotLabels({ events: [{
   slotCount: 1,
   unknown: {}
 });
+assert.strictEqual(reportEvidenceStatus({ queueComplete: true, channels: [{ queueComplete: false }] }), "incomplete");
+assert.strictEqual(reportEvidenceStatus({ queueComplete: false }), "incomplete");
+assert.strictEqual(reportEvidenceStatus({ channels: [{ queueComplete: true }] }), "complete");
+assert.strictEqual(reportEvidenceStatus({}), "legacy");
+assert.throws(() => reportEvidenceStatus({ queueComplete: "yes" }), /boolean/);
+assert.throws(() => reportEvidenceStatus({ channels: [{ queueComplete: 1 }] }), /boolean/);
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "caption-audit-"));
 try {
@@ -45,6 +52,8 @@ try {
   writeCaption("abcDEF12345_manual.en.json3", "bitchy");
   writeCaption("zzzZZZ12345_auto.en.json3", "[__]");
   writeCaption("zzzZZZ12345_manual.en.json3", "sissy");
+  writeCaption("incmp123456_auto.en.json3", "[__]");
+  writeCaption("incmp123456_manual.en.json3", "clit");
   fs.writeFileSync(reportPath, JSON.stringify({ channels: [{ name: "Test Creator", items: [
     { id: "abcDEF12345", status: "paired-saved", pairKind: "creator-manual", creatorId: "UCtest" },
     { id: "zzzZZZ12345", status: "paired-saved", pairKind: "auto-en" },
@@ -55,6 +64,15 @@ try {
   fs.writeFileSync(backfillPath, JSON.stringify({ provenance: [{
     pairClass: "synthetic", creatorHandle: "@backfill", ids: ["backfill123"]
   }] }));
+  const incompletePath = path.join(temp, "incomplete.json");
+  fs.writeFileSync(incompletePath, JSON.stringify({ queueComplete: false, provenance: [
+    { pairClass: "manual-auto", ids: ["incmp123456"] },
+    { pairClass: "manual-auto", ids: ["conflict12345"] }
+  ] }));
+  const completePath = path.join(temp, "complete.json");
+  fs.writeFileSync(completePath, JSON.stringify({ queueComplete: true, provenance: [
+    { pairClass: "auto-auto", ids: ["conflict12345"] }
+  ] }));
 
   const index = buildProvenanceIndex([reportPath]);
   assert.strictEqual(index.get("abcDEF12345").pairClass, "manual-auto");
@@ -68,6 +86,19 @@ try {
   assert.strictEqual(buildProvenanceIndex([backfillPath]).get("backfill123").creatorHandle,
     "@backfill");
   assert.strictEqual(buildProvenanceIndex([reportPath, backfillPath]).get("backfill123").pairClass, "synthetic");
+  const incompleteOnly = buildProvenanceIndex([incompletePath]).get("incmp123456");
+  assert.strictEqual(incompleteOnly.pairClass, "manual-auto");
+  assert.strictEqual(incompleteOnly.evidenceEligible, false);
+  assert.deepStrictEqual(incompleteOnly.reportEvidence, { [incompletePath]: "incomplete" });
+  const contradiction = buildProvenanceIndex([incompletePath, completePath]).get("conflict12345");
+  assert.strictEqual(contradiction.pairClass, "conflict");
+  assert.strictEqual(contradiction.evidenceEligible, true);
+  const unknownSupportPath = path.join(temp, "unknown-support.json");
+  fs.writeFileSync(unknownSupportPath, JSON.stringify({ provenance: [
+    { pairClass: "unknown", ids: ["incmp123456"] }
+  ] }));
+  assert.strictEqual(buildProvenanceIndex([incompletePath, unknownSupportPath])
+    .get("incmp123456").evidenceEligible, false);
   fs.writeFileSync(backfillPath, JSON.stringify({ provenance: [
     { pairClass: "manual-auto", ids: ["abcDEF12345"] },
     { pairClass: "synthetic", ids: ["abcDEF12345"] }
@@ -75,18 +106,19 @@ try {
   assert.strictEqual(buildProvenanceIndex([backfillPath]).get("abcDEF12345").pairClass, "conflict");
   const result = auditCaptionCorpus({
     fixturesDir: fixtures,
-    reportPaths: [reportPath],
+    reportPaths: [reportPath, incompletePath],
     allowedWords: ["clit", "bitchy", "sissy"]
   });
-  assert.strictEqual(result.groups["manual-auto"].pairs, 1);
+  assert.strictEqual(result.groups["manual-auto"].pairs, 2);
   assert.strictEqual(result.groups["auto-auto"].pairs, 1);
-  assert.strictEqual(result.groups["manual-auto"].alignedSlots, 1);
+  assert.strictEqual(result.groups["manual-auto"].alignedSlots, 2);
   assert.deepStrictEqual(result.groups["manual-auto"].unsupportedWordCounts, {});
   assert.deepStrictEqual(result.groups["manual-auto"].visibleWordCounts, {});
   assert.deepStrictEqual(result.groups["manual-auto"].censoredWordCandidates, { bitchy: 1 });
   assert.deepStrictEqual(result.vocabularyCandidates, { bitchy: 1 });
+  assert.strictEqual(result.groups["manual-auto"].wordCounts.clit, 1);
   assert.deepStrictEqual(result.groups["manual-auto"].unsupportedCreators, {});
-  assert.deepStrictEqual(result.groups["manual-auto"].absentAllowedWords, ["clit", "sissy"]);
+  assert.deepStrictEqual(result.groups["manual-auto"].absentAllowedWords, ["sissy"]);
   assert.strictEqual(result.groups["auto-auto"].alignedSlots, 1);
   assert.deepStrictEqual(result.groups["auto-auto"].censoredWordCandidates, {});
   assert.deepStrictEqual(result.groups["auto-auto"].unsupportedWordCounts, {});
