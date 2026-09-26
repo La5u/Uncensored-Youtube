@@ -528,13 +528,34 @@
   function applyDeterministicRules(text, options) {
     var normalizedText = insertVirtualSentencePunctuation(ignoreNonSpeechLabels(normalizeCensoredTokens(text)));
     var policy = options && options.ambiguous || "score";
+    var tracing = Boolean(options && options.trace);
+    var traceSlots = tracing ? new Map() : null;
+
+    function resultWithTrace(result) {
+      if (tracing) {
+        var token;
+        var tokenIndex = 0;
+        var tokens = /\[\s*__\s*\]/gu;
+        while ((token = tokens.exec(normalizedText)) !== null) {
+          if (![...traceSlots.values()].some(function covers(slot) {
+            return token.index >= slot.textStart && token.index < slot.textEnd;
+          })) {
+            traceSlots.set(token.index + ":" + tokens.lastIndex, {
+              tokenIndex: tokenIndex, tokenSpan: 1, textStart: token.index,
+              textEnd: tokens.lastIndex, winner: null, alternatives: []
+            });
+          }
+          tokenIndex += 1;
+        }
+        result.trace = Array.from(traceSlots.values()).sort(function byPosition(a, b) {
+          return a.textStart - b.textStart;
+        });
+      }
+      return result;
+    }
 
     if (normalizedText.indexOf(CENSORED_TOKEN) === -1) {
-      return {
-        text: text,
-        replacements: [],
-        decisions: []
-      };
+      return resultWithTrace({ text: text, replacements: [], decisions: [] });
     }
 
     var replacements = [];
@@ -586,17 +607,42 @@
           seenMatches.add(matchKey);
           matchCount += 1;
 
-          if (occupiedRanges.some(function overlaps(occupied) {
+          var overlap = occupiedRanges.find(function overlaps(occupied) {
             return tokenStart < occupied.end && tokenEnd > occupied.start;
-          })) continue;
-
+          });
           if (tokenRange.count === 1 && isAdjacentToCensoredToken(normalizedText, tokenStart, tokenEnd)) continue;
 
-          var beforeToken = normalizedText.slice(0, tokenStart);
-          var afterToken = normalizedText.slice(tokenEnd);
-          var formattingText = normalizedText.slice(matchStart, Math.max(matchEnd, tokenEnd));
-
+          if (overlap && !tracing) continue;
           var decision = candidateDecision(compiled.rule, policy);
+          var traceSlot;
+          var traceAlternative;
+
+          if (tracing) {
+            var slotKey = tokenStart + ":" + tokenEnd;
+            traceSlot = traceSlots.get(slotKey);
+            if (!traceSlot) {
+              traceSlot = {
+                tokenIndex: tokenIndexBefore(normalizedText, tokenStart),
+                tokenSpan: tokenRange.count,
+                textStart: tokenStart,
+                textEnd: tokenEnd,
+                winner: null,
+                alternatives: []
+              };
+              traceSlots.set(slotKey, traceSlot);
+            }
+            traceAlternative = {
+              rule: compiled.rule,
+              tier: tierForRule(compiled),
+              candidates: compiled.rule.candidates,
+              decision: decision,
+              status: overlap ? "blocked" : decision ? "winner" : "abstain"
+            };
+            if (overlap) traceAlternative.blockedBy = overlap.rule;
+            traceSlot.alternatives.push(traceAlternative);
+            if (!overlap && !traceSlot.winner) traceSlot.winner = traceAlternative;
+          }
+          if (overlap) continue;
 
           if (!decision) {
             decisions.push({
@@ -612,11 +658,13 @@
               textStart: tokenStart,
               textEnd: tokenEnd
             });
-            occupiedRanges.push({ start: tokenStart, end: tokenEnd });
+            occupiedRanges.push({ start: tokenStart, end: tokenEnd, rule: compiled.rule });
             continue;
           }
 
-          var formattedWord = formatReplacement(decision.word, beforeToken, afterToken, formattingText);
+          var formattedWord = formatReplacement(decision.word,
+            normalizedText.slice(0, tokenStart), normalizedText.slice(tokenEnd),
+            normalizedText.slice(matchStart, Math.max(matchEnd, tokenEnd)));
 
           var replacement = {
             rule: compiled.rule,
@@ -636,7 +684,8 @@
 
           occupiedRanges.push({
             start: tokenStart,
-            end: tokenEnd
+            end: tokenEnd,
+            rule: compiled.rule
           });
         }
         return matchCount;
@@ -664,11 +713,7 @@
     });
 
     if (!replacements.length) {
-      return {
-        text: text,
-        replacements: replacements,
-        decisions: decisions
-      };
+      return resultWithTrace({ text: text, replacements: replacements, decisions: decisions });
     }
 
     var cursor = 0;
@@ -682,11 +727,11 @@
 
     patchedParts.push(normalizedText.slice(cursor));
 
-    return {
+    return resultWithTrace({
       text: patchedParts.join(""),
       replacements: replacements,
       decisions: decisions
-    };
+    });
   }
 
   function templatesMatch(templates, text) {

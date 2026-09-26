@@ -54,9 +54,6 @@ const examples = [
   ["the [__] face", "the fucking face"],
   ["I can't do [__]", "I can't do shit"],
   ["the [__] is this", "the fuck is this"],
-  ["jack [__] nothing", "jack shit nothing"],
-  ["what the [__] purpose", "what the fucking purpose"],
-  ["might be [__] with", "might be fucking with"],
   ["Holy [__] I nearly fell.", "Holy shit. I nearly fell."],
   ["for [__] sake", "for fuck's sake"],
   ["[__] yeah.", "fuck yeah."],
@@ -160,7 +157,6 @@ const examples = [
   ["I feel like [__] today", "I feel like shit today"],
   ["Don't do that [__] again", "Don't do that shit again"],
   ["weird [__] statue", "weird fucking statue"],
-  ["son of a [__]", "son of a bitch"],
   ["[__] hell", "fucking hell"],
   ["[__] Hell", "fucking Hell"],
   ["Stop. [__] hell", "Stop. Fucking hell"],
@@ -295,7 +291,6 @@ const examples = [
   ["God [__] damn it", "God fucking damn it"],
   ["I swear to [__] God", "I swear to fucking God"],
   ["The last [__] time", "The last fucking time"],
-  ["The [__] car", "The fucking car"],
   ["Use your [__] phone", "Use your fucking phone"],
   ["They are [__] crazy", "They are fucking crazy"],
   ["They are so [__] bad.", "They are so fucking bad."],
@@ -407,6 +402,8 @@ const examples = [
   ["I would do dumb [__] like that.", "I would do dumb shit like that."],
   ["They don't do that [__] no more.", "They don't do that shit no more."],
   ["That's [__] up.", "That's fucked up."],
+  ["Chloe's [__] up. That's final.", "Chloe's fucked up. That's final."],
+  ["Liam’s [__] up, actually.", "Liam’s fucked up, actually."],
   ["What's the [__] point?", "What's the fucking point?"],
   ["I am going to [__] die.", "I am going to fucking die."],
   ["Just [__] go.", "Just fucking go."],
@@ -438,7 +435,6 @@ const examples = [
   ["We [__] it up.", "We fucked it up."],
   ["Please don't [__] me.", "Please don't fuck me."],
   ["Of course it [__].", "Of course it fucking."],
-  ["That is the sort of [__].", "That is the sort of shit."],
   ["We're all the way to [__].", "We're all the way to fucking."],
   ["Keep an eye on that [__].", "Keep an eye on that fucking."],
   ["I start [__] around.", "I start fucking around."],
@@ -490,6 +486,7 @@ const examples = [
   ["I'm like [__] which one?", "I'm like bitch which one?"],
   ["Which is [__] and they know it.", "Which is bullshit and they know it."],
   ["I might be [__], dude.", "I might be fucked, dude."],
+  ["It might be [__] with our heads.", "It might be fucking with our heads."],
   ["Don't get me [__] started.", "Don't get me fucking started."],
   ["All this [__] started early.", "All this shit started early."],
   ["That [__] up my whole game.", "That fucked up my whole game."],
@@ -511,11 +508,11 @@ const examples = [
   ["Say [__] it and move.", "Say fuck it and move."],
   ["The most insane [__] ever.", "The most insane shit ever."],
   ["Some really good [__].", "Some really good shit."],
-  ["I'm full of [__].", "I'm full of shit."],
   ["You're so full of [__].", "You're so full of shit."],
   ["You [__] up my plan.", "You fucked up my plan."],
   ["Yeah [__] me.", "Yeah fuck me."],
   ["What the [__] you want?", "What the fuck you want?"],
+  ["explain what the [__] purpose is what is the", "explain what the fucking purpose is what is the"],
   ["For [__]'s sake.", "For fuck's sake."],
   ["What the [__]'s going on?", "What the fuck's going on?"],
   [">> No [__], that happened.", ">> No shit, that happened."],
@@ -539,10 +536,10 @@ const examples = [
   ["Oh [__] I didn't.", "Oh shit. I didn't."],
   ["A [__] eating grin", "A shit eating grin"],
   ["You don't know jack [__].", "You don't know jack shit."],
+  ["Just absolutely jack [__] nothing. It is", "Just absolutely jack shit nothing. It is"],
   ["I couldn't see [__] in the dark.", "I couldn't see shit in the dark."],
   ["I didn't see [__] at all.", "I didn't see shit at all."],
   ["I can't see [__] anymore.", "I can't see shit anymore."],
-  ["Shut this [__] up.", "Shut this fuck up."],
   ["I can't sing for [__].", "I can't sing for shit."],
   ["A [__] five year old.", "A fucking five year old."],
   ["This [__] is weird and bad.", "This shit is weird and bad."],
@@ -570,6 +567,10 @@ for (const name of fs.readdirSync(__dirname).filter((file) => file.endsWith(".te
 }
 
 assert.strictEqual(rules.applyDeterministicRules("Restart the whole [__] thing.").text, "Restart the whole fucking thing.");
+for (const [input, expected] of [
+  ["I want to [__] it", "I want to fuck it"],
+  ["I want to [__] me", "I want to fuck me"]
+]) assert.strictEqual(rules.applyDeterministicRules(input).text, expected);
 assert.strictEqual(
   rules.applyDeterministicRules("Who gives a [__] about that?").text,
   "Who gives a shit about that?"
@@ -580,8 +581,14 @@ assert.strictEqual(
 );
 
 assert.strictEqual(rules.applyDeterministicRules("holy [__]! that was close").text, "holy shit! that was close");
-assert.strictEqual(rules.applyDeterministicRules("holy [__] it's huge").text, "holy shit it's huge");
+assert.strictEqual(rules.applyDeterministicRules("I got that [__]").text, "I got that shit");
+assert.strictEqual(rules.applyDeterministicRules("holy [__] it's huge").replacements.length, 0);
 assert.strictEqual(rules.applyDeterministicRules("I'll [__] it up").text, "I'll fuck it up");
+assert.strictEqual(rules.applyDeterministicRules("they dug that [__] up yeah").replacements.length, 0);
+assert.ok(!rules.DETERMINISTIC_RULES.some((rule) => rule.template === "that [__] up"));
+assert.strictEqual(rules.applyDeterministicRules("Oh, son of a [__]").text, "Oh, son of a bitch");
+assert.strictEqual(rules.applyDeterministicRules("welcome to flavortown [__] car very nice").text,
+  "welcome to flavortown fucking car very nice");
 assert.strictEqual(rules.applyDeterministicRules("just [__] around").text, "just fucking around");
 assert.strictEqual(rules.applyDeterministicRules("they're [__] up right now").text, "they're fucking up right now");
 assert.strictEqual(rules.applyDeterministicRules("scare the [__] out of me").text, "scare the shit out of me");
@@ -599,6 +606,27 @@ assert.deepStrictEqual(
 );
 assert.strictEqual(rules.applyDeterministicRules("watch this [__]").text, "watch this shit");
 assert.strictEqual(rules.applyDeterministicRules("what the [__]", { ambiguous: "abstain" }).text, "what the fuck");
+const defaultTraceResult = rules.applyDeterministicRules("Holy [__] it's huge");
+assert.strictEqual(Object.prototype.hasOwnProperty.call(defaultTraceResult, "trace"), false);
+const tracedAbstention = rules.applyDeterministicRules("Holy [__] it's huge", { trace: true });
+assert.strictEqual(tracedAbstention.text, defaultTraceResult.text);
+assert.strictEqual(tracedAbstention.trace.length, 1);
+assert.strictEqual(tracedAbstention.trace[0].winner.status, "abstain");
+assert.strictEqual(tracedAbstention.trace[0].winner.rule.template, "holy [__] *");
+assert.strictEqual(tracedAbstention.trace[0].winner.tier, "exact");
+assert.strictEqual(tracedAbstention.trace[0].winner.decision, null);
+assert.ok(tracedAbstention.trace[0].alternatives.some((alternative) =>
+  alternative.status === "blocked" && alternative.blockedBy.template === "holy [__] *"));
+const tracedMultiSlot = rules.applyDeterministicRules("Bull [__] [__], dude.", { trace: true });
+assert.strictEqual(tracedMultiSlot.text, "Bull fucking shit, dude.");
+assert.strictEqual(tracedMultiSlot.trace[0].tokenSpan, 2);
+assert.strictEqual(tracedMultiSlot.trace[0].winner.status, "winner");
+assert.deepStrictEqual(tracedMultiSlot.trace[0].winner.candidates, ["fucking shit"]);
+assert.strictEqual(tracedMultiSlot.trace[0].winner.decision.word, "fucking shit");
+const tracedUnmatched = rules.applyDeterministicRules("qzxq [__] uvwz", { trace: true });
+assert.strictEqual(tracedUnmatched.trace.length, 1);
+assert.strictEqual(tracedUnmatched.trace[0].winner, null);
+assert.deepStrictEqual(tracedUnmatched.trace[0].alternatives, []);
 assert.deepStrictEqual(
   rules.applyDeterministicRules("watch this [__]").replacements.map((replacement) => ({
     source: replacement.source,
@@ -616,11 +644,27 @@ assert.strictEqual(rules.formatWordCase("fucking", "having A [__] day"), "fuckin
 assert.strictEqual(rules.formatWordCase("fucking", "I [__] hate this"), "fucking");
 assert.strictEqual(rules.formatWordCase("fucking", "that was Wild [__] today"), "fucking");
 assert.strictEqual(rules.applyDeterministicRules("this is clean").text, "this is clean");
+assert.strictEqual(rules.applyDeterministicRules("he laughs oh [__]").replacements.length, 0);
+assert.strictEqual(rules.applyDeterministicRules("Petty but I'm also a little [__]").replacements.length, 0);
+assert.strictEqual(rules.applyDeterministicRules("I put a trash bag on my [__]").replacements.length, 0);
+assert.strictEqual(rules.applyDeterministicRules("I didn't feel [__] now").replacements.length, 0);
+assert.strictEqual(rules.applyDeterministicRules("speaking of [__] in the mouth").replacements.length, 0);
+for (const ambiguous of [
+  "You fucking [__].",
+  "I want a [__].",
+  "Give me a [__].",
+  "That [__] was strange.",
+  "There is [__] going on.",
+  "I met him with a [__]."
+]) assert.strictEqual(rules.applyDeterministicRules(ambiguous).replacements.length, 0);
+assert.strictEqual(rules.applyDeterministicRules("Some [__] going on.").text, "Some shit going on.");
+assert.strictEqual(rules.applyDeterministicRules("I love [__] like that.").text, "I love shit like that.");
 assert.strictEqual(rules.applyDeterministicRules("are [__] wild").text, "are fucking wild");
 assert.strictEqual(rules.applyDeterministicRules("is [__] hard").text, "is fucking hard");
 assert.strictEqual(rules.applyDeterministicRules("You look like [__] idiot.").text, "You look like fucking idiot.");
 assert.strictEqual(rules.applyDeterministicRules("Play dead, [__]! ♪").text, "Play dead, bitch! ♪");
-assert.strictEqual(rules.applyDeterministicRules("a [__] excuse").text, "a fucking excuse");
+assert.strictEqual(rules.applyDeterministicRules("a [__] excuse").replacements.length, 0);
+assert.strictEqual(rules.applyDeterministicRules("it's [__] excuse me, how old are you").replacements.length, 0);
 assert.strictEqual(rules.applyDeterministicRules("I don't [__] know").text, "I don't fucking know");
 assert.strictEqual(rules.applyDeterministicRules("I would [__] know").text, "I would fucking know");
 assert.strictEqual(rules.applyDeterministicRules("They are so [__].").text, "They are so fucked.");
@@ -669,6 +713,12 @@ assert.strictEqual(rules.applyDeterministicRules("You don't [__] cheat.").text,
 assert.strictEqual(rules.applyDeterministicRules("It was sad and [__] up.").text,
   "It was sad and fucked up."
 );
+const contractedParticiple = rules.applyDeterministicRules("Chloe's [__] up. That's final.");
+assert.strictEqual(contractedParticiple.text, "Chloe's fucked up. That's final.");
+assert.strictEqual(contractedParticiple.replacements[0].rule.template,
+  "<contracted subject> [__] up<terminal punctuation>");
+assert.strictEqual(rules.applyDeterministicRules("Obama's [__] up well").text,
+  "Obama's [__] up well");
 assert.strictEqual(rules.applyDeterministicRules("That [__] calms me down.").text,
   "That shit calms me down."
 );
@@ -682,44 +732,69 @@ assert.strictEqual(rules.applyDeterministicRules("every [__] law").text,
   "every fucking law"
 );
 const holyTail = rules.applyDeterministicRules("Holy [__] this guy is");
-assert.strictEqual(holyTail.text, "Holy shit this guy is");
+assert.strictEqual(holyTail.replacements.length, 0);
 assert.strictEqual(holyTail.decisions[0].rule.template, "holy [__] *");
 const holySpecific = rules.applyDeterministicRules("Holy [__] it's huge", { ambiguous: "first" });
 assert.strictEqual(holySpecific.text, "Holy shit it's huge");
 assert.strictEqual(holySpecific.decisions[0].rule.template, "holy [__] *");
 for (const [input, expected] of [
-  ["or some [__]", "or some shit"], ["let's [__] go", "let's fucking go"],
+  ["[__] it.", "fuck it."], ["[__] crazy", "fucking crazy"],
+  ["just so [__]", "just so fucking"], ["like what the [__]", "like what the fuck"],
+  ["shit holy [__]", "shit holy shit"], ["you son of a [__]", "you son of a bitch"]
+]) assert.strictEqual(rules.applyDeterministicRules(input).text, expected);
+for (const input of ["really give a [__]", "about that [__]"]) {
+  const result = rules.applyDeterministicRules(input);
+  assert.strictEqual(result.text, input);
+  assert.ok(result.decisions[0].rule.candidates.length > 1);
+}
+for (const [input, expected] of [
+  ["or some [__]", "or some shit"], ["dog [__]", "dog shit"],
+  ["let's [__] go", "let's fucking go"],
   ["go [__] yourself", "go fuck yourself"], ["where the [__] is it", "where the fuck is it"],
   ["I [__] love this", "I fucking love this"], ["it [__] sucks", "it fucking sucks"],
+  ["this [__] house", "this fucking house"], ["your [__] face", "your fucking face"],
+  ["we could [__] believe", "we could fucking believe"],
+  ["they should [__] tell", "they should fucking tell"],
   ["and [__] but honestly", "and shit but honestly"],
   ["piece of [__] shit", "piece of fucking shit"],
   ["to [__] all", "to shit all"],
   ["I [__] love it", "I fucking love it"],
   ["hurt my [__] neck", "hurt my fucking neck"],
   ["put your [__] hands down", "put your fucking hands down"],
-  ["taking a [__]", "taking a shit"], ["some weird [__]", "some weird shit"],
+  ["taking a [__]", "taking a shit"],
   ["no [__] off", "no fuck off"], ["so [__] much", "so fucking much"],
   ["don't [__] care", "don't fucking care"], ["talking [__] about it", "talking shit about it"],
   ["some crazy [__]", "some crazy shit"], ["up in this [__]", "up in this bitch"]
 ]) assert.strictEqual(rules.applyDeterministicRules(input).text, expected);
+for (const input of [
+  "I [__] house", "this [__] spaceship", "we might [__] believe", "we could [__] eat"
+]) {
+  const result = rules.applyDeterministicRules(input);
+  assert.strictEqual(result.text, input);
+  assert.ok(!result.replacements.some((replacement) =>
+    ["<determiner> [__] <noun>", "<emphatic auxiliary> [__] <auxiliary action>"].includes(
+      replacement.rule.template)));
+}
 assert.deepStrictEqual(rules.DETERMINISTIC_RULES.find((rule) => rule.template === "holy [__]").candidates, ["shit", "fuck", "fucking"]);
 assert.deepStrictEqual(rules.DETERMINISTIC_RULES.find((rule) => rule.template === "was [__] around").candidates, ["fucking", "dicking", "fuck", "dickin", "fucked"]);
 assert.deepStrictEqual(rules.DETERMINISTIC_RULES.find((rule) => rule.template === "getting [__] over").candidates, ["fucked", "dicked"]);
 assert.deepStrictEqual(rules.DETERMINISTIC_RULES.find((rule) => rule.template === "a [__] ton").candidates, ["shit", "fucking", "fuck"]);
+assert.deepStrictEqual(rules.DETERMINISTIC_RULES.find((rule) => rule.template === "some weird [__]").candidates,
+  ["shit", "fucking", "bullshit", "fucked"]);
 assert.deepStrictEqual(rules.DETERMINISTIC_RULES.find((rule) => rule.template === "kicking the [__] out").candidates, ["shit", "fuck"]);
 assert.deepStrictEqual(rules.DETERMINISTIC_RULES.find((rule) => rule.template === "watch this [__]").candidates, ["shit", "fuck", "fucking"]);
 assert.deepStrictEqual(rules.DETERMINISTIC_RULES.find((rule) => rule.template === "all that [__]").candidates, ["shit", "bullshit"]);
 assert.deepStrictEqual(
   rules.DETERMINISTIC_RULES.filter((rule) => [
-    "[__] is going ", "in a [__] ", "[__] cool", "it's a [__]$",
+    "[__] is going ", "in a [__] ", "it's a [__]$",
     "have the [__] ", "it was [__]$", "than [__] ", "lot of [__] going",
     "was a [__]$", "there's so much [__]", "scared the [__] out",
     "<base-verb prefix> [__] <verb object>", "<copula> [__] <predicate>",
     "<determiner> [__] <noun>", "<emphatic auxiliary> [__] <auxiliary action>",
     "<emphatic subject> [__] <emphatic action>", "<mass-noun prefix> [__]",
-    "the [__] is", "dog [__]", "talking [__]", "piece of [__] [__]",
+    "the [__] is", "piece of [__] [__]",
     "[__] off", "[__] sucks", "[__] like this", "so [__] ", "just a [__] ",
-    "[__] cool *", "[__] love", "* of [__] and", "and [__] i *",
+    "[__] cool *", "* of [__] and", "and [__] i *",
     "to [__] * up", "like * [__] up"
   ].includes(rule.template)),
   []

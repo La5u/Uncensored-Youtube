@@ -33,7 +33,7 @@
   var PRODUCTIVE_RULES = Object.freeze([
     group("productive/expressions", 2000, [
       pattern`${["go", "going", "gone"]} to [shit].`,
-      pattern`${["yeah no", "yeah, no"]} [shit|fuck|fucking]`,
+      pattern`${["yeah no", "yeah, no"]} [shit]`,
       pattern`look like [shit]$`,
       pattern`${["treat", "treated", "treating"]} ${OBJECT_PRONOUNS} like [shit]`,
       pattern`full of [shit]$`,
@@ -86,13 +86,16 @@
 
     group("productive/phrasal-verbs", 2010, [
       pattern`better not [fuck] things up`,
-      pattern`[fuck] ${["him", "this"]} up`,
+      pattern`to [fuck] ${["it", "me"]}`,
+      pattern`[fuck] him up`,
+      pattern`[fuck|fucked|fucking] this up`,
       pattern`${SUBJECT_PRONOUNS} [fucked|fuck|fucks|fucking] it up`,
       pattern`${GERUND_WITH_PREFIXES} [fucking] with`,
       pattern`${["dream about", "dream of"]} [fucking|shit] …`,
       pattern`were [fucked|fucking] with`,
       pattern`${["don't you", "don't", "I can"]} [fuck] with`,
-      pattern`${["have", "has", "had"]} [fucked|fuck] ${["it", "me"]}`,
+      pattern`${["have", "has", "had"]} [fucked|fuck] it`,
+      pattern`${["have", "has", "had"]} [fucked] me`,
       pattern`${["am", "is", "are", "was", "were"]} [fucking|shit|fuck] it`,
       pattern`${["is", "was", "keeps"]} [fucking|fuck] me`,
       pattern`${["be", "were", "you're", "just"]} [dicking|fucking|fuck|dickin|fucked] around`,
@@ -117,7 +120,6 @@
       pattern`[fuck] all of you`,
       pattern`[fuck] outta here`,
       pattern`we're all [fucked|fucking]`,
-      pattern`get [fucked] by`,
       pattern`you're getting [fucked] now`,
       pattern`kind of [dicked|fucked] me over`,
       pattern`${["got", "get", "getting", "being", "been"]} [fucked|dicked] over`,
@@ -168,12 +170,12 @@
       pattern`[fuck|shit] yeah.`,
       pattern`${["took a", "took a huge", "done a huge"]} [shit] in`,
       pattern`cheap [shit|pussy|motherfucker]`,
-      pattern`${["fucking"]} [shit]`,
       pattern`${["absolute", "complete"]} [shit] show`,
       pattern`don't give me [shit] about`,
       pattern`${["give", "gives"]} a [fuck|shit]`,
       pattern`don't see [shit]`,
-      pattern`${["same old", "the crazy", "some dumb"]} [shit]`,
+      pattern`same old [shit|bullshit]`,
+      pattern`${["the crazy", "some dumb"]} [shit]`,
       pattern`all the [shit] that`,
       pattern`[shit] your pants`,
       pattern`I call [bullshit]`,
@@ -182,13 +184,14 @@
       pattern`as [fucked] up as`,
       pattern`pretty [fucking] well`,
       pattern`important [shit]`,
-      pattern`[shit] ${["going on", "at all", "that happened"]}`,
+      pattern`some [shit] going on`,
+      pattern`[shit] ${["at all", "that happened"]}`,
       pattern`[fuck] my life`,
       pattern`[fucking] damn it`,
       pattern`it's so [fucking] …`,
       pattern`who [fucking] knows`,
       pattern`${["sweet", "mother of"]} [fucking] Jesus`,
-      pattern`strong as [fuck]`,
+      pattern`strong as [fuck|shit]`,
       pattern`[fucking] ${["sick of", "talk to"]}`,
       pattern`${["miss", "sell"]} the [shit] out of`,
       pattern`stuck up little [bitch]`,
@@ -258,7 +261,7 @@
       pattern`^[fucking] son of`,
       pattern`to [fucking] ${["do", "go", "die"]}`,
       pattern`oh my [fucking] …`,
-      pattern`${["in your", "on a", "to a", "a giant", "massive", "single", "natural", "out of my", "over the"]} [fucking] …`,
+      pattern`${["in your", "on a", "to a", "a giant", "massive", "single", "out of my", "over the"]} [fucking] …`,
       pattern`let's just [fucking] …`,
 
       // Adjectives and adverbs.
@@ -285,8 +288,6 @@
 
 
   var WORD_ROLES = vocabulary.WORD_ROLES;
-  var SUBJECT_PRONOUNS = vocabulary.SUBJECT_PRONOUNS;
-  var FUTURE_SUBJECTS = vocabulary.FUTURE_SUBJECTS;
   var BASE_VERB_PREFIXES = vocabulary.BASE_VERB_PREFIXES;
   var BASE_VERB_QUESTION_PREFIXES = vocabulary.BASE_VERB_QUESTION_PREFIXES;
   var VERB_OBJECTS = vocabulary.VERB_OBJECTS;
@@ -307,17 +308,42 @@
   var RARE_INTENSIFIER_SUFFIXES = vocabulary.RARE_INTENSIFIER_SUFFIXES;
   var NUMBER = vocabulary.NUMBER;
   var COUNT_UNIT = vocabulary.COUNT_UNIT;
+  var CONTRACTED_SUBJECT = vocabulary.CONTRACTED_SUBJECT;
+  var TERMINAL_PUNCTUATION = vocabulary.TERMINAL_PUNCTUATION;
   var BASE_VERB = slot(WORD_ROLES.BASE_VERB);
   var EXPLETIVE = slot(WORD_ROLES.EXPLETIVE);
   var INTENSIFIER = slot(WORD_ROLES.INTENSIFIER);
   var PARTICIPLE = slot(WORD_ROLES.PARTICIPLE);
   var SINGLE_INTENSIFIER = slot(set("single intensifier", ["fucking"]));
+  var SINGLE_FUCKED = slot(set("single fucked", ["fucked"]));
   var SINGLE_INTENSIFIER_SUFFIXES = set("single intensifier suffix", INTENSIFIED_TRAILING_WORDS.concat(
     VALIDATED_INTENSIFIER_SUFFIXES,
     RARE_INTENSIFIER_SUFFIXES
   ).filter(function excludeBadSuffix(value) {
     return !["rocked", "walk", "suck", "mario"].includes(value);
   }));
+  var FUCKING_DETERMINERS = set("determiner", [
+    "a", "an", "the", "this", "that", "these", "those", "my", "your", "his", "her", "our",
+    "their", "every", "no", "same"
+  ]);
+  var FUCKING_NOUN_SUFFIXES = set("noun", [
+    "house", "video", "gun", "face", "plane", "water", "planet", "ground", "truck", "best", "nose",
+    "building", "bed", "bar", "mouth", "window", "throat", "picture", "mask", "pants", "disaster",
+    "fish", "sun", "ship", "finger", "arms", "animal", "human", "friends", "knife", "restaurant",
+    "lives", "cake", "sword", "sky", "chest", "audience", "balls", "lie", "wall", "drill", "deal",
+    "boat", "law", "trunk", "checkpoint", "toes", "money", "island", "npc", "nightmare", "mind", "date", "leg",
+    "tree", "brains", "keys", "night", "soul", "neck", "lunatic", "shit", "iris", "choice", "cops", "stars",
+    "van", "kid", "baby", "eyes", "work", "word", "year", "hands", "dog", "people", "jump"
+  ]);
+  var EMPHATIC_AUXILIARIES = set("emphatic auxiliary", [
+    "can", "can't", "can't even", "cannot", "could", "couldn't", "didn't", "do not", "does not", "don't",
+    "don't even", "don't you", "doesn't", "haven't even", "better not", "have to", "let's", "must", "should",
+    "shouldn't", "gonna", "never", "wanted to", "will", "won't", "would", "wouldn't"
+  ]);
+  var EMPHATIC_AUXILIARY_SUFFIXES = set("auxiliary action", [
+    "do", "kill", "believe", "die", "see", "say", "tell", "love", "understand", "think", "need", "start",
+    "touch", "stop", "told", "look", "care", "listen", "roll", "remember", "did", "get", "go"
+  ]);
 
   var ROLE_FRAMES = Object.freeze([
     group("frames/verb-intensifiers", 3000, [
@@ -331,11 +357,16 @@
       frame`${EXPLETIVE_DETERMINER_PREFIXES} the ${EXPLETIVE} ${EXPLETIVE_DETERMINER_SUFFIXES}`
     ]),
     group("frames/participles", 3030, [
-      frame`${PARTICIPLE_FRAME_PREFIXES} ${PARTICIPLE} ${PARTICIPLE_FRAME_SUFFIXES}`
+      frame`${PARTICIPLE_FRAME_PREFIXES} ${PARTICIPLE} ${PARTICIPLE_FRAME_SUFFIXES}`,
+      frame`${CONTRACTED_SUBJECT} ${SINGLE_FUCKED} up${TERMINAL_PUNCTUATION}`
     ]),
     group("frames/intensifiers", 3040, [
       frame`${INTENSIFIER_MODIFIERS} ${INTENSIFIER} ${INTENSIFIED_ADJECTIVES}`,
       frame`${NUMBER} ${INTENSIFIER} ${COUNT_UNIT}`
+    ]),
+    group("frames/fucking-morphology", 3050, [
+      frame`${FUCKING_DETERMINERS} ${SINGLE_INTENSIFIER} ${FUCKING_NOUN_SUFFIXES}`,
+      frame`${EMPHATIC_AUXILIARIES} ${SINGLE_INTENSIFIER} ${EMPHATIC_AUXILIARY_SUFFIXES}`
     ]),
     group("frames/phrasal-verbs", 3070, [
       frame`${PHRASAL_VERB_PREFIXES} ${BASE_VERB} ${PHRASAL_SUFFIXES}`,
@@ -362,7 +393,7 @@
       pattern`${["for your", "to his"]} [bullshit]$`
     ]),
     group("low-confidence/insults", 4010, [
-      pattern`${["a little", "a crazy", "you crazy", "you fuckin'", "she's a"]} [bitch]$`,
+      pattern`${["a crazy", "you crazy", "you fuckin'", "she's a"]} [bitch]$`,
       pattern`you [fucked] my wife`,
       pattern`are so [fucked]$`
     ]),
@@ -396,7 +427,8 @@
     group("fallback/ambiguous", 5000, [
       pattern`${["oh", "ah", "aw", "ugh", "well"]} [fuck|shit]`,
       pattern`the [fuck|shit] out`,
-      pattern`${["weird", "same"]} [shit|fucking] …`,
+      pattern`weird [shit] …`,
+      pattern`same [shit|fucking] …`,
       pattern`all that [shit|bullshit]`,
       pattern`look at this [shit|fucking]`,
       pattern`what in the [fuck]`,
@@ -411,7 +443,7 @@
       pattern`show some [fucking] respect`,
       pattern`sit [fucking] still`,
       pattern`[fuck|fucked|fucking|shitting] me`,
-      pattern`[fuck|shit] yourself`,
+      pattern`[shit] yourself`,
       pattern`this [shit|motherfucker|bitch|bullshit|fucker|fucking] is`,
       pattern`[fuck|fucking|fucked|shit|bullshit|bitch] it`,
       pattern`[fucking|shit|motherfuckers] eyes`,
@@ -428,7 +460,7 @@
       pattern`I'm a [fucking|fuck|bitch|whore] …`,
       pattern`have a [fucking|shit|bullshit] …`,
       pattern`there's a [fucking|fuck] …`,
-      pattern`got a [fucking|shit|fucked] …`,
+      pattern`got a [fucking] …`,
       pattern`[fucking|fuck|bitch] nothing`,
       pattern`[shit] all over the`,
       pattern`[fucking|shit|asshole|fucked] thing`,
@@ -443,9 +475,8 @@
     group("fallback/coverage-preserving", 5005, [
       pattern`like oh [shit] yeah`,
       pattern`take a [shit]`,
-      pattern`[shit] in a`,
-      pattern`look like a [fucking]`,
-      pattern`that [shit] up`
+
+      pattern`look like a [fucking]`
     ]),
     group("fallback/validated-fill", 5010, [
       pattern`the [fucking] face`,

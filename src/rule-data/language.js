@@ -229,10 +229,6 @@ var VALIDATED_INTENSIFIER_SUFFIXES = set("validated intensifier suffix",
     "that is", "this is", "are you", "is so", "is really", "it's so", "I'm so",
     "you're so", "they're so", "so", "really", "pretty", "virtually", "not", "was"
   ]);
-  var NEGATED_DO_PREFIXES = set("negated do prefix", [
-    "can't do", "cannot do", "couldn't do", "won't do", "wouldn't do",
-    "didn't do", "don't do", "doesn't do"
-  ]);
   var INTENSIFIED_ADJECTIVES = set("intensified adjective", SHARED_MODIFIERS.concat(
     SHARED_STATES,
     [
@@ -241,9 +237,13 @@ var VALIDATED_INTENSIFIER_SUFFIXES = set("validated intensifier suffix",
     ]
   ));
 
+  var NEGATED_DO_PREFIXES = set("negated do prefix", [
+    "can't do", "cannot do", "couldn't do", "won't do", "wouldn't do",
+    "didn't do", "don't do", "doesn't do"
+  ]);
   var SAFE_INTENSIFIER_PREFIXES = set("safe intensifier prefix", [
     "a great", "across the", "by a", "can't even", "didn't even", "don't even", "don't you",
-    "down the", "entire", "every", "feel", "for a", "from the",
+    "down the", "entire", "every", "for a", "from the",
     "genuinely", "god the", "got some", "had a", "have no",
     "give me the", "he's", "here we", "I need to", "into a",
     "just how", "look at the", "many", "million",
@@ -252,7 +252,7 @@ var VALIDATED_INTENSIFIER_SUFFIXES = set("validated intensifier suffix",
     "she's", "sheer", "should have", "straight up",
     "super", "that is", "that's just", "that's pretty", "the first", "there we",
     "there's no", "this whole", "through the",
-    "use your", "what are you", "what's the", "with a",
+    "use your", "what are you",
     "would be", "yeah you"
   ]);
   var EVALUATIVE_NOUN_PREFIXES = set("evaluative-noun prefix", ["seems like", "marketing", "legal", "made up"]);
@@ -284,6 +284,9 @@ var VALIDATED_INTENSIFIER_SUFFIXES = set("validated intensifier suffix",
     "(?:[-\\s]+" + NUMBER_WORD_PATTERN + "){0,3})";
   var NUMBER = regexSet("number", NUMBER_PATTERN);
   var COUNT_UNIT = regexSet("count unit", "(?:seconds?|minutes?|hours?|days?|weeks?|months?|years?|times?)");
+  var CONTRACTED_SUBJECT = regexSet("contracted subject",
+    "(?!(?:let|what|i)['’]s\\b)[\\p{L}\\p{N}_-]+['’]s");
+  var TERMINAL_PUNCTUATION = regexSet("terminal punctuation", "[,!.?]");
 
 
   var CONTINUING_PREFIX_SETS = Object.freeze([
@@ -338,6 +341,8 @@ var VALIDATED_INTENSIFIER_SUFFIXES = set("validated intensifier suffix",
     EVALUATIVE_NOUN_SUFFIXES: EVALUATIVE_NOUN_SUFFIXES,
     NUMBER: NUMBER,
     COUNT_UNIT: COUNT_UNIT,
+    CONTRACTED_SUBJECT: CONTRACTED_SUBJECT,
+    TERMINAL_PUNCTUATION: TERMINAL_PUNCTUATION,
     CONTINUING_PREFIX_SETS: CONTINUING_PREFIX_SETS
   });
   var exports = Object.freeze(Object.assign({
