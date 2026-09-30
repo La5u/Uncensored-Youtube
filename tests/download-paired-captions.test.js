@@ -339,6 +339,13 @@ fs.rmSync(directory, { recursive: true, force: true });
   }));
   assert.strictEqual(partial.entries.length, 1);
   assert.match(partial.error, /No route to host/u);
+  const tabRow = "abc123\tVideo\tNA\tNA\thttps://example.test/watch?v=abc123\tUCzS3-65Y91JhOxFiM7j6grg\n";
+  const tab = await listEntries("https://www.youtube.com/channel/UCzS3-65Y91JhOxFiM7j6grg/videos", 1,
+    async () => ({ status: 0, stdout: tabRow, stderr: "" }));
+  assert.strictEqual(tab.entries[0].channelId, "UCzS3-65Y91JhOxFiM7j6grg");
+  const playlist = await listEntries("https://www.youtube.com/playlist?list=PLx", 1,
+    async () => ({ status: 0, stdout: tabRow, stderr: "" }));
+  assert.strictEqual(playlist.entries[0].channelId, "");
 
   let hangingChild;
   let spawnedArgs;

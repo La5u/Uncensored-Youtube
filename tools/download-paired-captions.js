@@ -496,15 +496,19 @@ async function listEntries(source, limit, run = runYtDlpWithRetry) {
   const result = await run([
     "--flat-playlist",
     "--playlist-end", String(limit),
-    "--print", "%(id)s\t%(title)s\t%(channel)s\t%(channel_id)s\t%(webpage_url)s",
+    "--print", "%(id)s\t%(title)s\t%(channel)s\t%(channel_id)s\t%(webpage_url)s\t%(playlist_channel_id)s",
     "--ignore-errors",
     expanded
   ]);
   throwIfTransient(result);
   const listingError = result.status !== 0
     ? (result.stderr || "list failed").trim() : "";
+  // Flat channel tabs omit per-video channel_id; only the channel's own upload
+  // tabs (not playlists or searches) make the listed channel the owner.
+  const ownTab = /^https:\/\/www\.youtube\.com\/channel\/UC[\w-]{22}\/(videos|shorts|streams)$/u.test(source);
   const entries = String(result.stdout || "").split("\n").map((line) => {
-    const [id, title, channel, channelId, url] = line.trim().split("\t");
+    const [id, title, channel, rawChannelId, url, tabChannelId] = line.trim().split("\t");
+    const channelId = rawChannelId && rawChannelId !== "NA" ? rawChannelId : ownTab ? tabChannelId : "";
     if (!id || id === "NA" || id.length < 6) return null;
     return {
       id,
