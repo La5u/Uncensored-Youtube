@@ -222,9 +222,31 @@ try {
     refresh.writeAtomic(regressionAudit, "{}\n");
     return {};
   };
-  let regressionResult = refresh.run({ acquisition: regressionAcquisition, fixtures: regressionFixtures,
-    dataset: regressionDataset, audit: regressionAudit, mining: path.join(directory, "regression-mining.json"),
-    state: regressionState, minimumSlots: 999, auditRules: regressionAuditRules });
+  const audioDir = path.join(regressionFixtures, "audio");
+  const nestedDir = path.join(regressionFixtures, "nested");
+  fs.mkdirSync(audioDir);
+  fs.mkdirSync(nestedDir);
+  const noiseFiles = [path.join(audioDir, "unused.mp3"),
+    path.join(regressionFixtures, `${newId}_auto.en.json3.tmp`),
+    path.join(regressionFixtures, `${newId}_auto.en.json3.lock`),
+    path.join(regressionFixtures, "unrelated.json"),
+    path.join(nestedDir, `${newId}_auto.en.json3`)];
+  noiseFiles.forEach((file, index) => fs.writeFileSync(file, index === 0 ? Buffer.alloc(8 * 1024 * 1024) : "noise"));
+  const runRegression = () => {
+    const readFileSync = fs.readFileSync;
+    try {
+      fs.readFileSync = (file, ...args) => {
+        assert.ok(!noiseFiles.includes(String(file)), `irrelevant input read: ${file}`);
+        return readFileSync(file, ...args);
+      };
+      return refresh.run({ acquisition: regressionAcquisition, fixtures: regressionFixtures,
+        dataset: regressionDataset, audit: regressionAudit, mining: path.join(directory, "regression-mining.json"),
+        state: regressionState, minimumSlots: 999, auditRules: regressionAuditRules });
+    } finally {
+      fs.readFileSync = readFileSync;
+    }
+  };
+  let regressionResult = runRegression();
   assert.strictEqual(regressionResult.dataset, "rebuilt");
   let regressionOutput = JSON.parse(fs.readFileSync(regressionDataset, "utf8"));
   assert.strictEqual(regressionOutput.summary.rows, 2);
@@ -233,14 +255,41 @@ try {
     report.path === path.relative(projectRoot, oldDefaultReport)));
   assert.ok(regressionOutput.provenance.reports.some((report) =>
     report.path === path.relative(projectRoot, regressionAcquisition)));
+  const captionSourceFingerprint = JSON.parse(fs.readFileSync(regressionState, "utf8")).source;
+  const originalOutputs = [regressionDataset, regressionAudit].map((file) => fs.readFileSync(file));
+  for (const mutate of [false, true]) {
+    if (mutate) noiseFiles.forEach((file) => fs.appendFileSync(file, "changed"));
+    regressionResult = runRegression();
+    assert.strictEqual(regressionResult.dataset, "unchanged");
+    assert.strictEqual(regressionResult.audit, "unchanged");
+    assert.strictEqual(regressionResult.sourceFingerprint, captionSourceFingerprint);
+    [regressionDataset, regressionAudit].forEach((file, index) =>
+      assert.deepStrictEqual(fs.readFileSync(file), originalOutputs[index]));
+  }
+
+  // Same-size caption edits still invalidate with the original mtime restored.
+  const changedCaption = path.join(regressionFixtures, `${newId}_manual.en.json3`);
+  const captionStat = fs.statSync(changedCaption);
+  fs.writeFileSync(changedCaption, JSON.stringify(caption("watch this shit")));
+  fs.utimesSync(changedCaption, captionStat.atime, captionStat.mtime);
+  assert.strictEqual(fs.statSync(changedCaption).size, captionStat.size);
+  regressionResult = runRegression();
+  assert.strictEqual(regressionResult.dataset, "rebuilt");
+  assert.strictEqual(regressionResult.audit, "rebuilt");
+  assert.notStrictEqual(regressionResult.sourceFingerprint, captionSourceFingerprint);
+  regressionOutput = JSON.parse(fs.readFileSync(regressionDataset, "utf8"));
+  assert.strictEqual(regressionOutput.rows.find((row) => row.videoId === newId).expected, "shit");
+
   const firstSourceFingerprint = JSON.parse(fs.readFileSync(regressionState, "utf8")).source;
-  fs.writeFileSync(oldDefaultReport, JSON.stringify({ changed: true, channels: [{ name: "Old Creator",
+  const provenanceStat = fs.statSync(oldDefaultReport);
+  fs.writeFileSync(oldDefaultReport, JSON.stringify({ channels: [{ name: "Odd Creator",
     creatorId: "UCAAAAAAAAAAAAAAAAAAAAAA", items: [{ id: oldId, status: "paired-saved",
       pairClass: "manual-auto" }] }] }));
-  regressionResult = refresh.run({ acquisition: regressionAcquisition, fixtures: regressionFixtures,
-    dataset: regressionDataset, audit: regressionAudit, mining: path.join(directory, "regression-mining.json"),
-    state: regressionState, minimumSlots: 999, auditRules: regressionAuditRules });
+  fs.utimesSync(oldDefaultReport, provenanceStat.atime, provenanceStat.mtime);
+  assert.strictEqual(fs.statSync(oldDefaultReport).size, provenanceStat.size);
+  regressionResult = runRegression();
   assert.strictEqual(regressionResult.dataset, "rebuilt");
+  assert.strictEqual(regressionResult.audit, "rebuilt");
   assert.notStrictEqual(JSON.parse(fs.readFileSync(regressionState, "utf8")).source, firstSourceFingerprint);
   regressionOutput = JSON.parse(fs.readFileSync(regressionDataset, "utf8"));
   assert.strictEqual(regressionOutput.summary.rows, 2);

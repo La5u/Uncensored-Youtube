@@ -72,9 +72,9 @@ function snapshotFingerprint(files) {
   return sha(Buffer.from(parts.join("")));
 }
 
-function readJson(file, fallback = null) {
+function readJson(file, fallback = null, snapshot) {
   try {
-    const value = JSON.parse(fs.readFileSync(file, "utf8"));
+    const value = JSON.parse(snapshot === undefined ? fs.readFileSync(file, "utf8") : snapshot);
     return value && typeof value === "object" && !Array.isArray(value) ? value : fallback;
   } catch { return fallback; }
 }
@@ -240,18 +240,20 @@ function run(options = {}) {
     locks.reverse().forEach(releaseLock);
     throw error;
   }
-  const old = new Map([args.outputPath, args.miningPath, args.statePath].map((file) => [file,
-    fs.existsSync(file) ? fs.readFileSync(file) : null]));
+  let old;
+  let writesStarted = false;
   try {
-    const previousState = readJson(args.statePath, {}) || {};
-    const previousDataset = readJson(args.outputPath, null);
+    old = new Map(outputPaths.map((file) => [file,
+      fs.existsSync(file) ? fs.readFileSync(file) : null]));
+    const previousState = readJson(args.statePath, {}, old.get(args.statePath)) || {};
+    const previousDataset = readJson(args.outputPath, null, old.get(args.outputPath));
     const previousFixtures = datasetFixturePaths(previousDataset);
     const modulesFingerprint = currentModulesFingerprint();
     const quickFingerprint = snapshotFingerprint([...reports, ...previousFixtures]);
     if (previousState.quickFingerprint === quickFingerprint &&
         previousState.modulesFingerprint === modulesFingerprint &&
-        previousState.datasetFingerprint === fileFingerprint(args.outputPath) &&
-        previousState.miningFingerprint === fileFingerprint(args.miningPath)) {
+        previousState.datasetFingerprint === (old.get(args.outputPath) ? sha(old.get(args.outputPath)) : "") &&
+        previousState.miningFingerprint === (old.get(args.miningPath) ? sha(old.get(args.miningPath)) : "")) {
       return { status: "unchanged", reports, inputFingerprint: previousState.inputFingerprint,
         dataset: "unchanged", mining: "unchanged" };
     }
@@ -276,6 +278,7 @@ function run(options = {}) {
     if (!datasetChanged && !miningChanged) return result;
 
     if (datasetChanged) {
+      writesStarted = true;
       writeAtomic(args.outputPath, `${JSON.stringify(dataset)}\n`);
       result.dataset = "rebuilt";
       result.status = "refreshed";
@@ -290,6 +293,7 @@ function run(options = {}) {
       const runMiner = args.mine || (typeof args.miner === "function" ? args.miner : miningModule.run);
       const parsed = parseMinerArgs(["--dataset", args.outputPath, "--output", args.miningPath,
         "--window", "4,4", "--phrase-words", "8", "--limit", "0"]);
+      writesStarted = true;
       const mined = runMiner(parsed);
       // Some embedders return the artifact without writing it. Reuse that
       // result, when available, without imposing a miner output format.
@@ -309,9 +313,9 @@ function run(options = {}) {
     writeAtomic(args.statePath, `${JSON.stringify(state)}\n`);
     return { ...result, datasetFingerprint: state.datasetFingerprint, miningFingerprint: state.miningFingerprint };
   } catch (error) {
-    // The miner is external to this transaction. Restore every artifact if it
-    // failed after writing, so a broken partial source cannot erase a good run.
-    for (const [file, content] of old) restore(file, content);
+    // Restore only after all snapshots were read and writes began. An initial
+    // read failure must release locks without touching any original artifact.
+    if (writesStarted) for (const [file, content] of old) restore(file, content);
     throw error;
   } finally {
     locks.reverse().forEach(releaseLock);

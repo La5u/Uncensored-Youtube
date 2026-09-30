@@ -10,7 +10,7 @@ const os = require("os");
 const crypto = require("crypto");
 const { buildFaithfulDataset, currentFingerprints } = require("./build-real-manual-auto-dataset");
 const { auditCurrentRules } = require("./audit-current-rules");
-const { defaultReports, reportEvidenceStatus, EVIDENCE_POLICY } = require("./audit-caption-corpus");
+const { defaultReports, fixturePart, reportEvidenceStatus, EVIDENCE_POLICY } = require("./audit-caption-corpus");
 const { classifyPairKind } = require("./download-paired-captions");
 const miner = require("./mine-context-leaves");
 
@@ -23,13 +23,13 @@ const defaults = {
 };
 const absolute = (file) => path.resolve(root, file);
 const sha256 = (file) => crypto.createHash("sha256").update(fs.readFileSync(absolute(file))).digest("hex");
-function filesIn(directory) {
+function captionFiles(directory) {
   const dir = absolute(directory);
   if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const file = path.join(dir, entry.name);
-    return entry.isDirectory() ? filesIn(path.relative(root, file)) : [path.relative(root, file)];
-  }).sort();
+  // Match the faithful builder's localSources inventory, including unpaired
+  // captions. Neither it nor fixturePairs consumes audio or nested/temp files.
+  return fs.readdirSync(dir).filter((name) => fixturePart(name))
+    .map((name) => path.relative(root, path.join(dir, name))).sort();
 }
 function fingerprint(files) {
   const hash = crypto.createHash("sha256");
@@ -132,7 +132,7 @@ function run(options = {}) {
   }
   const report = validateReport(readJson(args.acquisition, null));
   const reports = provenanceReports(args.acquisition);
-  const sourceFiles = [...reports, ...filesIn(args.fixtures)];
+  const sourceFiles = [...reports, ...captionFiles(args.fixtures)];
   const sourceFingerprint = fingerprint(sourceFiles), previous = readJson(args.state, {}), currentSlots = slots(report);
   const gainedSlots = Math.max(0, currentSlots - (Number(previous.slots) || 0));
   const rules = (options.currentFingerprints || currentFingerprints)();

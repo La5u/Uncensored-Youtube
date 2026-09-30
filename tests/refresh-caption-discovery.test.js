@@ -41,9 +41,61 @@ try {
   assert.strictEqual(mines, 1);
   assert.strictEqual(builds, 1);
 
+  // A quiet tick parses/hashes its rollback snapshots instead of rereading
+  // large artifacts. Content checks still run even when stat metadata agrees.
+  const artifactReads = new Map([output, mining, state].map((file) => [file, 0]));
+  const readSnapshot = fs.readFileSync;
+  try {
+    fs.readFileSync = (file, ...args) => {
+      if (artifactReads.has(file)) artifactReads.set(file, artifactReads.get(file) + 1);
+      return readSnapshot(file, ...args);
+    };
+    assert.strictEqual(refresh.run(options).status, "unchanged");
+  } finally { fs.readFileSync = readSnapshot; }
+  assert.deepStrictEqual([...artifactReads.values()], [1, 1, 1]);
+  const originalMining = fs.readFileSync(mining);
+  const miningStat = fs.statSync(mining);
+  fs.writeFileSync(mining, Buffer.alloc(originalMining.length, 32));
+  fs.utimesSync(mining, miningStat.atime, miningStat.mtime);
+  assert.strictEqual(refresh.run(options).mining, "rebuilt", "same-size content corruption invalidates snapshots");
+  assert.strictEqual(mines, 2);
+
   fs.unlinkSync(mining);
   assert.strictEqual(refresh.run(options).mining, "rebuilt");
-  assert.strictEqual(mines, 2); // a missing derived artifact resumes safely
+  assert.strictEqual(mines, 3); // a missing derived artifact resumes safely
+
+  // Every initial snapshot read is inside the lock-release guard. Even a
+  // later snapshot failure must not rewrite the already-read originals.
+  for (const file of [output, mining, state]) {
+    for (const code of ["EACCES", "EISDIR"]) {
+      const originals = [output, mining, state].map((artifact) => [artifact, fs.readFileSync(artifact)]);
+      const readFileSync = fs.readFileSync, writeFileSync = fs.writeFileSync;
+      const failure = Object.assign(new Error(`snapshot ${code}`), { code });
+      const writes = [];
+      let injected = false;
+      try {
+        fs.readFileSync = (target, ...args) => {
+          if (target === file && !injected) { injected = true; throw failure; }
+          return readFileSync(target, ...args);
+        };
+        fs.writeFileSync = (target, ...args) => {
+          if (!String(target).endsWith(".lock")) writes.push(target);
+          return writeFileSync(target, ...args);
+        };
+        assert.throws(() => refresh.run(options), (error) => error === failure);
+      } finally {
+        fs.readFileSync = readFileSync;
+        fs.writeFileSync = writeFileSync;
+      }
+      assert.ok(injected);
+      assert.deepStrictEqual(writes, []);
+      for (const [artifact, content] of originals) {
+        assert.ok(!fs.existsSync(`${artifact}.lock`));
+        assert.deepStrictEqual(fs.readFileSync(artifact), content);
+      }
+      assert.strictEqual(refresh.run(options).status, "unchanged");
+    }
+  }
 
   const oldDataset = fs.readFileSync(output);
   const oldMining = fs.readFileSync(mining);
