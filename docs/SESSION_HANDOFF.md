@@ -41,8 +41,11 @@ pre-09-24 archive `.tmp-archive/docs-20260924/SESSION_HANDOFF.md`. Preserve `tmp
   each) inside the worker-only namespace `uncensored-vpn-us-free-137` (provisioned with
   `tmp/isolated-vpn-netns.sh setup-one US-FREE-137`; host route stays on wlan0) plus
   its own discovery watcher (`tmp/overnight/acquisition/discovery*.json`). Worker logs
-  `tmp/overnight/acquisition/*-worker.log`. When done, clean up with
-  `tmp/isolated-vpn-netns.sh cleanup-one US-FREE-137`.
+  `tmp/overnight/acquisition/*-worker.log`. A background job removes the namespace
+  when the launcher exits (else `tmp/isolated-vpn-netns.sh cleanup-one US-FREE-137`).
+  The first launch found nothing: flat channel listings omit `channel_id`, so every
+  prospective entry was `channel-id-unverified` (also the cause of the old 237
+  exclusions). Fixed: owner comes from `playlist_channel_id` on channel upload tabs only.
 - Grouped review UI may still be on http://127.0.0.1:8769/ (it writes
   `tmp/deepgram-frozen-grouped-review.json`, which is complete); stop it unless
   intentionally correcting labels.
