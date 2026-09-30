@@ -164,9 +164,23 @@ assert.deepStrictEqual(
 );
 
 streamDecoder.push({ type: "end", streamId: 1 });
-streamDecoder.reset();
-const resumed = streamDecoder.push({ type: "chunk", streamId: 1, buffer: mediaPayload.buffer });
-assert.strictEqual(resumed.length, 1);
+const resumed = streamDecoder.push({ type: "chunk", streamId: 2, buffer: mediaPayload.buffer });
+assert.strictEqual(resumed.length, 1, "same-video streams reuse initialization data");
 assert.deepStrictEqual(Array.from(new Uint8Array(resumed[0].buffer)), [...webmInit, 20, 21, 22]);
+streamDecoder.reset();
+assert.deepStrictEqual(
+  streamDecoder.push({ type: "chunk", streamId: 3, buffer: mediaPayload.buffer }),
+  [],
+  "a new video must not reuse initialization data from the previous video"
+);
+const freshWebmInit = concat([webmInit, Uint8Array.from([99])]);
+const freshInit = concat([
+  part(20, initHeader),
+  part(21, concat([Uint8Array.from([1]), freshWebmInit]))
+]);
+streamDecoder.push({ type: "chunk", streamId: 3, buffer: freshInit.buffer });
+const recovered = streamDecoder.push({ type: "chunk", streamId: 3, buffer: mediaPayload.buffer });
+assert.strictEqual(recovered.length, 1);
+assert.deepStrictEqual(Array.from(new Uint8Array(recovered[0].buffer)), [...freshWebmInit, 20, 21, 22]);
 
 console.log("sabr-parser.test.js passed");

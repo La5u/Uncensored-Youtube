@@ -132,9 +132,15 @@
     return Math.max(left, right) + Math.log1p(Math.exp(-Math.abs(left - right)));
   }
 
-  function disposeAll(values) {
+  function disposeAll(values, retained) {
+    // Tensor wrappers can share an ORT tensor; never dispose borrowed or carried caches.
+    var seen = new Set((retained || []).map(function identity(value) { return value && (value.ort_tensor || value); }));
     values.forEach(function dispose(value) {
-      if (value && value.dispose) value.dispose();
+      var identity = value && (value.ort_tensor || value);
+      if (value && value.dispose && !seen.has(identity)) {
+        seen.add(identity);
+        value.dispose();
+      }
     });
   }
 
@@ -161,21 +167,29 @@
     }
     waveform.set(audio.subarray(0, waveform.length));
     mel = await extractor._extract_fbank_features(waveform);
-    used = mel.dims[1];
-    for (index = 0; index < mel.data.length; index += 1) maxValue = Math.max(maxValue, mel.data[index]);
-    data.fill((Math.max(4 * maxValue - 4 - 8, -10) + 4) / 4);
-    for (bin = 0; bin < mel.dims[0]; bin += 1) {
-      data.set(mel.data.subarray(bin * used, (bin + 1) * used), bin * frames);
+    try {
+      used = mel.dims[1];
+      for (index = 0; index < mel.data.length; index += 1) maxValue = Math.max(maxValue, mel.data[index]);
+      data.fill((Math.max(4 * maxValue - 4 - 8, -10) + 4) / 4);
+      for (bin = 0; bin < mel.dims[0]; bin += 1) {
+        data.set(mel.data.subarray(bin * used, (bin + 1) * used), bin * frames);
+      }
+      return new transformers.Tensor("float32", data, [1, mel.dims[0], frames]);
+    } finally {
+      mel.dispose();
     }
-    return new transformers.Tensor("float32", data, [1, mel.dims[0], frames]);
   }
 
   // Whisper always encodes 30 s, so one encoding serves every slot in the window.
   async function encodeAudio(transformers, asr, audio) {
     var features = await extractFeatures(transformers, asr, audio);
-    // Fetch only the hidden state; the unused attention maps are ~216 MB per window.
-    var encoded = await asr.model.sessions.model.run({ input_features: features.ort_tensor }, ["last_hidden_state"]);
-    return new transformers.Tensor(encoded.last_hidden_state);
+    try {
+      // Fetch only the hidden state; the unused attention maps are ~216 MB per window.
+      var encoded = await asr.model.sessions.model.run({ input_features: features.ort_tensor }, ["last_hidden_state"]);
+      return new transformers.Tensor(encoded.last_hidden_state);
+    } finally {
+      features.dispose();
+    }
   }
 
   // Closed-set scoring: teacher-force each candidate (lower-case and capitalised)
@@ -191,91 +205,103 @@
     var nextWord = normalizeText(options && options.nextWord || "").split(" ")[0] || "";
     var prefixIds = SOT.concat(prefix ? encode(" " + prefix) : []);
     var nextIds = nextWord ? encode(" " + nextWord) : [];
-    var pre = await model({
-      encoder_outputs: hidden,
-      decoder_input_ids: new transformers.Tensor("int64",
-        BigInt64Array.from(prefixIds.map(BigInt)), [1, prefixIds.length])
-    });
-    var vocab = pre.logits.dims[2];
-    var first = logProbs(pre.logits.data, (prefixIds.length - 1) * vocab, vocab);
-    var scores = Object.create(null);
-    // A variant's first token bounds its score. Keep variants within 2 of the gate
-    // because capitalised and lower-case variants are summed per word.
-    var live = [];
-    var start;
-    var best = "";
-
-    candidates.forEach(function addVariants(word) {
-      [word, word.charAt(0).toUpperCase() + word.slice(1)].forEach(function addVariant(form, index) {
-        var ids = encode(" " + form);
-        if (index && form === word) return;
-        if (first(ids[0]) >= MIN_LOG_PROB - 2) live.push({ word: word, ids: ids.concat(nextIds), length: ids.length });
-      });
-    });
-
-    for (start = 0; start < live.length; start += BATCH) {
-      var batch = live.slice(start, start + BATCH);
-      var size = batch.length;
-      var width = Math.max.apply(null, batch.map(function length(item) { return item.ids.length; }));
-      var sums = batch.map(function firstToken(item) { return [first(item.ids[0])]; });
-      var encoderBatch = repeat(transformers, hidden, size);
-      var past = {};
-      var step;
-
-      Object.keys(pre).forEach(function copyCache(name) {
-        if (name.indexOf("present.") === 0) {
-          past[name.replace("present.", "past_key_values.")] = repeat(transformers, pre[name], size);
-        }
-      });
-      // The exported cached decoder has no causal mask across several new tokens,
-      // so feed one token per step.
-      for (step = 0; step < width - 1; step += 1) {
-        var column = BigInt64Array.from(batch.map(function tokenAt(item) {
-          return BigInt(item.ids[step] === undefined ? PAD : item.ids[step]);
-        }));
-        var out = await model({
-          encoder_outputs: encoderBatch,
-          decoder_input_ids: new transformers.Tensor("int64", column, [size, 1]),
-          past_key_values: past
-        });
-        var nextPast = {};
-
-        batch.forEach(function addStep(item, row) {
-          if (item.ids[step + 1] !== undefined) {
-            sums[row].push(logProbs(out.logits.data, row * vocab, vocab)(item.ids[step + 1]));
-          }
-        });
-        Object.keys(out).forEach(function carryCache(name) {
-          var key = name.replace("present.", "past_key_values.");
-          if (name.indexOf("present.") !== 0 || name.indexOf(".encoder.") !== -1) {
-            if (name.indexOf(".encoder.") !== -1) nextPast[key] = past[key];
-            out[name].dispose();
-            return;
-          }
-          past[key].dispose();
-          nextPast[key] = out[name];
-        });
-        past = nextPast;
+    var prefixTensor = new transformers.Tensor("int64", BigInt64Array.from(prefixIds.map(BigInt)), [1, prefixIds.length]);
+    var pre;
+    try {
+      try {
+        pre = await model({ encoder_outputs: hidden, decoder_input_ids: prefixTensor });
+      } finally {
+        prefixTensor.dispose();
       }
-      batch.forEach(function addScore(item, row) {
-        var word = sums[row].slice(0, item.length).reduce(function add(a, b) { return a + b; }, 0);
-        var withNext = sums[row].reduce(function add(a, b) { return a + b; }, 0);
-        var prior = scores[item.word];
-        scores[item.word] = prior
-          ? { word: logSumExp(prior.word, word), withNext: logSumExp(prior.withNext, withNext) }
-          : { word: word, withNext: withNext };
-      });
-      disposeAll(Object.keys(past).map(function value(key) { return past[key]; }).concat(encoderBatch));
-    }
-    disposeAll(Object.keys(pre).map(function value(key) { return pre[key]; }));
+      var vocab = pre.logits.dims[2];
+      var first = logProbs(pre.logits.data, (prefixIds.length - 1) * vocab, vocab);
+      var scores = Object.create(null);
+      // A variant's first token bounds its score. Keep variants within 2 of the gate
+      // because capitalised and lower-case variants are summed per word.
+      var live = [];
+      var start;
+      var best = "";
 
-    Object.keys(scores).forEach(function chooseWord(word) {
-      if (scores[word].word < MIN_LOG_PROB) return;
-      if (!best || scores[word].withNext > scores[best].withNext) best = word;
-    });
-    return best
-      ? { word: best, words: [best], transcript: "", evidence: "candidate-score", score: scores[best].word }
-      : emptyDecision();
+      candidates.forEach(function addVariants(word) {
+        [word, word.charAt(0).toUpperCase() + word.slice(1)].forEach(function addVariant(form, index) {
+          var ids = encode(" " + form);
+          if (index && form === word) return;
+          if (first(ids[0]) >= MIN_LOG_PROB - 2) live.push({ word: word, ids: ids.concat(nextIds), length: ids.length });
+        });
+      });
+
+      for (start = 0; start < live.length; start += BATCH) {
+        var batch = live.slice(start, start + BATCH);
+        var size = batch.length;
+        var width = Math.max.apply(null, batch.map(function length(item) { return item.ids.length; }));
+        var sums = batch.map(function firstToken(item) { return [first(item.ids[0])]; });
+        var encoderBatch = null;
+        var past = {};
+        var step;
+
+        try {
+          encoderBatch = repeat(transformers, hidden, size);
+          Object.keys(pre).forEach(function copyCache(name) {
+            if (name.indexOf("present.") === 0) {
+              past[name.replace("present.", "past_key_values.")] = repeat(transformers, pre[name], size);
+            }
+          });
+          // The exported cached decoder has no causal mask across several new tokens,
+          // so feed one token per step.
+          for (step = 0; step < width - 1; step += 1) {
+            var column = BigInt64Array.from(batch.map(function tokenAt(item) {
+              return BigInt(item.ids[step] === undefined ? PAD : item.ids[step]);
+            }));
+            var stepTensor = new transformers.Tensor("int64", column, [size, 1]);
+            var out = null;
+            try {
+              out = await model({
+                encoder_outputs: encoderBatch,
+                decoder_input_ids: stepTensor,
+                past_key_values: past
+              });
+              var nextPast = Object.assign({}, past);
+
+              batch.forEach(function addStep(item, row) {
+                if (item.ids[step + 1] !== undefined) {
+                  sums[row].push(logProbs(out.logits.data, row * vocab, vocab)(item.ids[step + 1]));
+                }
+              });
+              Object.keys(out).forEach(function carryCache(name) {
+                if (name.indexOf("present.") === 0 && name.indexOf(".encoder.") === -1) {
+                  nextPast[name.replace("present.", "past_key_values.")] = out[name];
+                }
+              });
+              disposeAll(Object.values(past), Object.values(nextPast));
+              past = nextPast;
+            } finally {
+              stepTensor.dispose();
+              if (out) disposeAll(Object.values(out), Object.values(past).concat(encoderBatch));
+            }
+          }
+          batch.forEach(function addScore(item, row) {
+            var word = sums[row].slice(0, item.length).reduce(function add(a, b) { return a + b; }, 0);
+            var withNext = sums[row].reduce(function add(a, b) { return a + b; }, 0);
+            var prior = scores[item.word];
+            scores[item.word] = prior
+              ? { word: logSumExp(prior.word, word), withNext: logSumExp(prior.withNext, withNext) }
+              : { word: word, withNext: withNext };
+          });
+        } finally {
+          disposeAll(Object.values(past).concat(encoderBatch));
+        }
+      }
+
+      Object.keys(scores).forEach(function chooseWord(word) {
+        if (scores[word].word < MIN_LOG_PROB) return;
+        if (!best || scores[word].withNext > scores[best].withNext) best = word;
+      });
+      return best
+        ? { word: best, words: [best], transcript: "", evidence: "candidate-score", score: scores[best].word }
+        : emptyDecision();
+    } finally {
+      if (pre) disposeAll(Object.values(pre), [hidden]);
+    }
   }
 
   function emptyDecision() {

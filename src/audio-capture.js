@@ -35,7 +35,8 @@
   var whisperQueueScheduled = false;
   var audioContext = null;
   var decodeQueue = Promise.resolve();
-  var decodedSegmentStarts = new Set();
+  // Retained PCM supplies completed dedup; this map owns queued/in-flight work only.
+  var decodingSegmentStarts = new Map();
   var whisperModelState = "idle";
   var navigationGeneration = 0;
   var activeVideoId = "";
@@ -105,7 +106,7 @@
     failedTokens.clear();
     mediaAudio.videoId = "";
     mediaAudio.segments = [];
-    decodedSegmentStarts.clear();
+    decodingSegmentStarts.clear();
     lastPatchedCaptionText = "";
     captionTimeline = [];
     captionTokens = [];
@@ -307,7 +308,6 @@
     var context = audioContext;
 
     audioContext = null;
-    decodedSegmentStarts.clear();
     if (context && context.state !== "closed" && context.close) {
       context.close().catch(function ignoreCloseError() {});
     }
@@ -343,17 +343,23 @@
     }
 
     segmentKey = Number.isFinite(detail.startMs) ? Math.round(detail.startMs) : null;
-    if (segmentKey !== null && decodedSegmentStarts.has(segmentKey)) return decodeQueue;
-    if (segmentKey !== null) decodedSegmentStarts.add(segmentKey);
+    if (segmentKey !== null && (decodingSegmentStarts.has(segmentKey) ||
+        mediaAudio.segments.some(function retainedSegment(segment) {
+          return Math.round(segment.startTime * 1000) === segmentKey;
+        }))) return decodeQueue;
+    var reservation = {};
+    if (segmentKey !== null) decodingSegmentStarts.set(segmentKey, reservation);
+
+    function stillNeeded() {
+      return generation === navigationGeneration && options.whisperEnabled &&
+        options.audioEnabled && encodedSegmentNeeded(detail);
+    }
 
     decodeQueue = decodeQueue.then(function decodeNextSegment() {
-      if (!options.whisperEnabled || !options.audioEnabled) {
-        if (segmentKey !== null && generation === navigationGeneration) decodedSegmentStarts.delete(segmentKey);
-        return null;
-      }
+      if (!stillNeeded()) return null;
 
       return currentAudioContext().then(function decodeWithContext(context) {
-        return decodeAudio(context, detail.buffer);
+        return stillNeeded() ? decodeAudio(context, detail.buffer) : null;
       });
     }).then(function decoded(buffer) {
       if (!buffer || generation !== navigationGeneration ||
@@ -366,8 +372,12 @@
       debugLog("audio decoded", mediaTimestamp(startTime));
       return addAudioSegment(startTime, buffer);
     }).catch(function failed(error) {
-      if (segmentKey !== null && generation === navigationGeneration) decodedSegmentStarts.delete(segmentKey);
       debugLog("audio decode failed", error && (error.message || String(error)));
+    }).finally(function releaseDecodeReservation() {
+      // Navigation may have reserved this start again for a different video.
+      if (segmentKey !== null && decodingSegmentStarts.get(segmentKey) === reservation) {
+        decodingSegmentStarts.delete(segmentKey);
+      }
     });
 
     return decodeQueue;
@@ -1115,7 +1125,6 @@
 
   function captionSeekStarted() {
     seekGeneration += 1;
-    decodedSegmentStarts.clear();
     lastPatchedCaptionText = "";
     scheduleVisibleCaptionResolution();
     scheduleWhisperQueue();

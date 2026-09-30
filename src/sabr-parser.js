@@ -404,6 +404,7 @@
       reset: function reset() {
         parsers.clear();
         ignoredStreams.clear();
+        initByItag.clear();
       }
     };
   }
