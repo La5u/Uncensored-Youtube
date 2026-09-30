@@ -82,6 +82,9 @@ for (const file of ["src", "tools", "tests"].flatMap(javascriptFiles)) {
 for (const file of fs.readdirSync(path.join(root, "tests")).filter((name) => name.endsWith(".test.js")).sort()) {
   run("node", [path.join("tests", file)]);
 }
+for (const file of fs.readdirSync(path.join(root, "tests")).filter((name) => name.endsWith(".test.py")).sort()) {
+  run("python3", [path.join("tests", file)]);
+}
 run("./build.sh", ["1.6.0"]);
 run("unzip", ["-tq", "dist/uncensored-youtube-firefox-1.6.0.zip"]);
 run("unzip", ["-tq", "dist/uncensored-youtube-chromium-1.6.0.zip"]);
