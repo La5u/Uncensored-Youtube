@@ -171,8 +171,20 @@ all non-agreements subject to the both-empty cap. Triage selection uses only
 runtime Rules and Whisper predictions; held-out expected/correct fields are not
 used.
 
-The page runs only on `127.0.0.1`, plays a short timestamp-centered fragment,
-and saves resumable labels to `tmp/audio-annotations.json`. Model guesses are
+The page runs only on `127.0.0.1` and saves resumable labels to
+`tmp/audio-annotations.json`. Standard modes group multi-blank original caption
+events by default: all blanks stay visible, playback covers the group, and you
+can enter words in order (spaces or commas) or use per-slot word/status fields.
+**Save all caption slots** validates and saves the whole group atomically, retaining
+individual fixture/token IDs. Other report slots in the same event are included
+and marked `expandedSelection`; this expanded queue remains a selected diagnostic.
+Existing human labels are read-only in batches and are never replaced by ASR.
+`--prior-labels FILE` seeds a new output from reviewed labels with matching slot/audio
+identity. Use `--group-captions false` to resume old per-slot queues or explicitly
+correct prior labels. Missing, incomplete, or timestamp-mismatched raw caption
+mapping falls back to single-slot review; literal ellipses are never guessed to
+be censor markers. False-fill sessions remain per-slot.
+Model guesses are
 hidden until explicitly revealed. Choose a word from `ALLOWED_WORDS`, choose
 **No swear in audio** when no swear is audible, **Wrong audio fragment** when
 the audio and caption do not match, or **Not English**. In the normal review modes, Rules and Whisper words appear as one-click
