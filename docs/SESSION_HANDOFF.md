@@ -58,7 +58,9 @@ pre-09-24 archive `.tmp-archive/docs-20260924/SESSION_HANDOFF.md`. Preserve `tmp
   rule fills; Whisper first scores every slot and audio replaces rule fills.
 - Whisper candidate scoring (`src/whisper-local.js`): one 30 s window starting 3 s
   before the next *upcoming* slot covers every pending slot inside it; each allowed
-  word is teacher-forced after the caption words since the window start; fill only if
+  word is teacher-forced after the caption words since the window start (earlier blanks
+  in that window are replaced by Whisper's own decision for them, else dropped; a blank
+  directly before another blank gets no next word); fill only if
   log P ≥ −4; choose form by log P(word + next caption word). Step the cached decoder
   one token at a time (multi-token steps have no causal mask and inflate scores).
   Passed slots are skipped and their audio released. Debug log
@@ -113,11 +115,16 @@ off 0 filled, rules 9, rules-first 10, whisper-first 9, whisper 0 — as designe
 
 ## Next steps (in order)
 
-1. **Adjacent-blank fix**: for slot k>1 in one caption event, condition on the
-   previous slot's decision (sequential prefix) or score the event jointly. Develop on
-   the dense set (now labeled); evaluate once on frozen. Earlier scratch try: +2/−2 on
-   16 labels — too small to judge.
-2. **1.6.1**: after real-extension checks, bump version, rebuild, submit.
+1. **Adjacent-blank fix landed (10-01, unreleased)**: sequential prefix in
+   `scoreSlots`. Frozen labeled set, before → after precision/coverage: whisper-only
+   96.1/89.3 → 97.3/90.8, rules+whisper 95.6/91.0 → 96.8/92.2, rules-first 88.2/83.9 →
+   89.3/85.1; later slots of multi-blank events 81.3 → 96.3% precision; single slots
+   flat. Dense (used to choose the variant) +0.6–0.8 pt precision. Frozen gains are
+   optimistic (its labels came from the analysis that motivated the fix). Details
+   `tmp/adjacent-blanks/REPORT.md`. Remaining error class: same-family forms
+   (fuck/fucking/fucker, motherfucker/motherfucking).
+2. **1.6.1**: after real-extension checks, update popup figures and
+   `docs/evaluation-metrics.json` from the new reports, bump version, rebuild, submit.
 3. **Frozen set status** (was step 4): the frozen set has now been used for error
    analysis; acquire a genuinely untouched, accent-diverse creator split for scoring.
 4. **Acquisition**: resume/complete round 2 synthetic; manual-auto yield is best from
