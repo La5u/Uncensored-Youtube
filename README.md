@@ -33,10 +33,10 @@ The canonical snapshot is [`docs/evaluation-metrics.json`](docs/evaluation-metri
 | Any-candidate oracle | diagnostic | — | 90.81% | 49.83% |
 | Synthetic Filmot gap sample, rules-only | diagnostic (stale/superseded) | 110 | 85.37% | 31.82% |
 | Manual Filmot wave, rules-only | diagnostic (stale/superseded) | 275 | 69.72% | 27.64% |
-| Dense audio set, rules only | diagnostic | 1,845 | 95.53% | 52.14% |
-| Dense audio set, Whisper | diagnostic | 1,801 | 96.29% | 87.78% |
-| Dense audio set, Whisper first | diagnostic | 1,801 | 96.01% | 90.84% |
-| Dense audio set, rules first (default) | diagnostic | 1,801 | 94.95% | 89.84% |
+| Dense audio set, rules only | diagnostic | 2,493 | 95.18% | 49.10% |
+| Dense audio set, Whisper | diagnostic | 2,449 | 96.94% | 80.16% |
+| Dense audio set, Whisper first | diagnostic | 2,449 | 96.55% | 86.85% |
+| Dense audio set, rules first (default) | diagnostic | 2,449 | 95.41% | 84.89% |
 
 Development rows are in-sample.
 No held-out test score is available.

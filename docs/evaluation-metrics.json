@@ -132,21 +132,21 @@
       "status": "diagnostic",
       "diagnostic": true,
       "mode": "rules-only",
-      "scoredSlots": 1845,
-      "attempted": 1007,
-      "correct": 962,
-      "precision": 0.9553128103277061,
-      "coverage": 0.5214092140921409,
+      "scoredSlots": 2493,
+      "attempted": 1286,
+      "correct": 1224,
+      "precision": 0.9517884914463453,
+      "coverage": 0.49097472924187724,
       "source": {
-        "report": "corpus/generated/dense-audio-v3-rules-only.json",
-        "reportFingerprint": "sha256:ecdb8f3627aaf6d6aaf829c2776b27ec6da6eea98d1db926e490ec4b59cda621",
+        "report": "corpus/generated/dense-audio-v4-rules-only.json",
+        "reportFingerprint": "sha256:d2e1a68ef0079492f4271524b00565742777a7da15052506009ff490dfd7dc9c",
         "mode": "rules-only",
         "complete": true,
         "rulesFingerprint": "3795:39:11g0z2u",
         "rulesAuxFingerprint": "8hsabx",
         "rulesEngineFingerprint": "1ejn65d"
       },
-      "note": "Same 24 fixtures / slots as the audio rows; rules were tuned on this development corpus; diagnostic only, not held-out."
+      "note": "Dense development set (24+ creators, human expectedByToken overrides); gate and adjacent-blank variant chosen here."
     },
     {
       "id": "dense-audio-whisper",
@@ -155,21 +155,21 @@
       "status": "diagnostic",
       "diagnostic": true,
       "mode": "whisper-only",
-      "scoredSlots": 1801,
-      "attempted": 1642,
-      "correct": 1581,
-      "precision": 0.9628501827040195,
-      "coverage": 0.8778456413103831,
+      "scoredSlots": 2449,
+      "attempted": 2025,
+      "correct": 1963,
+      "precision": 0.9693827160493828,
+      "coverage": 0.8015516537362188,
       "source": {
-        "report": "corpus/generated/dense-audio-v3-whisper-scoring.json",
-        "reportFingerprint": "sha256:a93b8eb3fda24fb09ed03865f0adf6028dd390f1f346bd84767dcdcf313dd771",
+        "report": "corpus/generated/dense-audio-v4-whisper-scoring.json",
+        "reportFingerprint": "sha256:8b3e2d85a66b058c9c983a5246682316b9310d14daf331d6f51089d7ef7dcf9d",
         "mode": "whisper-only",
         "complete": true,
         "rulesFingerprint": "3795:39:11g0z2u",
         "rulesAuxFingerprint": "8hsabx",
         "rulesEngineFingerprint": "1ejn65d"
       },
-      "note": "24 fixtures / 1,801 manual-caption-labelled slots with local audio. Candidate scoring with shared 30 s windows; gate (-4) chosen on this development set; diagnostic only, not held-out."
+      "note": "Dense development set (24+ creators, human expectedByToken overrides); gate and adjacent-blank variant chosen here."
     },
     {
       "id": "dense-audio-hybrid",
@@ -178,21 +178,21 @@
       "status": "diagnostic",
       "diagnostic": true,
       "mode": "rules+whisper",
-      "scoredSlots": 1801,
-      "attempted": 1704,
-      "correct": 1636,
-      "precision": 0.960093896713615,
-      "coverage": 0.9083842309827873,
+      "scoredSlots": 2449,
+      "attempted": 2203,
+      "correct": 2127,
+      "precision": 0.9655015887426237,
+      "coverage": 0.8685177623519804,
       "source": {
-        "report": "corpus/generated/dense-audio-v3-hybrid-scoring.json",
-        "reportFingerprint": "sha256:84b1cc2380d569086a6adacff9ca7ed6bf44ad4c178919c490b5c8c988114b48",
+        "report": "corpus/generated/dense-audio-v4-hybrid-scoring.json",
+        "reportFingerprint": "sha256:db6779f846f2750c105a47a092e19c6e87976ce90021864f341bd71d6ec6920a",
         "mode": "rules+whisper",
         "complete": true,
         "rulesFingerprint": "3795:39:11g0z2u",
         "rulesAuxFingerprint": "8hsabx",
         "rulesEngineFingerprint": "1ejn65d"
       },
-      "note": "24 fixtures / 1,801 manual-caption-labelled slots with local audio. Candidate scoring with shared 30 s windows; gate (-4) chosen on this development set; diagnostic only, not held-out."
+      "note": "Dense development set (24+ creators, human expectedByToken overrides); gate and adjacent-blank variant chosen here."
     },
     {
       "id": "dense-audio-rules-first",
@@ -201,21 +201,21 @@
       "status": "diagnostic",
       "diagnostic": true,
       "mode": "rules-first",
-      "scoredSlots": 1801,
-      "attempted": 1704,
-      "correct": 1618,
-      "precision": 0.9495305164319249,
-      "coverage": 0.8983897834536368,
+      "scoredSlots": 2449,
+      "attempted": 2179,
+      "correct": 2079,
+      "precision": 0.9541073887104177,
+      "coverage": 0.8489179256839526,
       "source": {
-        "report": "corpus/generated/dense-audio-v3-rules-first-scoring.json",
-        "reportFingerprint": "sha256:40f7c82c776373beffe96bc18f088385c4117bb6a6ef21b125c67e24b4238382",
+        "report": "corpus/generated/dense-audio-v4-rules-first-scoring.json",
+        "reportFingerprint": "sha256:251cc408debc3afabf79122e68eb49b079e89567cb7363d8bbd4d96c44b1d2ea",
         "mode": "rules-first",
         "complete": true,
         "rulesFingerprint": "3795:39:11g0z2u",
         "rulesAuxFingerprint": "8hsabx",
         "rulesEngineFingerprint": "1ejn65d"
       },
-      "note": "24 fixtures / 1,801 manual-caption-labelled slots with local audio. Candidate scoring with shared 30 s windows; gate (-4) chosen on this development set; diagnostic only, not held-out."
+      "note": "Dense development set (24+ creators, human expectedByToken overrides); gate and adjacent-blank variant chosen here."
     }
   ]
 }

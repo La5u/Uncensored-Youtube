@@ -3,17 +3,18 @@
 
   var runtime = globalThis.browser || globalThis.chrome;
   var storage = runtime.storage.local;
-  // Measured on 154 English videos from creators the rules were not tuned on (frozen 2026-09-20 set).
+  // Measured on 154 English videos from creators the rules were not tuned on (frozen 2026-09-20
+  // set, with 345 human audio labels; rounded down).
   var MODES = [
     { id: "off", title: "Off", precision: "—", coverage: "0%", cpu: "None",
       description: "Captions are left unchanged." },
     { id: "rules", title: "Rules only", precision: "Up to 81%", coverage: "Up to 37%", cpu: "Minimal",
       description: "Fill words from caption context instantly. Uncertain slots stay hidden." },
-    { id: "rules-first", title: "Rules first", precision: "Up to 87%", coverage: "Up to 83%", cpu: "Moderate",
+    { id: "rules-first", title: "Rules first", precision: "Up to 89%", coverage: "Up to 85%", cpu: "Moderate",
       description: "Rules fill what they can; local Whisper listens only to the rest." },
-    { id: "whisper-first", title: "Whisper first", precision: "Up to 94%", coverage: "Up to 90%", cpu: "High",
+    { id: "whisper-first", title: "Whisper first", precision: "Up to 96%", coverage: "Up to 92%", cpu: "High",
       description: "Rules fill instantly, then Whisper checks every slot and corrects them." },
-    { id: "whisper", title: "Whisper only", precision: "Up to 95%", coverage: "Up to 88%", cpu: "High",
+    { id: "whisper", title: "Whisper only", precision: "Up to 97%", coverage: "Up to 90%", cpu: "High",
       description: "Only local Whisper audio recognition; no context rules." }
   ];
   var DEFAULT_MODE = "rules-first";
