@@ -152,6 +152,23 @@ const CANDIDATES = ["fuck", "fucking", "shit", "motherfucker", "motherfucking"];
   assert.strictEqual(shared.encodes, 1);
   assert.deepStrictEqual(decisions.map((d) => [d.word, Boolean(d.hybridCrossFamily)]), [["fucking", false], ["fucking", true]]);
 
+  // An earlier blank in the prefix is replaced by the word heard for it in this window;
+  // blanks scored elsewhere are dropped.
+  const sequential = fakeAsr({ " fucking": 0.9, " so": 0.1 }, {});
+  const prefills = [];
+  const decoder = sequential.model;
+  sequential.model = Object.assign(async (inputs) => {
+    if (!inputs.past_key_values) {
+      prefills.push(Array.from(inputs.decoder_input_ids.data.slice(2), (token) => VOCAB[Number(token)].trim()).join(" "));
+    }
+    return decoder(inputs);
+  }, { sessions: decoder.sessions });
+  await whisper.scoreSlots(transformers, sequential, new Float32Array([0.1]), CANDIDATES, [
+    { tokenIndex: 4, prefix: [{ word: "what" }, { word: "the" }] },
+    { tokenIndex: 5, prefix: [{ tokenIndex: 3 }, { word: "what" }, { word: "the" }, { tokenIndex: 4 }] }
+  ]);
+  assert.deepStrictEqual(prefills, ["what the", "what the fucking"]);
+
   assertDisposed(tensors);
 
   // Track underlying tensors (not wrappers), including replacements over several

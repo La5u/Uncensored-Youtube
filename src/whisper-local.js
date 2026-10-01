@@ -308,16 +308,26 @@
     return { word: "", transcript: "", evidence: "none" };
   }
 
-  // Each slot: { prefix, nextWord, hybridRuleWord, hybridRuleSource }.
+  // Each slot: { tokenIndex, prefix, nextWord, hybridRuleWord, hybridRuleSource }. The prefix is
+  // text or timed caption words, where an earlier blank ({ tokenIndex }) is replaced by the
+  // word heard for that slot in this window, else dropped: adjacent blanks would otherwise
+  // share one prefix and repeat the same word.
   async function scoreSlots(transformers, asr, audio, candidates, slots) {
     var hidden = await encodeAudio(transformers, asr, audio);
+    var heard = Object.create(null);
     var decisions = [];
     var index;
 
     try {
       for (index = 0; index < slots.length; index += 1) {
         var slot = slots[index] || {};
-        var decision = await scoreCandidates(transformers, asr, hidden, candidates, slot);
+        var decision = await scoreCandidates(transformers, asr, hidden, candidates, {
+          nextWord: slot.nextWord,
+          prefix: Array.isArray(slot.prefix) ? slot.prefix.map(function prefixWord(word) {
+            return word.tokenIndex === undefined ? word.word : heard[word.tokenIndex];
+          }).filter(Boolean).join(" ") : slot.prefix
+        });
+        if (slot.tokenIndex !== undefined) heard[slot.tokenIndex] = decision.word;
         decisions.push(slot.hybridRuleWord
           ? arbitrateHybridResolution(slot.hybridRuleWord, decision, slot.hybridRuleSource)
           : decision);

@@ -435,7 +435,7 @@ function classifyResult(result) {
 }
 
 // Mirrors audio-capture.js: one 30 s Whisper window per run of upcoming slots; each
-// slot's prefix is the caption heard since the window start.
+// slot's prefix is the caption heard since the window start (see scoreSlots).
 const WINDOW_SECONDS = 30;
 
 async function windowedAudioDecisions(args, audio, tokens, getTranscriber) {
@@ -452,7 +452,8 @@ async function windowedAudioDecisions(args, audio, tokens, getTranscriber) {
     const end = group[group.length - 1].timeSeconds + args.after;
     const pcm = pcmSlice(audio, start + args.shift, end - start);
     const scored = await decision.scoreSlots(transformers, asr, pcm, rules.ALLOWED_WORDS, group.map((token) => ({
-      prefix: (token.precedingWords || []).filter((word) => word.time >= start).map((word) => word.word).join(" "),
+      tokenIndex: token.tokenIndex,
+      prefix: (token.precedingWords || []).filter((word) => word.time >= start),
       nextWord: token.nextWord
     })));
     group.forEach((token, slot) => decisions.set(token.tokenIndex, scored[slot]));

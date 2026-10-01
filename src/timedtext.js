@@ -260,16 +260,23 @@
   function addSpokenContext(tokens, spoken) {
     var censored = spoken.filter(function isCensored(piece) { return piece.censored; });
 
+    censored.forEach(function numberBlank(piece, index) { piece.tokenIndex = tokens[index] && tokens[index].tokenIndex; });
+
     tokens.forEach(function addContext(token, index) {
       var slot = spoken.indexOf(censored[index]);
       var next = slot < 0 ? null : spoken.slice(slot + 1).find(function spokenWord(piece) {
-        return !piece.censored && piece.word.charAt(0) !== "[";
+        return piece.censored || piece.word.charAt(0) !== "[";
       });
 
+      // Earlier blanks keep their token index so the scorer can insert its own decisions.
       token.precedingWords = slot < 0 ? [] : spoken.slice(0, slot).filter(function heardBefore(piece) {
-        return !piece.censored && piece.time >= token.timeSeconds - PRECEDING_SECONDS;
-      }).map(function timedWord(piece) { return { word: piece.word, time: piece.time }; });
-      token.nextWord = next && next.time <= token.timeSeconds + NEXT_WORD_SECONDS ? next.word : "";
+        return piece.time >= token.timeSeconds - PRECEDING_SECONDS;
+      }).map(function timedWord(piece) {
+        return piece.censored
+          ? { tokenIndex: piece.tokenIndex, time: piece.time }
+          : { word: piece.word, time: piece.time };
+      });
+      token.nextWord = next && !next.censored && next.time <= token.timeSeconds + NEXT_WORD_SECONDS ? next.word : "";
     });
   }
 

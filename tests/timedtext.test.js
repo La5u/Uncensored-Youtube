@@ -167,7 +167,7 @@ const audioPayload = {
   ]
 };
 
-const heard = (token) => token.precedingWords.map((word) => word.word).join(" ");
+const heard = (token) => token.precedingWords.map((word) => word.word ?? `#${word.tokenIndex}`).join(" ");
 const tokens = timedText.collectTimedTextTokens(JSON.stringify(audioPayload));
 const audioData = timedText.collectTimedTextData(JSON.stringify(audioPayload));
 
@@ -338,16 +338,17 @@ const multiTokenPayload = {
 const multiTokens = timedText.collectTimedTextTokens(JSON.stringify(multiTokenPayload), false);
 
 assert.deepStrictEqual(multiTokens.map((token) => token.eventTokenIndex), [0, 1, 2]);
-// Audio-scoring context skips other censored slots.
+// Earlier censored slots stay in the audio-scoring prefix by token index.
 assert.deepStrictEqual(multiTokens.map((token) => [heard(token), token.nextWord]), [
-  ["oh", "oh"], ["oh oh", "oh"], ["oh oh oh", ""]
+  ["oh", "oh"], ["oh #0 oh", "oh"], ["oh #0 oh #1 oh", ""]
 ]);
 
+// A blank right before another blank has no known next word.
 const adjacentTokens = timedText.collectTimedTextTokens(JSON.stringify({
   events: [{ segs: [{ utf8: "say [__] [__] now" }] }]
 }), false);
 assert.deepStrictEqual(adjacentTokens.map((token) => [heard(token), token.nextWord]), [
-  ["say", "now"], ["say", "now"]
+  ["say", ""], ["say #0", "now"]
 ]);
 
 const separatedRuleTokens = timedText.collectTimedTextTokens(JSON.stringify({

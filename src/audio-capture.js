@@ -594,12 +594,6 @@
     if (tokenIsCurrent(token)) failedTokens.add(tokenCacheKey(token));
   }
 
-  function prefixFrom(token, startTime) {
-    return (token.precedingWords || []).filter(function inWindow(word) {
-      return word.time >= startTime;
-    }).map(function wordText(word) { return word.word; }).join(" ");
-  }
-
   function resolveGroupFromMedia(group) {
     var startTime = tokenWindow(group[0]).startTime;
     var pcm = readMediaWindow(startTime, tokenWindow(group[group.length - 1]).endTime);
@@ -612,7 +606,8 @@
     return whisperTranscribe(pcm, candidatesForToken(), "", {
       slots: group.map(function slot(token) {
         return {
-          prefix: prefixFrom(token, startTime),
+          tokenIndex: token.tokenIndex,
+          prefix: (token.precedingWords || []).filter(function inWindow(word) { return word.time >= startTime; }),
           nextWord: token.nextWord,
           hybridRuleWord: options.rulesEnabled && (token.deterministicWord || token.contextWord) || "",
           hybridRuleSource: token.contextWord ? "context" : "deterministic"

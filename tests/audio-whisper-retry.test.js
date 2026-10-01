@@ -185,8 +185,9 @@ async function nearbyTokensShareWindow() {
   await h.advance(250);
   const requests = h.messages.filter((message) => message.type === "transcribe");
   assert.strictEqual(requests.length, 2);
-  assert.strictEqual(JSON.stringify(requests[0].data.options.slots.map((slot) => [slot.prefix, slot.nextWord || ""])),
-    JSON.stringify([["oh", "no"], ["oh no", ""]]));
+  assert.strictEqual(JSON.stringify(requests[0].data.options.slots.map((slot) =>
+    [slot.tokenIndex, slot.prefix.map((word) => word.word).join(" "), slot.nextWord || ""])),
+  JSON.stringify([[0, "oh", "no"], [1, "oh no", ""]]));
   assert.strictEqual(h.audio.pendingTokenValues().length, 0);
   assert.strictEqual(h.posted.length, 2);
 }
@@ -201,7 +202,7 @@ async function passedSlotsNotScored() {
   await h.advance(0);
   const requests = h.messages.filter((message) => message.type === "transcribe");
   assert.strictEqual(requests.length, 1, "slots behind the playhead are not scored");
-  assert.strictEqual(requests[0].data.options.slots[0].prefix, "upcoming");
+  assert.deepStrictEqual(requests[0].data.options.slots[0].prefix, [{ word: "upcoming", time: 7 }]);
 }
 
 async function staleWorkIsAborted() {
