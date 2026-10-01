@@ -123,21 +123,28 @@ off 0 filled, rules 9, rules-first 10, whisper-first 9, whisper 0 — as designe
    optimistic (its labels came from the analysis that motivated the fix). Details
    `tmp/adjacent-blanks/REPORT.md`. Remaining error class: same-family forms
    (fuck/fucking/fucker, motherfucker/motherfucking).
-2. **1.6.1**: after real-extension checks, update popup figures and
-   `docs/evaluation-metrics.json` from the new reports, bump version, rebuild, submit.
-3. **Frozen set status** (was step 4): the frozen set has now been used for error
+2. **1.6.1** (popup figures and dense metrics already updated; `dense-audio-v4-*`
+   reports in `corpus/generated/`). On AC: `npm run test:release`; Chromium smoke
+   `tools/browser-smoke.js` per mode incl. a 40+ min run watching memory (tensor
+   cleanup) and seek/navigation between videos (SABR reset, decode dedup); Firefox
+   playback + seek; two tabs at once; check a multi-blank caption fills distinct words.
+   Then bump version in manifests/`tools/test.js`, `./build.sh`, tag, submit.
+3. **Label audit** (`tmp/label-audit/REPORT.md`): 15/1,092 human labels contested,
+   mostly inflection slips (motherfucking vs motherfucker, plurals); ~6 likely mishears to re-listen.
+   Detectable label noise ~1–2%, so popup figures are ±1–2 pt.
+4. **Frozen set status**: the frozen set has now been used for error
    analysis; acquire a genuinely untouched, accent-diverse creator split for scoring.
-4. **Acquisition**: resume/complete round 2 synthetic; manual-auto yield is best from
+5. **Acquisition**: resume/complete round 2 synthetic; manual-auto yield is best from
    Qxir-like creators (story/commentary with manual subs); drop science feeds.
-5. Rules: five selector removals rejected on wider replay (4 wrong introduced); none
+6. Rules: five selector removals rejected on wider replay (4 wrong introduced); none
    deployed. `son of a [__] → bitch` and `[__] car → fucking` need complete eligible
    evidence. Details `tmp/overnight/rules/pass2/REPORT.md`.
-6. Vocabulary leads `fuckheads`, `chickenshit`: not admitted; need repeated
+7. Vocabulary leads `fuckheads`, `chickenshit`: not admitted; need repeated
    creator-diverse complete manual-auto evidence.
-7. Performance: 4-thread WASM ~6.5 s vs ~12.2 s (one isolated-page sample,
+8. Performance: 4-thread WASM ~6.5 s vs ~12.2 s (one isolated-page sample,
    `tmp/overnight/infra/browser-wasm-parity.mjs`); needs COOP/COEP and real-extension
    validation before any threading change.
-8. Known limitation (user accepted): switching to Off/Whisper-only keeps rule words
+9. Known limitation (user accepted): switching to Off/Whisper-only keeps rule words
    already baked into loaded captions until the captions reload.
 
 ## Test harness notes (`tools/browser-smoke.js`)
