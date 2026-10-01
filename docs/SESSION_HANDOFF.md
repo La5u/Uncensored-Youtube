@@ -35,17 +35,17 @@ pre-09-24 archive `.tmp-archive/docs-20260924/SESSION_HANDOFF.md`. Preserve `tmp
 
 ## Live processes (detached; recheck with `ps`, PIDs rotate)
 
-- **Acquisition pilot running** (started 10-01): `tmp/overnight/acquisition/launch.sh
-  uncensored-vpn-us-free-137 --launch`, log `logs/acquisition-pilot-20261001.log`.
-  Runs manual-auto, synthetic-auto, synthetic-diversity lanes sequentially (≤60 min
-  each) inside the worker-only namespace `uncensored-vpn-us-free-137` (provisioned with
-  `tmp/isolated-vpn-netns.sh setup-one US-FREE-137`; host route stays on wlan0) plus
-  its own discovery watcher (`tmp/overnight/acquisition/discovery*.json`). Worker logs
-  `tmp/overnight/acquisition/*-worker.log`. A background job removes the namespace
-  when the launcher exits (else `tmp/isolated-vpn-netns.sh cleanup-one US-FREE-137`).
-  The first launch found nothing: flat channel listings omit `channel_id`, so every
-  prospective entry was `channel-id-unverified` (also the cause of the old 237
-  exclusions). Fixed: owner comes from `playlist_channel_id` on channel upload tabs only.
+- **No acquisition running.** 10-01 runs (worker-only namespace `uncensored-vpn-us-free-137`,
+  removed afterwards): pilot `tmp/overnight/acquisition/` (manual 2 pairs/6 slots,
+  synthetic 2/39, synthetic-diversity 1/2) and round 2 `tmp/acquisition-20261001/`
+  (channel feeds; `launch.sh`, `run-after-pilot.sh`). Round 2 manual-auto: 6 creators,
+  80 checks, 7 pairs/19 slots (Qxir 5, Rahul Subramanian 2). Round 2 synthetic-auto
+  (16 creators) hit its 180 min cap at creator 14 (LoadingReadyRun): **incomplete, not
+  promoted**; saved Funny Or Die 6 + Medlife Crisis 1 so far; science/standup feeds
+  yielded nothing. Resume it with the same report/ledger to complete it.
+  Promoted complete reports: `corpus/generated/caption-growth-{manual-pilot,
+  synthetic-pilot,synthetic-diversity-pilot,manual-round2}-20261001-report.json`;
+  `corpus:refresh` → 32,733 rows, 0 promotion proposals.
 - Grouped review UI may still be on http://127.0.0.1:8769/ (it writes
   `tmp/deepgram-frozen-grouped-review.json`, which is complete); stop it unless
   intentionally correcting labels.
@@ -120,8 +120,8 @@ off 0 filled, rules 9, rules-first 10, whisper-first 9, whisper 0 — as designe
 2. **1.6.1**: after real-extension checks, bump version, rebuild, submit.
 3. **Frozen set status** (was step 4): the frozen set has now been used for error
    analysis; acquire a genuinely untouched, accent-diverse creator split for scoring.
-4. **Acquisition pilot**: review worker reports when finished; promote only complete
-   reports; keep tiers separate. Web pass 2 leads: `tmp/overnight/acquisition/web-pass2/`.
+4. **Acquisition**: resume/complete round 2 synthetic; manual-auto yield is best from
+   Qxir-like creators (story/commentary with manual subs); drop science feeds.
 5. Rules: five selector removals rejected on wider replay (4 wrong introduced); none
    deployed. `son of a [__] → bitch` and `[__] car → fucking` need complete eligible
    evidence. Details `tmp/overnight/rules/pass2/REPORT.md`.
