@@ -914,6 +914,6 @@ function run(options) {
   return output;
 }
 if (require.main === module) { try { run(parseArgs()); } catch (error) { console.error(error.message || error); process.exit(1); } }
-module.exports = { parseArgs, loadProvenance, loadRows, loadDataset, loadDiscoveryDataset, validateDatasetShape, validateDiscoveryDataset, isFaithfulValidationDataset, validationEligibility, loadSyntheticArchive, featureVector, discoveryFeatureVector, prepareRows,
-  discoverLeaves, learnLeaves, discoverDiscoveryLeads, discoveryOutput, validateFold, applyLeaves, auditSyntheticTransfer, transferWarnings, runtimePattern, runtimePatternMatches, run, normalizeWord, renderPattern,
-  MAX_WINDOW_SIDE, MAX_WINDOW_FEATURES };
+module.exports = { parseArgs, loadDataset, loadDiscoveryDataset, isFaithfulValidationDataset, loadSyntheticArchive, featureVector, discoveryFeatureVector, prepareRows,
+  learnLeaves, discoverDiscoveryLeads, discoveryOutput, validateFold, applyLeaves, auditSyntheticTransfer, transferWarnings, runtimePattern, runtimePatternMatches, run, renderPattern,
+  MAX_WINDOW_SIDE };

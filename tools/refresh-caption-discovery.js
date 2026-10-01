@@ -360,5 +360,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { defaults, collectReportPaths, snapshotFingerprint, fileFingerprint, currentModulesFingerprint,
-  realPath, indexedSourceRegression, writeAtomic, acquireLock, releaseLock, parseArgs, run, watch };
+module.exports = { defaults, fileFingerprint, writeAtomic, releaseLock, parseArgs, run, watch };

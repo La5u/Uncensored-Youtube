@@ -351,7 +351,6 @@ module.exports = {
   buildProvenanceIndex,
   EVIDENCE_POLICY,
   reportEvidenceStatus,
-  reportPairItems,
   defaultReports,
   directSlotLabels,
   fixturePairs,

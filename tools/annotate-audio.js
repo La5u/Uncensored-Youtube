@@ -45,10 +45,9 @@ function parseArgs(argv) {
   const args = { ...DEFAULTS };
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
+    const name = key.slice(2).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
     if (key === "--help" || key === "-h") args.help = true;
-    else if (key.startsWith("--") && Object.prototype.hasOwnProperty.call(args,
-      key.slice(2).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase()))) {
-      const name = key.slice(2).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+    else if (key.startsWith("--") && Object.prototype.hasOwnProperty.call(args, name)) {
       if (argv[i + 1] === undefined) throw new Error(`${key} needs a value.`);
       args[name] = argv[++i];
     } else throw new Error(`Unknown option: ${key}`);
@@ -283,12 +282,13 @@ function readAnnotationHistory(files = [], mode) {
   const labels = new Map(), blocked = new Map(), blockedFixtures = [];
   const seen = new Set();
   for (const file of files) {
-    const absolute = typeof file === "string" ? path.resolve(root, file) : null;
-    const source = absolute || file;
-    if (absolute && (!fs.existsSync(absolute) || seen.has(absolute))) continue;
-    if (absolute) seen.add(absolute);
-    const report = typeof source === "string"
-      ? JSON.parse(fs.readFileSync(source, "utf8")) : source;
+    let report = file;
+    if (typeof file === "string") {
+      const absolute = path.resolve(root, file);
+      if (!fs.existsSync(absolute) || seen.has(absolute)) continue;
+      seen.add(absolute);
+      report = JSON.parse(fs.readFileSync(absolute, "utf8"));
+    }
     if (!report || !Array.isArray(report.items)) {
       throw new Error(`${file} must be an annotation report.`);
     }
@@ -324,10 +324,8 @@ function buildQueue({ mode, rules, whisper, deepgramTriage, audioDir, before, af
   const rulesMap = rules ? resultMap(rules.report) : new Map();
   const whisperMap = whisper ? resultMap(whisper.report) : new Map();
   const deepgramMap = deepgramTriage?.items || new Map();
-  const historyFiles = [...annotationReports];
-  if (falseFillReport && !historyFiles.some((file) => typeof file === "string" &&
-      path.resolve(root, file) === path.resolve(root, falseFillReport))) historyFiles.push(falseFillReport);
-  const history = readAnnotationHistory(historyFiles, mode);
+  // readAnnotationHistory skips files already listed in annotationReports.
+  const history = readAnnotationHistory([...annotationReports, falseFillReport].filter(Boolean), mode);
   const excluded = mode === "triage" ? readFalseFillReport(falseFillReport) : null;
   const grouping = groupCaptions && mode !== "false-fills";
   const eligibleKeys = mode === "deepgram-review" ? [...deepgramMap.keys()] :
@@ -481,18 +479,16 @@ function groupCaptionItems(items, selected, enabled, sourceDirectory = path.join
     if (!source) continue;
     item.captionSourceSha256 = source.sha256;
     const { data } = source;
-    if (!data.parsed) continue;
     const token = data.tokens.find((row) => row.tokenIndex === item.tokenIndex);
     const event = token && data.timeline.find((row) => row.eventIndex === token.eventIndex);
-    if (!token || !event || !Number.isFinite(token.timeSeconds) ||
-        Math.abs(token.timeSeconds - item.timeSeconds) > 0.1 || !item.audioFile || !item.audioSha256) continue;
+    // Negated <= also rejects NaN timestamps.
+    if (!event || !(Math.abs(token.timeSeconds - item.timeSeconds) <= 0.1)) continue;
     const slots = data.tokens.filter((row) => row.eventIndex === event.eventIndex)
       .sort((left, right) => left.tokenIndex - right.tokenIndex);
     const siblings = slots.map((slot) => byId.get(`${item.fixture}:${slot.tokenIndex}`));
     if (slots.length < 2 || siblings.some((row, index) => !row ||
-        !Number.isFinite(slots[index].timeSeconds) || !Number.isFinite(row.timeSeconds) ||
-        Math.abs(slots[index].timeSeconds - row.timeSeconds) > 0.1 ||
-        row.audioFile !== item.audioFile || !sameAnnotationAudio(row, item))) continue;
+        !(Math.abs(slots[index].timeSeconds - row.timeSeconds) <= 0.1) ||
+        row.audioFile !== item.audioFile || row.audioSha256 !== item.audioSha256)) continue;
     candidates.set(item.id, { event, slots, siblings, sourceSha256: source.sha256,
       key: `${item.fixture}:${event.eventIndex}` });
   }
@@ -548,7 +544,7 @@ function validateAnnotation(annotation) {
     }
     return annotation;
   }
-  if (!["pending", "swear", "no-swear-in-audio", "wrong-audio-fragment", "not-english", "skipped"].includes(annotation.status)) {
+  if (!STATUS_SETS.default.includes(annotation.status)) {
     throw new Error("Invalid annotation status.");
   }
   if (annotation.status === "swear" && !ALLOWED_WORDS.includes(annotation.word)) {
@@ -653,27 +649,29 @@ function applyCaptionBatch(state, groupId, labels, edits = []) {
   const members = state.items.filter((item) => item.captionGroup?.id === groupId)
     .sort((left, right) => left.tokenIndex - right.tokenIndex);
   if (!members.length || members.length !== labels.length) throw new Error("Caption batch has incomplete or invalid slot coverage.");
-  if (!Array.isArray(edits)) throw new Error('Invalid saved-label edits.');
-  const editable = new Map();
+  if (!Array.isArray(edits)) throw new Error("Invalid saved-label edits.");
+  const editable = new Set();
   for (const edit of edits) {
-    const item = members.find(member => member.id === edit?.id);
-    if (!item || editable.has(edit.id) || JSON.stringify(item.annotation) !== JSON.stringify(edit.previous)) throw new Error('Saved label changed; reload before correcting it.');
-    editable.set(edit.id, true);
+    const item = members.find((member) => member.id === edit?.id);
+    if (!item || editable.has(edit.id) || JSON.stringify(item.annotation) !== JSON.stringify(edit.previous)) {
+      throw new Error("Saved label changed; reload before correcting it.");
+    }
+    editable.add(edit.id);
   }
   const supplied = new Map();
   for (const row of labels) {
     if (!row || typeof row.id !== "string" || supplied.has(row.id)) throw new Error("Caption batch has duplicate or invalid slots.");
-    const item = state.items.find((candidate) => candidate.id === row.id);
-    if (!item || item.captionGroup?.id !== groupId) throw new Error("Caption batch cannot include a slot from another group.");
+    const item = members.find((candidate) => candidate.id === row.id);
+    if (!item) throw new Error("Caption batch cannot include a slot from another group.");
     const annotation = validateAnnotation(JSON.parse(JSON.stringify(row.annotation || null)));
     if (FALSE_FILL_STATUSES.includes(annotation.status)) throw new Error("Caption batches require audio annotation statuses.");
     if (annotation.status === "pending") throw new Error("Caption batch labels must be completed.");
     if (item.annotation.status !== "pending" && !editable.has(item.id) && JSON.stringify(item.annotation) !== JSON.stringify(row.annotation)) {
       throw new Error(`Refusing to overwrite reviewed slot ${row.id}.`);
     }
-    supplied.set(row.id, item.annotation.status !== 'pending' && JSON.stringify(item.annotation) === JSON.stringify(row.annotation) ? item.annotation : annotation);
+    supplied.set(row.id, annotation);
   }
-  if (members.some((item) => !supplied.has(item.id))) throw new Error("Caption batch must cover each group slot exactly once.");
+  // Equal lengths, unique ids and group membership imply every member is covered.
   for (const item of members) {
     if (item.annotation.status === "pending" || editable.has(item.id)) item.annotation = supplied.get(item.id);
   }
@@ -764,13 +762,14 @@ const HTML = `<!doctype html><meta charset="utf-8"><meta name="viewport" content
 <div id="common" class="row"></div><div id="ruleBox" class="rule-box"><span>Optional rule recommendation:</span><div class="row"><button id="precise">Precise / word-for-word</button><button id="general">General pattern</button><button id="manual">Manual rule…</button><input id="manualRule" class="grow" placeholder="Type the rule" hidden><button id="clearRule" hidden>Clear</button></div></div><div class="row"><input id="note" class="grow" placeholder="Optional note"><button id="prev">← Previous</button><button id="skip" class="negative">Unsure / skip (U) →</button></div><p id="message"></p>
 <script>
 let state,index=0,end=0,wideUsed=false,ruleKind=null,saving=false,groupFields=[],activeGroupField=null,editingReviewed=false;const $=id=>document.getElementById(id),frequency=word=>state.frequencies[word]||0;
-function setFalseFillView(){const active=state.mode==='false-fills',grouped=Boolean(state.items[index]?.captionGroup);$('falseFillControls').hidden=!active;$('standardControls').hidden=active;$('word').hidden=grouped;$('save').hidden=grouped;$('groupControls').hidden=active||!grouped;$('common').hidden=active;$('ruleBox').hidden=active;$('skip').hidden=active;$('skip').textContent=grouped?'Unsure / skip remaining slots (U) →':'Unsure / skip (U) →';$('none').textContent=grouped?(editingReviewed?'No swear in caption':'No swear in remaining slots'):'No swear in audio';$('wrong').textContent=grouped?(editingReviewed?'Wrong caption fragment':'Wrong fragment (remaining slots)'):'Wrong audio fragment';$('nonenglish').textContent=grouped?(editingReviewed?'Not English caption':'Not English (remaining slots)'):'Not English audio';$('note').hidden=grouped;$('prev').hidden=false}
+function setFalseFillView(){const active=state.mode==='false-fills',grouped=Boolean(state.items[index]?.captionGroup);$('falseFillControls').hidden=!active;$('standardControls').hidden=active;$('word').hidden=grouped;$('save').hidden=grouped;$('groupControls').hidden=active||!grouped;$('common').hidden=active;$('ruleBox').hidden=active;$('skip').hidden=active;$('skip').textContent=grouped?'Unsure / skip remaining slots (U) →':'Unsure / skip (U) →';$('none').textContent=grouped?(editingReviewed?'No swear in caption':'No swear in remaining slots'):'No swear in audio';$('wrong').textContent=grouped?(editingReviewed?'Wrong caption fragment':'Wrong fragment (remaining slots)'):'Wrong audio fragment';$('nonenglish').textContent=grouped?(editingReviewed?'Not English caption':'Not English (remaining slots)'):'Not English audio';$('note').hidden=grouped}
 function falseLabel(status,spokenWord=$('spokenWord').value.trim()||null){const raw=$('timingOffset').value.trim();return {status,word:null,spokenWord,confidence:$('confidence').value,timingOffsetSeconds:raw===''?null:Number(raw),note:$('note').value}}
 function sortedWords(){return [...state.words].sort((a,b)=>frequency(b)-frequency(a)||state.words.indexOf(a)-state.words.indexOf(b))}
+function completeWord(value){value=value.trim().toLowerCase();return sortedWords().find(word=>word.startsWith(value)&&word!==value)}
 function wordButton(word,text){const button=document.createElement('button');button.className='primary';button.textContent=text;button.onclick=()=>label({status:'swear',word,note:$('note').value});return button}
 function refreshWords(){const words=sortedWords();$('words').replaceChildren(...words.map(word=>{const option=document.createElement('option');option.value=word;option.label=frequency(word)?word+' · '+frequency(word):word;return option}));const empty=Boolean(state.items[index]?.captionGroup)||!$('word').value.trim();$('common').replaceChildren(...(empty?words.filter(word=>frequency(word)).slice(0,10).map(word=>wordButton(word,word+' · '+frequency(word))):[]))}
 async function init(){state=await fetch('/api/state').then(r=>r.json());const first=state.items.findIndex(x=>x.annotation.status==='pending');index=first<0?Math.max(0,state.items.length-1):first;show()} 
-function show(auto=false){editingReviewed=false;const item=state.items[index];if(!item){$('context').textContent='No matching items with local audio.';return}setFalseFillView();$('asr').open=false;$('predicted').hidden=state.mode==='deepgram-review';$('wide').hidden=state.mode!=='deepgram-review';$('play').textContent=item.captionGroup?'▶ Play caption group (Space)':'▶ Play near word (Space)';$('progress').textContent=(index+1)+' / '+state.items.length+' · '+state.items.filter(x=>x.annotation.status!=='pending').length+' reviewed · '+state.items.filter(x=>x.annotation.ruleRecommendation).length+' rule recommendations'+(state.missingAudio?' · '+state.missingAudio+' skipped without audio':'');const chosen=String(item.rules?.word||'').trim(),candidates=(item.rules?.candidates||[]).filter(word=>word&&word!==chosen),caption=chosen?chosen:candidates.join('|');$('context').textContent=item.captionGroup?item.captionGroup.text:(caption?item.context.replace('[__]','['+caption+']'):item.context);if(item.captionGroup)showCaptionGroup(item);$('surrounding').textContent=item.reviewContext||'';$('kind').textContent=item.category;const audio=$('audio');audio.onloadedmetadata=auto?()=>{audio.onloadedmetadata=null;play()}:null;audio.src='/audio/'+encodeURIComponent(item.id)+'?v='+encodeURIComponent(item.audioVersion);$('word').value=item.annotation.word||'';$('spokenWord').value=item.annotation.spokenWord||'';$('confidence').value=item.annotation.status==='pending'?'high':(item.annotation.confidence||'unknown');$('timingOffset').value=item.annotation.timingOffsetSeconds??'';$('note').value=item.annotation.note||'';wideUsed=Boolean(item.annotation.widePlayed);ruleKind=item.annotation.ruleRecommendation?.kind||null;$('manualRule').value=item.annotation.ruleRecommendation?.rule||'';refreshRule();const rulesWord=state.words.includes(item.rules?.word)?item.rules.word:null;$('rulesWord').disabled=!rulesWord;$('rulesWord').textContent=rulesWord?'Use Rules: '+rulesWord+' (R)':'No Rules word (R)';$('falseRulesCorrect').disabled=!item.rules?.word;$('transcript').textContent=item.whisper?.transcript?'Whisper: '+item.whisper.transcript:'';const deepgram=item.deepgramTranscript||(item.captionGroup?groupMembers(item).find(member=>member.deepgramTranscript)?.deepgramTranscript:null);$('deepgram').textContent=deepgram?'Deepgram ASR (unverified; listen to the audio): '+deepgram:'';$('models').textContent=JSON.stringify({rules:item.rules,whisper:item.whisper,deepgramTranscript:item.deepgramTranscript},null,2);showPredictions(item);refreshWords();$('message').textContent=item.annotation.status==='pending'?'':('Saved: '+item.annotation.status+(item.annotation.word?' — '+item.annotation.word:''));end=item.captionGroup?Math.max(...state.items.filter(x=>x.captionGroup?.id===item.captionGroup.id).map(x=>x.clipEnd)):item.clipEnd;if(item.captionGroup&&activeGroupField)selectGroupField(activeGroupField)}
+function show(auto=false){editingReviewed=false;const item=state.items[index];if(!item){$('context').textContent='No matching items with local audio.';return}setFalseFillView();$('asr').open=false;$('predicted').hidden=state.mode==='deepgram-review';$('wide').hidden=state.mode!=='deepgram-review';$('play').textContent=item.captionGroup?'▶ Play caption group (Space)':'▶ Play near word (Space)';$('progress').textContent=(index+1)+' / '+state.items.length+' · '+state.items.filter(x=>x.annotation.status!=='pending').length+' reviewed · '+state.items.filter(x=>x.annotation.ruleRecommendation).length+' rule recommendations'+(state.missingAudio?' · '+state.missingAudio+' skipped without audio':'');const chosen=String(item.rules?.word||'').trim(),candidates=(item.rules?.candidates||[]).filter(word=>word&&word!==chosen),caption=chosen?chosen:candidates.join('|');$('context').textContent=item.captionGroup?item.captionGroup.text:(caption?item.context.replace('[__]','['+caption+']'):item.context);if(item.captionGroup)showCaptionGroup(item);$('surrounding').textContent=item.reviewContext||'';$('kind').textContent=item.category;const audio=$('audio');audio.onloadedmetadata=auto?()=>{audio.onloadedmetadata=null;play()}:null;audio.src='/audio/'+encodeURIComponent(item.id)+'?v='+encodeURIComponent(item.audioVersion);$('word').value=item.annotation.word||'';$('spokenWord').value=item.annotation.spokenWord||'';$('confidence').value=item.annotation.status==='pending'?'high':(item.annotation.confidence||'unknown');$('timingOffset').value=item.annotation.timingOffsetSeconds??'';$('note').value=item.annotation.note||'';wideUsed=Boolean(item.annotation.widePlayed);ruleKind=item.annotation.ruleRecommendation?.kind||null;$('manualRule').value=item.annotation.ruleRecommendation?.rule||'';refreshRule();const rulesWord=state.words.includes(item.rules?.word)?item.rules.word:null;$('rulesWord').disabled=!rulesWord;$('rulesWord').textContent=rulesWord?'Use Rules: '+rulesWord+' (R)':'No Rules word (R)';$('falseRulesCorrect').disabled=!item.rules?.word;$('transcript').textContent=item.whisper?.transcript?'Whisper: '+item.whisper.transcript:'';const deepgram=item.deepgramTranscript||(item.captionGroup?groupMembers(item).find(member=>member.deepgramTranscript)?.deepgramTranscript:null);$('deepgram').textContent=deepgram?'Deepgram ASR (unverified; listen to the audio): '+deepgram:'';$('models').textContent=JSON.stringify({rules:item.rules,whisper:item.whisper,deepgramTranscript:item.deepgramTranscript},null,2);showPredictions(item);refreshWords();$('message').textContent=item.annotation.status==='pending'?'':('Saved: '+item.annotation.status+(item.annotation.word?' — '+item.annotation.word:''));if(item.captionGroup&&activeGroupField)selectGroupField(activeGroupField)}
 function showPredictions(item){
   const guesses=new Map,add=(name,word)=>{if(state.words.includes(word))guesses.set(word,[...(guesses.get(word)||[]),name])};
   if(state.mode!=='false-fills'){add('Rules',item.rules?.word);for(const word of item.rules?.candidates||[])add('Rule candidate',word);add('Whisper',item.whisper?.word)}
@@ -818,7 +817,7 @@ function showCaptionGroup(item){
     for(const input of [word,note])input.addEventListener('keydown',event=>{
       if(event.key==='Enter'){event.preventDefault();enterGroupField(field)}
       else if(input===word&&event.key==='Tab'&&word.value.trim()){
-        const value=word.value.trim().toLowerCase(),match=sortedWords().find(choice=>choice.startsWith(value)&&choice!==value);
+        const match=completeWord(word.value);
         if(match){event.preventDefault();word.value=match}
       }
     });
@@ -910,8 +909,8 @@ function playbackRange(item,full=false){
 }
 function play(full=false){const a=$('audio'),item=state.items[index];a.playbackRate=1;[a.currentTime,end]=playbackRange(item,full);if(full)wideUsed=true;a.play().catch(error=>$('message').textContent='Playback failed: '+error.message)}
 $('audio').addEventListener('timeupdate',()=>{if($('audio').currentTime>=end)$('audio').pause()});$('play').onclick=()=>play();$('wide').onclick=()=>play(true);$('prev').onclick=previousEvent;$('skip').onclick=()=>label(state.mode==='false-fills'?falseLabel('uncertain'):{status:'skipped',word:null,note:$('note').value});
-async function label(annotation){if(saving)return;if(state.items[index]?.captionGroup)return annotation.status==='swear'?setGroupWord(annotation.word):setGroupStatus(annotation.status);saving=true;annotation.widePlayed=wideUsed;annotation.ruleRecommendation=annotation.status==='swear'?recommendation():null;const item=state.items[index],previous=item.annotation;try{const response=await fetch('/api/label',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:item.id,annotation})}),body=await response.json();if(!response.ok){$('message').textContent=body.error;return}if(previous.status==='swear')state.frequencies[previous.word]=Math.max(0,frequency(previous.word)-1);for(const changed of body.annotations||[{id:item.id,annotation:body.annotation}]){const target=state.items.find(x=>x.id===changed.id);if(target)target.annotation=changed.annotation}if(body.annotation.status==='swear')state.frequencies[body.annotation.word]=frequency(body.annotation.word)+1;const next=state.items.findIndex((x,i)=>i>index&&x.annotation.status==='pending');if(next>=0){index=next;show(true)}else if(index<state.items.length-1){index++;show(true)}else show()}finally{saving=false}}
-$('falseRulesCorrect').onclick=()=>{const word=String(state.items[index].rules?.word||'').toLowerCase().trim();if(word)label(falseLabel('genuine-profanity',word))};$('genuine').onclick=()=>label(falseLabel('genuine-profanity'));$('ordinary').onclick=()=>label(falseLabel('ordinary-word'));$('falseWrong').onclick=()=>label(falseLabel('alignment-mismatch'));$('silence').onclick=()=>label(falseLabel('no-corresponding-word'));$('falseNonEnglish').onclick=()=>label(falseLabel('non-english'));$('uncertain').onclick=()=>label(falseLabel('uncertain'));$('precise').onclick=()=>selectRule('precise');$('general').onclick=()=>selectRule('general');$('manual').onclick=()=>selectRule('manual');$('clearRule').onclick=()=>{ruleKind=null;if(state.items[index]?.captionGroup&&activeGroupField)activeGroupField.ruleRecommendation=null;refreshRule()};$('manualRule').addEventListener('input',()=>{if(state.items[index]?.captionGroup&&activeGroupField&&ruleKind==='manual')activeGroupField.ruleRecommendation=recommendation()});$('editGroup').onclick=()=>{if(saving)return;editingReviewed=true;setFalseFillView();showCaptionGroup(state.items[index]);if(activeGroupField)selectGroupField(activeGroupField);$('message').textContent='Editing saved labels. Changes are not saved until Save all.'};$('cancelEdit').onclick=()=>{if(!saving)show()};$('saveGroup').onclick=saveCaptionGroup;$('groupWords').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveCaptionGroup()}});$('save').onclick=()=>label({status:'swear',word:$('word').value.trim().toLowerCase(),note:$('note').value});$('rulesWord').onclick=()=>{const word=(state.items[index].captionGroup?activeGroupField?.slot:state.items[index]).rules?.word;if(state.words.includes(word))label({status:'swear',word,note:$('note').value})};$('none').onclick=()=>label({status:'no-swear-in-audio',word:null,note:$('note').value});$('wrong').onclick=()=>label({status:'wrong-audio-fragment',word:null,note:$('note').value});$('nonenglish').onclick=()=>label({status:'not-english',word:null,note:$('note').value});$('word').addEventListener('input',refreshWords);$('word').addEventListener('keydown',e=>{if(e.key==='Enter')$('save').click();else if(e.key==='Tab'&&e.target.value.trim()){const value=$('word').value.trim().toLowerCase(),match=sortedWords().find(word=>word.startsWith(value)&&word!==value);if(match){e.preventDefault();$('word').value=match;refreshWords()}}});$('spokenWord').addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.target.blur()}else if(e.key==='Enter'&&e.target.value.trim())$('genuine').click()});document.addEventListener('keydown',e=>{if(e.key==='/'&&!state.items[index]?.captionGroup&&!e.target.matches('input,textarea,[contenteditable]')){e.preventDefault();$('spokenWord').focus();$('spokenWord').select();return}if(e.target.matches('input,textarea,select,[contenteditable]'))return;if(state.items[index]?.captionGroup){if(e.key===' '){e.preventDefault();play()}else if(e.key==='Enter'&&!e.target.matches('button')){e.preventDefault();saveCaptionGroup()}else if(e.key.toLowerCase()==='u')$('skip').click();else if(e.key.toLowerCase()==='r')$('rulesWord').click();else if(e.key==='ArrowLeft')previousEvent();return;}if(e.key==='Enter'&&state.mode==='false-fills'&&!e.target.matches('select,button'))return $('falseRulesCorrect').click();if(e.key===' ') {e.preventDefault();play()}else if(e.key.toLowerCase()==='r'){(state.mode==='false-fills'?$('falseRulesCorrect'):$('rulesWord')).click()}else if(e.key.toLowerCase()==='w'&&state.mode==='false-fills')$('falseWrong').click();else if(e.key.toLowerCase()==='s'&&state.mode==='false-fills')$('silence').click();else if(e.key.toLowerCase()==='n'&&state.mode==='false-fills')$('falseNonEnglish').click();else if(e.key.toLowerCase()==='u')$('skip').click();else if(e.key==='ArrowLeft')$('prev').click()});init();
+async function label(annotation){if(saving)return;if(state.items[index]?.captionGroup)return annotation.status==='swear'?setGroupWord(annotation.word):setGroupStatus(annotation.status);saving=true;annotation.widePlayed=wideUsed;annotation.ruleRecommendation=annotation.status==='swear'?recommendation():null;try{const response=await fetch('/api/label',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:state.items[index].id,annotation})}),body=await response.json();if(!response.ok){$('message').textContent=body.error;return}for(const change of body.annotations)state.items.find(x=>x.id===change.id).annotation=change.annotation;recountWords();const next=state.items.findIndex((x,i)=>i>index&&x.annotation.status==='pending');if(next>=0){index=next;show(true)}else if(index<state.items.length-1){index++;show(true)}else show()}finally{saving=false}}
+$('falseRulesCorrect').onclick=()=>{const word=String(state.items[index].rules?.word||'').toLowerCase().trim();if(word)label(falseLabel('genuine-profanity',word))};$('genuine').onclick=()=>label(falseLabel('genuine-profanity'));$('ordinary').onclick=()=>label(falseLabel('ordinary-word'));$('falseWrong').onclick=()=>label(falseLabel('alignment-mismatch'));$('silence').onclick=()=>label(falseLabel('no-corresponding-word'));$('falseNonEnglish').onclick=()=>label(falseLabel('non-english'));$('uncertain').onclick=()=>label(falseLabel('uncertain'));$('precise').onclick=()=>selectRule('precise');$('general').onclick=()=>selectRule('general');$('manual').onclick=()=>selectRule('manual');$('clearRule').onclick=()=>{ruleKind=null;if(state.items[index]?.captionGroup&&activeGroupField)activeGroupField.ruleRecommendation=null;refreshRule()};$('manualRule').addEventListener('input',()=>{if(state.items[index]?.captionGroup&&activeGroupField&&ruleKind==='manual')activeGroupField.ruleRecommendation=recommendation()});$('editGroup').onclick=()=>{if(saving)return;editingReviewed=true;setFalseFillView();showCaptionGroup(state.items[index]);if(activeGroupField)selectGroupField(activeGroupField);$('message').textContent='Editing saved labels. Changes are not saved until Save all.'};$('cancelEdit').onclick=()=>{if(!saving)show()};$('saveGroup').onclick=saveCaptionGroup;$('groupWords').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveCaptionGroup()}});$('save').onclick=()=>label({status:'swear',word:$('word').value.trim().toLowerCase(),note:$('note').value});$('rulesWord').onclick=()=>{const word=(state.items[index].captionGroup?activeGroupField?.slot:state.items[index]).rules?.word;if(state.words.includes(word))label({status:'swear',word,note:$('note').value})};$('none').onclick=()=>label({status:'no-swear-in-audio',word:null,note:$('note').value});$('wrong').onclick=()=>label({status:'wrong-audio-fragment',word:null,note:$('note').value});$('nonenglish').onclick=()=>label({status:'not-english',word:null,note:$('note').value});$('word').addEventListener('input',refreshWords);$('word').addEventListener('keydown',e=>{if(e.key==='Enter')$('save').click();else if(e.key==='Tab'&&e.target.value.trim()){const match=completeWord($('word').value);if(match){e.preventDefault();$('word').value=match;refreshWords()}}});$('spokenWord').addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.target.blur()}else if(e.key==='Enter'&&e.target.value.trim())$('genuine').click()});document.addEventListener('keydown',e=>{if(e.key==='/'&&!state.items[index]?.captionGroup&&!e.target.matches('input,textarea,[contenteditable]')){e.preventDefault();$('spokenWord').focus();$('spokenWord').select();return}if(e.target.matches('input,textarea,select,[contenteditable]'))return;if(state.items[index]?.captionGroup){if(e.key===' '){e.preventDefault();play()}else if(e.key==='Enter'&&!e.target.matches('button')){e.preventDefault();saveCaptionGroup()}else if(e.key.toLowerCase()==='u')$('skip').click();else if(e.key.toLowerCase()==='r')$('rulesWord').click();else if(e.key==='ArrowLeft')previousEvent();return;}if(e.key==='Enter'&&state.mode==='false-fills'&&!e.target.matches('select,button'))return $('falseRulesCorrect').click();if(e.key===' ') {e.preventDefault();play()}else if(e.key.toLowerCase()==='r'){(state.mode==='false-fills'?$('falseRulesCorrect'):$('rulesWord')).click()}else if(e.key.toLowerCase()==='w'&&state.mode==='false-fills')$('falseWrong').click();else if(e.key.toLowerCase()==='s'&&state.mode==='false-fills')$('silence').click();else if(e.key.toLowerCase()==='n'&&state.mode==='false-fills')$('falseNonEnglish').click();else if(e.key.toLowerCase()==='u')$('skip').click();else if(e.key==='ArrowLeft')$('prev').click()});init();
 </script>`;
 
 function startServer(state, output, args) {
@@ -935,35 +934,29 @@ function startServer(state, output, args) {
         const item = byId.get(decodeURIComponent(url.pathname.slice(7)));
         return item ? serveAudio(request, response, item, audioChecks) : sendJson(response, 404, { error: "Unknown item." });
       }
-      if (request.method === "POST" && url.pathname === "/api/caption-batch") {
+      const update = (limit, apply) => {
         let body = "";
-        request.on("data", (chunk) => { body += chunk; if (body.length > 10000) request.destroy(); });
-        return request.on("end", () => {
+        request.on("data", (chunk) => { body += chunk; if (body.length > limit) request.destroy(); });
+        request.on("end", () => {
           const snapshot = state.items.map((item) => item.annotation);
           try {
-            const value = JSON.parse(body);
-            const annotations = applyCaptionBatch(state, value.groupId, value.labels, value.edits);
-            state.updatedAt = new Date().toISOString(); writeAtomic(output, state);
-            return sendJson(response, 200, { annotations });
-          } catch (error) {
-            state.items.forEach((item, index) => { item.annotation = snapshot[index]; });
-            return sendJson(response, 400, { error: error.message });
-          }
-        });
-      }
-      if (request.method === "POST" && url.pathname === "/api/label") {
-        let body = "";
-        request.on("data", (chunk) => { body += chunk; if (body.length > 2000) request.destroy(); });
-        return request.on("end", () => {
-          try {
-            const value = JSON.parse(body);
-            const item = byId.get(value.id);
-            if (!item) return sendJson(response, 404, { error: "Unknown item." });
-            const changed = applyAnnotation(state, item, value.annotation);
+            const annotations = apply(JSON.parse(body));
             state.updatedAt = new Date().toISOString();
             writeAtomic(output, state);
-            return sendJson(response, 200, { annotation: item.annotation, annotations: changed });
-          } catch (error) { return sendJson(response, 400, { error: error.message }); }
+            sendJson(response, 200, { annotations });
+          } catch (error) {
+            state.items.forEach((item, index) => { item.annotation = snapshot[index]; });
+            sendJson(response, 400, { error: error.message });
+          }
+        });
+      };
+      if (request.method === "POST" && url.pathname === "/api/caption-batch") {
+        return update(10000, (value) => applyCaptionBatch(state, value.groupId, value.labels, value.edits));
+      }
+      if (request.method === "POST" && url.pathname === "/api/label") {
+        return update(2000, (value) => {
+          if (!byId.has(value.id)) throw new Error("Unknown item.");
+          return applyAnnotation(state, byId.get(value.id), value.annotation);
         });
       }
       return sendJson(response, 404, { error: "Not found." });
@@ -1031,5 +1024,5 @@ if (require.main === module) {
   try { main(process.argv.slice(2)); } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
 
-module.exports = { parseArgs, readReport, readDeepgramTriage, resultMap, categoryFor, buildQueue, readFalseFillReport,
-  readAnnotationHistory, validateAnnotation, applyAnnotation, applyCaptionBatch, resume, publicState, statusSetFor, groupCaptionItems, verifiedAudio, html: HTML };
+module.exports = { parseArgs, readReport, readDeepgramTriage, categoryFor, buildQueue, validateAnnotation,
+  applyAnnotation, applyCaptionBatch, resume, publicState, statusSetFor, groupCaptionItems, verifiedAudio, html: HTML };

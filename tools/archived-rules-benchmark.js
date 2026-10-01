@@ -450,6 +450,5 @@ if (require.main === module) {
   }
 }
 
-module.exports = { DEFAULT_REPORTS, DEFAULT_PROVENANCE_REPORTS, DEFAULT_MINIMUM_SLOTS,
-  censoredSlotCount, compareText, labeledExpected, loadArchivedRows, replayArchivedRows,
-  runArchivedBenchmark, parseArgs };
+module.exports = { DEFAULT_REPORTS, DEFAULT_PROVENANCE_REPORTS, censoredSlotCount, compareText,
+  labeledExpected, loadArchivedRows, parseArgs };
