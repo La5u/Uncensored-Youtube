@@ -2,6 +2,7 @@
   "private": true,
   "scripts": {
     "test": "node tools/test.js",
+    "test:firefox": "node tools/browser-smoke.js --workspace --firefox-only --initial-only",
     "test:unit": "node --test --test-concurrency=1 tests/*.test.js",
     "test:release": "node tools/test.js --release",
     "corpus:refresh": "node tools/refresh-caption-discovery.js",

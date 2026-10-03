@@ -1,6 +1,5 @@
 const fs = require("fs");
 const crypto = require("crypto");
-const net = require("net");
 const os = require("os");
 const path = require("path");
 const { spawn, execSync } = require("child_process");
@@ -47,7 +46,6 @@ const playlistMode = launchUrl.searchParams.has("list");
 if (firstSeekTime) launchUrl.searchParams.delete("t");
 let secondId = "";
 const chromiumPort = 12000 + process.pid % 1000;
-const firefoxPort = 14000 + process.pid % 1000;
 const children = [];
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -82,14 +80,6 @@ async function retry(callback, timeoutMs = 30000) {
     await wait(250);
   }
   throw error || new Error("Browser did not become ready.");
-}
-
-function portReady(port) {
-  return new Promise((resolve) => {
-    const socket = net.createConnection({ host: "127.0.0.1", port });
-    socket.once("connect", () => { socket.destroy(); resolve(true); });
-    socket.once("error", () => resolve(false));
-  });
 }
 
 function ensureWorkspaceRule() {
@@ -175,7 +165,7 @@ async function captionPatchCheck(label, run) {
     const value = await retry(async () => run(captionPatchExpression()), 60000);
     const { raw, patched } = JSON.parse(value);
     console.log(`${label} caption patch (${mode}): ${raw} [__] in the track, ${patched} left after the page hook ` +
-      `(${raw - patched} filled by rules).`);
+      `(${raw - patched} filled by rules or cached audio decisions).`);
   } catch (error) {
     console.log(`${label} caption patch check unavailable: ${error.message}`);
   }
@@ -187,11 +177,7 @@ function launch(command, args) {
     stdio: ["ignore", "pipe", "pipe"],
     detached: true
   });
-  children.push(child);
-  child.on("exit", () => {
-    const index = children.indexOf(child);
-    if (index !== -1) children.splice(index, 1);
-  });
+  children.push(child); // Retain ownership even if the leader exits before its descendants.
   child.stdout.on("data", (data) => process.stdout.write(data));
   child.stderr.on("data", (data) => {
     const text = String(data);
@@ -205,59 +191,21 @@ function chromiumExtensionId(extensionPath) {
     .map((digit) => String.fromCharCode(97 + Number.parseInt(digit, 16))).join("");
 }
 
-function pkill(pattern, signal) {
-  try {
-    execSync(`pkill -${signal} -f '${pattern}'`);
-  } catch (ignored) {}
-}
-
-const HEADLESS_FIREFOX = "^/usr/lib/firefox/firefox .* -headless( |$)";
-const CHROMIUM_SMOKE = "[u]ncensored-chromium-smoke-";
-
 function removeGeneratedProfiles() {
-  fs.readdirSync("/tmp").filter((name) =>
-    name.startsWith("uncensored-chromium-smoke-") || name.startsWith("uncensored-firefox-smoke-") ||
-    name.startsWith("uncensored-firefox-extension-") || name.startsWith("firefox-profile")
-  ).forEach((name) => fs.rmSync(path.join("/tmp", name), { recursive: true, force: true }));
+  fs.rmSync(`/tmp/uncensored-chromium-smoke-${process.pid}`, { recursive: true, force: true });
 }
 
-function terminateChildren() {
-  children.slice().forEach((child) => {
-    try {
-      child.kill("SIGTERM");
-    } catch (ignored) {}
-  });
-  pkill(HEADLESS_FIREFOX, "TERM");
-  pkill(CHROMIUM_SMOKE, "TERM");
+async function terminateChildren() {
+  await Promise.all(children.slice().map(child => require('./firefox-smoke').stopOwned(child)));
 }
 
-function hardTerminate() {
-  children.forEach((child) => {
-    try {
-      child.kill("SIGKILL");
-    } catch (ignored) {}
-  });
-  pkill(HEADLESS_FIREFOX, "KILL");
-  pkill(CHROMIUM_SMOKE, "KILL");
-  removeGeneratedProfiles();
-  process.exit(0);
-}
-
-process.on("SIGTERM", () => {
-  terminateChildren();
-  setTimeout(hardTerminate, 3000).unref();
-});
-process.on("SIGINT", () => {
-  terminateChildren();
-  setTimeout(hardTerminate, 3000).unref();
+for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => {
+  process.exitCode = 1;
+  terminateChildren().catch(error => console.error(error));
 });
 
 function cleanupOrphanedSmokeBrowsers() {
-  pkill(HEADLESS_FIREFOX, "KILL");
-  pkill(CHROMIUM_SMOKE, "KILL");
-  pkill("[w]eb-ext.*dist/(chromium|firefox)", "KILL");
-  removeGeneratedProfiles();
-  console.log("Cleaned leftover headless smoke browsers and profiles.");
+  console.log('No owned browsers in this invocation; refusing global cleanup.');
 }
 
 function socketClient(url, onEvent) {
@@ -313,7 +261,12 @@ function playbackExpression(resetCaptions = false) {
     }, 750);
     document.querySelector(".ytp-skip-ad-button")?.click();
     const video = document.querySelector("video");
-    if (video) { video.muted = true; video.playbackRate = ${rate}; video.play().catch(() => {}); }
+    if (video) { video.muted = true; video.volume = 0; video.playbackRate = ${rate}; video.play().catch(() => {}); }
+    // Best-effort DOM consent dismissal; not a trusted-click or BiDi playback fix.
+    const reject = [...document.querySelectorAll('button, [role="button"]')].find(node =>
+      /^(Reject all|Tout refuser)$/i.test((node.innerText || node.textContent || '').trim()) &&
+      node.getClientRects().length);
+    reject?.click();
     // Firefox must start playback at the early Fetch-hook point or initial SABR can be buffered first.
     return { hook: globalThis.fetch?.name === "uncensoredFetch", url: location.href };
   })()`;
@@ -432,7 +385,7 @@ async function chromium() {
     if (versions.length) extensionPaths.push(path.join(ublockRoot, versions.at(-1)));
   }
   fs.rmSync(profile, { recursive: true, force: true });
-  launch("chromium", [
+  const browser = launch("chromium", [
     `--remote-debugging-port=${chromiumPort}`, `--user-data-dir=${profile}`,
     `--load-extension=${extensionPaths.join(",")}`,
     `--disable-extensions-except=${extensionPaths.join(",")}`,
@@ -443,6 +396,7 @@ async function chromium() {
     ...(workspace ? ["--class=uncensored-smoke"] : []),
     "--window-position=-2000,0", "--window-size=1280,900", "about:blank"
   ]);
+  await new Promise((resolve, reject) => { browser.once('spawn', resolve); browser.once('error', reject); });
   const target = await retry(async () => {
     const pages = await fetch(`http://127.0.0.1:${chromiumPort}/json/list`).then((response) => response.json());
     return pages.find((page) => page.type === "page" && page.webSocketDebuggerUrl);
@@ -715,163 +669,7 @@ async function chromium() {
 }
 
 async function firefox() {
-  const profile = `/tmp/uncensored-firefox-smoke-${process.pid}`;
-  const source = `/tmp/uncensored-firefox-extension-${process.pid}`;
-  [profile, source].forEach((item) => fs.rmSync(item, { recursive: true, force: true }));
-  fs.cpSync(path.join(root, "dist/firefox"), source, { recursive: true });
-  if (modeValues) {
-    const content = path.join(source, "src/content.js");
-    fs.writeFileSync(content, fs.readFileSync(content, "utf8").replace(
-      "mode: null,", `mode: ${JSON.stringify(mode)},`));
-  }
-  launch("web-ext", ["run", "--source-dir", source, "--firefox", "/usr/bin/firefox",
-    "--firefox-profile", profile, "--profile-create-if-missing", "--keep-profile-changes",
-    "--start-url", "about:blank", "--no-reload", "--no-input",
-    // Firefox does not play media in a window on a hidden workspace, so it stays headless.
-    "--arg=-headless",
-    `--arg=--remote-debugging-port=${firefoxPort}`]);
-  const logs = [];
-  let timedTextRequests = 0;
-  await retry(() => portReady(firefoxPort));
-  const client = socketClient(`ws://127.0.0.1:${firefoxPort}/session`, (message) => {
-    if (message.method === "log.entryAdded" && message.params.text.includes("[uncensored]")) {
-      logs.push(message.params.text);
-      if (verbose) console.log(message.params.text);
-    }
-    if (message.method === "network.beforeRequestSent" &&
-        message.params.request.url.includes("/api/timedtext")) timedTextRequests += 1;
-  });
-  await client.ready;
-  await client.send("session.new", { capabilities: { alwaysMatch: {} } });
-  const page = await retry(async () => (await client.send("browsingContext.getTree")).contexts[0]);
-  const context = page.context;
-  await client.send("session.subscribe", {
-    events: ["log.entryAdded", "network.beforeRequestSent"], contexts: [context]
-  });
-  async function evaluate(expression) {
-    const response = await client.send("script.evaluate", {
-      expression, target: { context }, awaitPromise: true, resultOwnership: "none"
-    });
-    return response.result && response.result.value;
-  }
-  if (modeValues) console.log(`Firefox mode ${mode}: ${JSON.stringify(modeValues)}.`);
-  await client.send("browsingContext.navigate", { context, url: launchUrl.href, wait: "none" });
-  let state = await retry(async () => {
-    const value = JSON.parse(await evaluate(`JSON.stringify(${playbackExpression()})`));
-    return value.hook && value;
-  });
-  if (!await evaluate(fetchTransparencyExpression())) throw new Error("Firefox Fetch transparency check failed.");
-  console.log("Firefox Fetch transparency check passed.");
-  await captionPatchCheck("Firefox", evaluate);
-  if (firstSeekTime) await retry(async () => {
-    const sought = await evaluate(`(() => { const video = document.querySelector("video");
-      const player = document.querySelector("#movie_player");
-      if (!video || !player?.seekTo || !(video.duration > ${firstSeekTime})) return false;
-      player.seekTo(${firstSeekTime}, true); video.play().catch(() => {}); return true; })()`);
-    await wait(500);
-    return sought && Math.abs(await evaluate("document.querySelector('video')?.currentTime") - firstSeekTime) < 2;
-  });
-  await retry(() => timedTextRequests > 0 || cleanDecision(logs));
-  try {
-    await retry(() => inferenceReady(logs), 90000);
-  } catch (error) {
-    if (!playUntil) throw new Error(`No initial Firefox audio or clean-caption decision. Logs: ${logs.slice(-12).join(" | ")}`);
-    console.log("Firefox readiness not logged; continuing to playback.");
-  }
-  if (expectedWords.length) {
-    const visible = await retry(async () => {
-      await evaluate(`(() => { const player = document.querySelector("#movie_player");
-        const track = player?.getPlayerResponse?.()?.captions?.playerCaptionsTracklistRenderer
-          ?.captionTracks?.find(item => item.languageCode === "en" && item.kind === "asr");
-        if (track) player.setOption("captions", "track", { languageCode: "en", kind: "asr", vssId: track.vssId || "" });
-        const button = document.querySelector(".ytp-subtitles-button");
-        if (button?.getAttribute("aria-pressed") !== "true") button?.click(); return true; })()`);
-      const value = JSON.parse(await evaluate(`JSON.stringify(${visibleCaptionExpression()})`));
-      const found = expectedWords.every((word) => new RegExp("(?:^| )" +
-        word.replace(/[^a-z0-9' ]/g, "") + "(?: |$)").test(value.text));
-      return (mode === "off" ? value.placeholders : found && !value.placeholders) && value;
-    }, 20000);
-    console.log(`Firefox DOM ${mode === "off" ? "disabled-mode check" : "expectation"} passed (${firstUrl}, ${JSON.stringify(visible)}).`);
-  }
-  if (pauseFor) {
-    await evaluate("document.querySelector('video')?.pause()");
-    await wait(pauseFor * 1000);
-    const checkpoint = logs.length;
-    await evaluate(playbackExpression());
-    await retry(async () => {
-      if (inferenceReady(logs, checkpoint)) return true;
-      await evaluate(playbackExpression());
-      return false;
-    }, 90000);
-    console.log(`Firefox pause/resume smoke passed (${pauseFor}s).`);
-  }
-  if (playUntil) {
-    let nudged = 0;
-    await playThrough("Firefox", logs, async () => {
-      if (Date.now() - nudged > 15000) { nudged = Date.now(); await evaluate(playbackExpression()); }
-      return evaluate("document.querySelector('video')?.currentTime");
-    }, evaluate);
-    const decoded = decodedThrough(logs);
-    if (audioMode && !cleanDecision(logs) && decoded < playUntil - 20) {
-      throw new Error(`Firefox audio stopped at ${decoded}s.`);
-    }
-  }
-  if (initialOnly) {
-    await client.send("session.end");
-    client.socket.close();
-    return;
-  }
-  if (autoNextCount) {
-    for (let index = 0; index < autoNextCount; index += 1) {
-      const timedTextCheckpoint = timedTextRequests;
-      const logCheckpoint = logs.length;
-      const current = await retry(async () => await evaluate(finishCurrentVideoExpression()));
-      const next = await retry(async () => {
-        const id = await evaluate("new URL(location.href).searchParams.get('v')");
-        return id && id !== current && id;
-      }, 90000);
-      await wait(5000);
-      const state = JSON.parse(await evaluate(`JSON.stringify(${playbackExpression(true)})`));
-      if (!state.hook) throw new Error(`Firefox hook lost after playlist advance to ${next}.`);
-      await retry(() => timedTextRequests > timedTextCheckpoint || cleanDecision(logs, logCheckpoint));
-      await retry(() => inferenceReady(logs, logCheckpoint), 90000);
-      console.log(`Firefox playlist auto-next passed (${current} -> ${next}).`);
-    }
-    await client.send("session.end");
-    client.socket.close();
-    return;
-  }
-  for (secondId of nextUrls.map((url) => new URL(url).searchParams.get("v"))) {
-    const timedTextCheckpoint = timedTextRequests;
-    const logCheckpoint = logs.length;
-    if (homeNavigation) {
-      await retry(async () => await evaluate(homeExpression()));
-      await retry(async () => await evaluate(`location.pathname === "/" && navigator.onLine &&
-        !document.body.innerText.includes("Connect to the internet")`));
-      await evaluate(`location.assign(${JSON.stringify("https://www.youtube.com/watch?v=")} + ${JSON.stringify(secondId)}); true`);
-    } else if (!playlistMode && !directNavigation) {
-      await retry(async () => await evaluate(searchExpression()));
-      await retry(async () => await evaluate("location.pathname") === "/results");
-    }
-    await retry(async () => await evaluate(watchExpression()));
-    await retry(async () => (await evaluate("location.href")).includes(secondId));
-    await wait(8000);
-    state = await retry(async () => {
-      const value = JSON.parse(await evaluate(`JSON.stringify(${playbackExpression(true)})`));
-      return value.hook && value;
-    });
-    if (!state.url.includes(secondId)) {
-      throw new Error(`Firefox navigation reverted before playback: ${state.url}`);
-    }
-    await retry(() => timedTextRequests > timedTextCheckpoint || cleanDecision(logs, logCheckpoint));
-    if (!homeNavigation && !logs.slice(logCheckpoint).some((line) => line.includes(`new video ${secondId}`))) {
-      throw new Error(`Firefox hook did not activate video ${secondId}.`);
-    }
-    await retry(() => inferenceReady(logs, logCheckpoint), 90000);
-    console.log(`Firefox SPA smoke passed (${secondId}, ${timedTextRequests} caption requests).`);
-  }
-  await client.send("session.end");
-  client.socket.close();
+  await require("./firefox-smoke").run(args);
 }
 
 (async () => {
@@ -879,17 +677,20 @@ async function firefox() {
     cleanupOrphanedSmokeBrowsers();
     return;
   }
+  // Native Firefox owns its cleanup; never run legacy global browser cleanup for it.
+  if (firefoxOnly) return firefox();
+  const smoke = require('./firefox-smoke');
+  if (!chromiumOnly) smoke.options(args); // Reject unsupported combinations before opening either browser.
+  if (!workspace && !headless) throw new Error('Visible browser tests require --workspace; otherwise use --headless.');
+  const lock = await smoke.acquireLock();
   try {
     ensureWorkspaceRule();
-    if (!firefoxOnly) {
-      await chromium();
-      terminateChildren();
-    }
-    if (!chromiumOnly) await firefox();
+    await chromium();
   } finally {
-    terminateChildren();
-    removeGeneratedProfiles();
+    try { await terminateChildren(); removeGeneratedProfiles(); }
+    finally { await smoke.releaseLock(lock); }
   }
+  if (!chromiumOnly) await firefox();
 })().catch((error) => {
   console.error(error.stack || error);
   process.exitCode = 1;
