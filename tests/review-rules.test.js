@@ -152,11 +152,20 @@ test('persists definitions and later reviews without overwriting either history 
   assert.equal(created.status, 200);
   const reviewed = await request(address.port, 'POST', '/api/review', { revision: state.body.revision, id: created.body.id, status: 'accepted', pattern: 'before [word]', target: 'fuck', note: 'review\nnote' });
   assert.equal(reviewed.status, 200);
+  for (const id of ['manual-lead', created.body.id]) {
+    const current = await request(address.port, 'GET', '/api/state');
+    const result = await request(address.port, 'POST', '/api/review', {
+      revision: current.body.revision, id, status: 'accepted',
+      pattern: 'before [word]', target: 'fuck', note: 'review\nnote'
+    });
+    assert.equal(result.status, 200);
+  }
   await controller.close();
   controller = createServer(files);
   address = await controller.start(0);
   try {
     const afterRestart = await request(address.port, 'GET', '/api/state');
+    assert.deepEqual(afterRestart.body.reviewHistory, ['manual-lead', created.body.id]);
     const custom = afterRestart.body.candidates.find(candidate => candidate.id === created.body.id);
     assert.equal(custom.review, 'accepted');
     assert.equal(custom.reviewDetails.note, 'review\nnote');

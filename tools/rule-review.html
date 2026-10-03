@@ -43,7 +43,7 @@
   <div class="shell">
     <header>
       <div><h1>Rule review</h1><div id="progress" class="progress">Loading progress…</div></div>
-      <div class="actions"><button id="refresh" type="button">Refresh</button></div>
+      <div class="actions"><button id="previousRule" type="button" data-locked="true" disabled>Previous rule</button><button id="refresh" type="button">Refresh</button></div>
     </header>
     <details id="filterDetails">
       <summary>Filters</summary>
@@ -77,7 +77,7 @@
     const $ = selector => document.querySelector(selector);
     const api = '/api';
     const statuses = ['pending', 'accepted', 'rejected', 'generalize', 'narrow', 'suggestion'];
-    const state = { items: [], revision: null, current: null, detail: null, drafts: {}, skipped: new Set(), busyCount: 0, requestToken: 0, examplesToken: 0, evidence: { kind: 'all', scope: 'all', offset: 0, limit: 20 } };
+    const state = { items: [], revision: null, current: null, detail: null, drafts: {}, skipped: new Set(), history: [], historyLoaded: false, busyCount: 0, requestToken: 0, examplesToken: 0, evidence: { kind: 'all', scope: 'all', offset: 0, limit: 20 } };
 
     // These small helpers are intentionally independent of the DOM: the review queue is easy to test without a browser.
     function filterCandidates(items, filters) {
@@ -175,6 +175,7 @@
 
     function syncBusy() {
       const busy = state.busyCount > 0;
+      $('#previousRule').dataset.locked = String(state.history.length === 0);
       document.body.setAttribute('aria-busy', String(busy));
       document.querySelectorAll('button,input,textarea,select').forEach(control => {
         control.disabled = busy || control.dataset.locked === 'true';
@@ -407,6 +408,7 @@
         const value = await get('/state');
         if (token !== state.requestToken) return;
         state.items = Array.isArray(value.candidates) ? value.candidates : [];
+        restoreHistory(value.reviewHistory);
         state.revision = value.revision;
         renderFilters();
 
@@ -428,6 +430,7 @@
         if (id) {
           await selectCandidate(id, true, false);
         } else {
+          rememberRule(state.current);
           state.current = null;
           state.detail = null;
           $('#main').innerHTML =
@@ -520,13 +523,31 @@
         $(`#${id}`).addEventListener('input', saveDraft);
       });
     }
-    async function selectCandidate(id, force = false, manageBusy = true) {
-      if (manageBusy && state.busyCount) return;
+    function restoreHistory(ids) {
+      if (state.historyLoaded) return;
+      const available = new Set(state.items.map(item => item.id));
+      state.history = [...new Set(Array.isArray(ids) ? ids : [])].filter(id => available.has(id));
+      state.historyLoaded = true;
+    }
+
+    function rememberRule(id) {
+      if (id && state.history[state.history.length - 1] !== id) state.history.push(id);
+    }
+
+    async function previousRule() {
+      if (state.busyCount || !state.history.length) return;
+      const id = state.history[state.history.length - 1];
+      if (await selectCandidate(id, false, true, false)) state.history.pop();
+      syncBusy();
+    }
+
+    async function selectCandidate(id, force = false, manageBusy = true, recordHistory = true) {
+      if (manageBusy && state.busyCount) return false;
       const old = state.current;
       const hasDraft = old && state.drafts[old]?.dirty;
       if (!force && hasDraft && !window.confirm(
         'Keep this draft? Cancel to stay, OK to leave it unsaved.'
-      )) return;
+      )) return false;
 
       const token = ++state.requestToken;
       state.current = id;
@@ -543,6 +564,8 @@
         state.detail = value.candidate;
         renderCurrent(value.candidate);
         await loadRepresentatives(value.candidate, token);
+        if (recordHistory && old !== id) rememberRule(old);
+        return true;
       } catch (error) {
         if (token === state.requestToken) {
           renderError(`Unable to load rule: ${error.message}`, () =>
@@ -618,10 +641,13 @@
       if (next) {
         selectCandidate(next, true);
       } else {
+        rememberRule(id);
         state.current = null;
+        state.detail = null;
         $('#main').innerHTML =
           '<div class="empty">No more unreviewed rules in this session.</div>';
         renderFilters();
+        syncBusy();
       }
     }
 
@@ -653,6 +679,7 @@
       }
     }
 
+    $('#previousRule').onclick = previousRule;
     $('#refresh').onclick = () => {
       if (!state.busyCount) load(state.current);
     };

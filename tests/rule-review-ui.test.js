@@ -109,6 +109,80 @@ test('skip is session-only and does not create a review request', () => {
   assert.equal(writes, 0);
 });
 
+test('saved review history is restored once, in order, excluding missing candidates', () => {
+  const state = { items: [candidate('a', 'accepted'), candidate('b', 'rejected')], history: [], historyLoaded: false };
+  const local = vm.createContext({ state, Set, Array });
+  vm.runInContext(between('    function restoreHistory(', '    function rememberRule('), local);
+  local.restoreHistory(['a', 'gone', 'b']);
+  assert.deepEqual(Array.from(state.history), ['a', 'b']);
+  state.history.pop();
+  local.restoreHistory(['a', 'b']);
+  assert.deepEqual(Array.from(state.history), ['a']);
+});
+
+test('previous rule revisits reviewed rules without filters and retains history on cancel or failure', async () => {
+  const state = { current: 'a', drafts: {}, history: [], busyCount: 0, requestToken: 0 };
+  const main = { innerHTML: '' };
+  let fail = false;
+  let confirm = true;
+  const local = vm.createContext({
+    state,
+    window: { confirm: () => confirm },
+    $: () => main,
+    get: async () => {
+      if (fail) throw new Error('offline');
+      return { candidate: candidate(state.current, 'accepted') };
+    },
+    setBusy: busy => { state.busyCount += busy ? 1 : -1; },
+    syncBusy: () => {},
+    renderCurrent: () => {},
+    loadRepresentatives: async () => {},
+    renderError: () => {}
+  });
+  vm.runInContext(between('    function rememberRule(', '    function renderCurrent('), local);
+  await local.selectCandidate('b');
+  await local.selectCandidate('c');
+  assert.deepEqual(state.history, ['a', 'b']);
+  state.drafts.c = { dirty: true };
+  confirm = false;
+  await local.previousRule();
+  assert.equal(state.current, 'c');
+  assert.deepEqual(state.history, ['a', 'b']);
+  confirm = true;
+  fail = true;
+  await local.previousRule();
+  assert.deepEqual(state.history, ['a', 'b']);
+  fail = false;
+  await local.previousRule();
+  assert.equal(state.current, 'b');
+  assert.equal(state.detail.review, 'accepted');
+  assert.deepEqual(state.history, ['a']);
+  await local.previousRule();
+  assert.equal(state.current, 'a');
+  assert.equal(state.history.length, 0);
+  assert.equal(state.drafts.c.dirty, true);
+  await local.previousRule();
+  assert.equal(state.current, 'a');
+});
+
+test('previous rule remains available after skipping the final pending rule', () => {
+  const state = { items: [candidate('a')], current: 'a', detail: candidate('a'), skipped: new Set(), history: [], busyCount: 0 };
+  const local = vm.createContext({
+    state,
+    nextPending: context.nextPending,
+    filtersFromControls: () => ({ pendingOnly: true }),
+    renderFilters: () => {},
+    syncBusy: () => {},
+    $: () => ({ innerHTML: '' })
+  });
+  vm.runInContext(between('    function rememberRule(', '    async function previousRule('), local);
+  vm.runInContext(between('    function skipCandidate(', '    async function preview('), local);
+  local.skipCandidate('a');
+  assert.equal(state.current, null);
+  assert.equal(state.detail, null);
+  assert.deepEqual(state.history, ['a']);
+});
+
 test('failed save preserves the current draft and does not advance', async () => {
   const h = harness({ fail: true });
   await h.save('accepted');

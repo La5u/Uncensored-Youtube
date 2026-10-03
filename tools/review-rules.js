@@ -264,6 +264,7 @@ function loadHistory(file) {
         customDefinitions.set(event.id, event);
       } else if (event.type === 'review') {
         if (!STATUSES.has(event.status) || typeof event.pattern !== 'string' || typeof event.target !== 'string') throw new Error('invalid review event');
+        reviews.delete(event.id); // Keep latest judgments in chronological order.
         reviews.set(event.id, event);
       } else throw new Error('unknown event');
     } catch {
@@ -577,7 +578,9 @@ function createServer(options = {}) {
       state = refreshHistoryIfNeeded(state, forWrite);
       if (req.method === 'GET' && pathname === '/api/state') {
         const candidates = state.candidates;
-        return json(res, 200, { revision: state.revision, sourceRevision: state.sourceRevision, ruleFingerprint: RULE_FINGERPRINT,
+        const ids = new Set(candidates.map(candidate => candidate.id));
+        const reviewHistory = [...state.history.reviews.keys()].filter(id => ids.has(id));
+        return json(res, 200, { reviewHistory, revision: state.revision, sourceRevision: state.sourceRevision, ruleFingerprint: RULE_FINGERPRINT,
           candidates: candidates.map(publicCandidate), counts: { candidates: candidates.length,
             pending: candidates.filter(candidate => candidate.review === 'pending').length,
             accepted: candidates.filter(candidate => candidate.review === 'accepted').length,
