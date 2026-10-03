@@ -69,7 +69,7 @@ function fakeAsr(first, next, options = {}) {
       if (options.fail === "prefill" || options.fail === "second-slot" && asr.prefills === 2) throw new Error(options.fail);
       const length = ids.dims[1];
       const rows = Array(length).fill(null);
-      rows[length - 1] = first;
+      rows[length - 1] = typeof first === "function" ? first(ids) : first;
       const out = { logits: new Tensor("float32", logits(rows), [1, length, VOCAB.length]), ...cache() };
       if (options.fail === "prefill-output") {
         Object.defineProperty(out.logits, "data", { get() { throw new Error(options.fail); } });
@@ -152,9 +152,10 @@ const CANDIDATES = ["fuck", "fucking", "shit", "motherfucker", "motherfucking"];
   assert.strictEqual(shared.encodes, 1);
   assert.deepStrictEqual(decisions.map((d) => [d.word, Boolean(d.hybridCrossFamily)]), [["fucking", false], ["fucking", true]]);
 
-  // An earlier blank in the prefix is replaced by the word heard for it in this window;
-  // blanks scored elsewhere are dropped.
-  const sequential = fakeAsr({ " fucking": 0.9, " so": 0.1 }, {});
+  // Adjacent blanks hear distinct words when the second is conditioned on the first;
+  // blanks scored elsewhere are dropped, including decisions from a previous window.
+  const sequential = fakeAsr((ids) => Number(ids.data[ids.data.length - 1]) === id(" fucking")
+    ? { " shit": 0.9, " so": 0.1 } : { " fucking": 0.9, " so": 0.1 }, {});
   const prefills = [];
   const decoder = sequential.model;
   sequential.model = Object.assign(async (inputs) => {
@@ -163,11 +164,30 @@ const CANDIDATES = ["fuck", "fucking", "shit", "motherfucker", "motherfucking"];
     }
     return decoder(inputs);
   }, { sessions: decoder.sessions });
-  await whisper.scoreSlots(transformers, sequential, new Float32Array([0.1]), CANDIDATES, [
-    { tokenIndex: 4, prefix: [{ word: "what" }, { word: "the" }] },
-    { tokenIndex: 5, prefix: [{ tokenIndex: 3 }, { word: "what" }, { word: "the" }, { tokenIndex: 4 }] }
-  ]);
+  const adjacentSlots = [
+    { tokenIndex: 0, prefix: [{ word: "what" }, { word: "the" }] },
+    { tokenIndex: 1, prefix: [{ tokenIndex: 3 }, { word: "what" }, { word: "the" }, { tokenIndex: 0 }] }
+  ];
+  const adjacent = await whisper.scoreSlots(transformers, sequential, new Float32Array([0.1]), CANDIDATES, adjacentSlots);
+  assert.deepStrictEqual(adjacent.map((d) => d.word), ["fucking", "shit"]);
   assert.deepStrictEqual(prefills, ["what the", "what the fucking"]);
+  const freshWindow = await whisper.scoreSlots(transformers, sequential, new Float32Array([0.1]), CANDIDATES, [adjacentSlots[1]]);
+  assert.strictEqual(freshWindow[0].word, "fucking");
+  assert.strictEqual(prefills[2], "what the");
+
+  // A hybrid rule fallback is not something Whisper heard: after abstention it must
+  // not enter the next slot's prefix, even though it is returned as the first fill.
+  const abstaining = fakeAsr({ " so": 0.99, " fuck": 0.01 }, {});
+  const abstainingDecoder = abstaining.model;
+  abstaining.model = Object.assign(async (inputs) => {
+    if (!inputs.past_key_values) {
+      assert.deepStrictEqual(Array.from(inputs.decoder_input_ids.data.slice(2), Number), [id(" what"), id(" the")]);
+    }
+    return abstainingDecoder(inputs);
+  }, { sessions: abstainingDecoder.sessions });
+  const fallback = await whisper.scoreSlots(transformers, abstaining, new Float32Array([0.1]), CANDIDATES,
+    [{ ...adjacentSlots[0], hybridRuleWord: "shit", hybridRuleSource: "deterministic" }, adjacentSlots[1]]);
+  assert.deepStrictEqual(fallback.map((d) => d.word), ["shit", ""]);
 
   assertDisposed(tensors);
 
