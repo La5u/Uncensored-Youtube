@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "asOf": "2026-09-05",
+  "asOf": "2026-10-02",
   "source": "docs/SESSION_HANDOFF.md plus the 2026-08-20 dense-audio benchmark",
   "reproducibility": {
     "ordinaryCheck": "node tools/evaluation-metrics.js --check",
@@ -138,15 +138,15 @@
       "precision": 0.9517884914463453,
       "coverage": 0.49097472924187724,
       "source": {
-        "report": "corpus/generated/dense-audio-v4-rules-only.json",
-        "reportFingerprint": "sha256:d2e1a68ef0079492f4271524b00565742777a7da15052506009ff490dfd7dc9c",
+        "report": "corpus/generated/dense-audio-v5-rules-only.json",
+        "reportFingerprint": "sha256:79c2654971ffbdb70cae9017ca44bcc2d4ab53c2b952e835b58b4349c4f19a04",
         "mode": "rules-only",
         "complete": true,
         "rulesFingerprint": "3795:39:11g0z2u",
         "rulesAuxFingerprint": "8hsabx",
-        "rulesEngineFingerprint": "1ejn65d"
+        "rulesEngineFingerprint": "hof9ii"
       },
-      "note": "Dense development set (24+ creators, human expectedByToken overrides); gate and adjacent-blank variant chosen here."
+      "note": "Dense development set (24+ creators, human expectedByToken overrides); gate and adjacent-blank variant chosen here. Current engine replay from v4 cached Whisper decisions; no new inference, same manifest/population, not held-out."
     },
     {
       "id": "dense-audio-whisper",
@@ -161,15 +161,15 @@
       "precision": 0.9693827160493828,
       "coverage": 0.8015516537362188,
       "source": {
-        "report": "corpus/generated/dense-audio-v4-whisper-scoring.json",
-        "reportFingerprint": "sha256:8b3e2d85a66b058c9c983a5246682316b9310d14daf331d6f51089d7ef7dcf9d",
+        "report": "corpus/generated/dense-audio-v5-whisper-scoring.json",
+        "reportFingerprint": "sha256:fa5100642b449126e256099ea96f48b06dad32e378df15ffe38d71030939b463",
         "mode": "whisper-only",
         "complete": true,
         "rulesFingerprint": "3795:39:11g0z2u",
         "rulesAuxFingerprint": "8hsabx",
-        "rulesEngineFingerprint": "1ejn65d"
+        "rulesEngineFingerprint": "hof9ii"
       },
-      "note": "Dense development set (24+ creators, human expectedByToken overrides); gate and adjacent-blank variant chosen here."
+      "note": "Dense development set (24+ creators, human expectedByToken overrides); gate and adjacent-blank variant chosen here. Current engine replay from v4 cached Whisper decisions; no new inference, same manifest/population, not held-out."
     },
     {
       "id": "dense-audio-hybrid",
@@ -184,15 +184,15 @@
       "precision": 0.9655015887426237,
       "coverage": 0.8685177623519804,
       "source": {
-        "report": "corpus/generated/dense-audio-v4-hybrid-scoring.json",
-        "reportFingerprint": "sha256:db6779f846f2750c105a47a092e19c6e87976ce90021864f341bd71d6ec6920a",
+        "report": "corpus/generated/dense-audio-v5-hybrid-scoring.json",
+        "reportFingerprint": "sha256:491d98e8587b595217a977558c55875659d7969ea2e0c82acda4c57993cd27fd",
         "mode": "rules+whisper",
         "complete": true,
         "rulesFingerprint": "3795:39:11g0z2u",
         "rulesAuxFingerprint": "8hsabx",
-        "rulesEngineFingerprint": "1ejn65d"
+        "rulesEngineFingerprint": "hof9ii"
       },
-      "note": "Dense development set (24+ creators, human expectedByToken overrides); gate and adjacent-blank variant chosen here."
+      "note": "Dense development set (24+ creators, human expectedByToken overrides); gate and adjacent-blank variant chosen here. Current engine replay from v4 cached Whisper decisions; no new inference, same manifest/population, not held-out."
     },
     {
       "id": "dense-audio-rules-first",
@@ -207,15 +207,15 @@
       "precision": 0.9541073887104177,
       "coverage": 0.8489179256839526,
       "source": {
-        "report": "corpus/generated/dense-audio-v4-rules-first-scoring.json",
-        "reportFingerprint": "sha256:251cc408debc3afabf79122e68eb49b079e89567cb7363d8bbd4d96c44b1d2ea",
+        "report": "corpus/generated/dense-audio-v5-rules-first-scoring.json",
+        "reportFingerprint": "sha256:d1fd5acc834b8fc32e6094ca6cb31dc2d7c2160b0c419d4331842bd56d848067",
         "mode": "rules-first",
         "complete": true,
         "rulesFingerprint": "3795:39:11g0z2u",
         "rulesAuxFingerprint": "8hsabx",
-        "rulesEngineFingerprint": "1ejn65d"
+        "rulesEngineFingerprint": "hof9ii"
       },
-      "note": "Dense development set (24+ creators, human expectedByToken overrides); gate and adjacent-blank variant chosen here."
+      "note": "Dense development set (24+ creators, human expectedByToken overrides); gate and adjacent-blank variant chosen here. Current engine replay from v4 cached Whisper decisions; no new inference, same manifest/population, not held-out."
     }
   ]
 }

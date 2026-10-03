@@ -40,6 +40,45 @@ there is no inference cancellation protocol or real-time latency guarantee.
 `png`, `wasm`, `onnx`). Keep scratch code out of `src/` even if it uses one of
 those formats; update the filter/test when introducing a new runtime asset type.
 
+## Native Firefox smoke
+
+`npm run test:firefox` runs `node tools/browser-smoke.js --workspace
+--firefox-only --initial-only`: one URL, default
+`https://www.youtube.com/watch?v=an5iFYcjWUM`, `whisper-first`, and `--until=90`.
+Firefox requires `--initial-only`; it does not cover SPA navigation, pause, or
+playlists. Use the separate Chromium multi-navigation command in the README.
+
+Recommended strict pure-audio check:
+
+```sh
+npm run test:firefox -- --mode=whisper --rate=1 --seek=20:45 --until=90 \
+  --expect=fucking 'https://www.youtube.com/watch?v=an5iFYcjWUM'
+```
+
+Modes are `off`, `rules`, `rules-first`, `whisper-first`, and `whisper`.
+Aliases remain: `both-off` → `off`, `rules-only` → `rules`, `hybrid` →
+`whisper-first`, `whisper-only` → `whisper`. `--expect=word[,word...]` is optional
+except for `rules` (use `--expect=shit` for the default video). Availability is
+not evidence that all modes have been validated.
+
+Requires Linux, Firefox, `web-ext`, `pactl` with a working audio server, `flock`,
+network access, and confirmed AC power for heavy inference. Build first with
+`./build.sh 1.6.0`: `dist/firefox/src` must match current `src`; the runner pins
+actual runtime hashes and refuses stale builds. Firefox is native headless,
+not WebDriver. Keep `--workspace` on the hidden `special:uncensored-smoke`
+workspace; never fall back to a visible browser on the user's workspace.
+A dedicated muted, zero-volume null sink isolates playback without changing
+default audio settings. A shared browser-smoke lock prevents overlapping runs;
+cleanup targets only owned processes, never broad browser kills.
+
+Checks correlate visible `[__]` replacement with runtime decisions (including
+post-seek audio decisions), rather than accepting a word elsewhere on the page.
+Summaries include `late` and `minLead` timing diagnostics; these are not
+slot-level accuracy scores. Ignored `tmp/firefox-smoke-*` artifacts retain logs,
+telemetry, runtime hashes, audio isolation, and summary evidence. Automatic
+owner-scoped cleanup removes temporary profiles/extensions and the owned sink
+and processes while keeping logs; do not use global cleanup commands.
+
 ## Paired evaluation
 
 Accuracy fixtures require `yt-dlp` and separate automatic and human English
@@ -226,6 +265,16 @@ node tools/annotate-audio.js --mode deepgram-review \
 Use a separate output path as usual; existing annotation files and triage
 artifacts are not modified by importing it. Prior human labels from the
 annotation history are reused rather than overwritten.
+
+### Contested-label diagnostic
+
+```sh
+node tools/label-audit-queue.js tmp/label-audit/label-audit.json > tmp/label-audit/relisten-diagnostic.json
+```
+
+This preserves human labels and produces timed re-listening suggestions, not
+annotation input or ground truth. Resolve disagreements by listening before
+changing labels; ASR votes and word-family matches are diagnostic only.
 
 ### P0 false-fill session
 
@@ -462,7 +511,10 @@ node tools/audit-caption-corpus.js \
 Run `npm run rules:review` and open `http://127.0.0.1:8767`.
 The default view is one rule, at most three short examples, and **Looks right**,
 **Wrong**, **Needs work**, or **Skip**. Judgments advance to the next unreviewed
-rule; Skip is session-only. Keyboard: A=looks right, R=wrong, N=too broad,
+rule; Skip is session-only. **Previous rule** starts with saved judgments in review
+order and also tracks rules visited or skipped in the current page, regardless of
+filters. You can save a corrected judgment; going back alone does not change it.
+Reloading restores saved judgments, but not session-only skips. Keyboard: A=looks right, R=wrong, N=too broad,
 G=too narrow, S=skip, E=edit, Ctrl/Cmd+Enter=save note/edit. Letter shortcuts do
 not fire while typing, dialogs are open, or keys repeat. Patterns with two or
 more wildcards are hidden by default; enable them explicitly in Filters.

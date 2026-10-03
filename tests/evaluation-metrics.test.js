@@ -22,10 +22,10 @@ const manual = data.rows.find((row) => row.id === "manual-auto");
 assert.ok(Math.abs(manual.correct / manual.attempted - 0.89598) < 0.00001);
 assert.strictEqual(data.rows.find((row) => row.id === "held-out-test").available, false);
 assert.strictEqual(data.rows.find((row) => row.id === "dense-audio-whisper").diagnostic, true);
-assert.strictEqual(data.rows.find((row) => row.id === "dense-audio-hybrid").correct, 1636);
+assert.strictEqual(data.rows.find((row) => row.id === "dense-audio-hybrid").correct, 2127);
 const staleRow = data.rows.find((row) => row.id === "manual-filmot-wave-20260905");
 assert.ok(staleRow.stale && staleRow.superseded);
-// Dense reports for all four modes (2026-09-25) are current-fingerprint diagnostics.
+// Dense reports for all four modes are current-fingerprint diagnostics.
 assert.ok(["dense-audio-rules", "dense-audio-whisper", "dense-audio-hybrid", "dense-audio-rules-first"].every((id) => {
   const row = data.rows.find((candidate) => candidate.id === id);
   return !row.stale && !row.superseded;

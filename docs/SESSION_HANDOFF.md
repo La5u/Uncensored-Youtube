@@ -1,4 +1,4 @@
-# Session handoff — 2026-10-01
+# Session handoff — 2026-10-02
 
 Current state only; history is in git (`git log -p docs/SESSION_HANDOFF.md`) and the
 pre-09-24 archive `.tmp-archive/docs-20260924/SESSION_HANDOFF.md`. Preserve `tmp/`,
@@ -35,14 +35,18 @@ pre-09-24 archive `.tmp-archive/docs-20260924/SESSION_HANDOFF.md`. Preserve `tmp
 
 ## Live processes (detached; recheck with `ps`, PIDs rotate)
 
-- **No acquisition running.** 10-01 runs (worker-only namespace `uncensored-vpn-us-free-137`,
+- **Round 2 synthetic completed on 10-02**: workers/watcher stopped; same
+  report/ledger, worker-only VPN. Provenance audited, 7 pairs / 31 slots promoted
+  to `corpus/generated/caption-growth-synthetic-round2-20261001-report.json`.
+  Discovery refreshed: 32,764 rows / 267 creators, 0 promotion proposals.
+  Historical 10-01 runs (worker-only namespace `uncensored-vpn-us-free-137`,
   removed afterwards): pilot `tmp/overnight/acquisition/` (manual 2 pairs/6 slots,
   synthetic 2/39, synthetic-diversity 1/2) and round 2 `tmp/acquisition-20261001/`
   (channel feeds; `launch.sh`, `run-after-pilot.sh`). Round 2 manual-auto: 6 creators,
   80 checks, 7 pairs/19 slots (Qxir 5, Rahul Subramanian 2). Round 2 synthetic-auto
-  (16 creators) hit its 180 min cap at creator 14 (LoadingReadyRun): **incomplete, not
-  promoted**; saved Funny Or Die 6 + Medlife Crisis 1 so far; science/standup feeds
-  yielded nothing. Resume it with the same report/ledger to complete it.
+  (16 creators) originally hit its 180 min cap at LoadingReadyRun; 10-02 resume
+  completed the queue, still Funny Or Die 6 + Medlife Crisis 1. Science/standup
+  feeds yielded nothing; transient failures are not negative evidence.
   Promoted complete reports: `corpus/generated/caption-growth-{manual-pilot,
   synthetic-pilot,synthetic-diversity-pilot,manual-round2}-20261001-report.json`;
   `corpus:refresh` → 32,733 rows, 0 promotion proposals.
@@ -113,7 +117,67 @@ off 0 filled, rules 9, rules-first 10, whisper-first 9, whisper 0 — as designe
   (adjacent blanks share the same text prefix). 39/95 errors are same-family
   inflections (fuck↔fucking/fucker, motherfucker↔motherfucking).
 
-## Next steps (in order)
+## 10-02 improvement pass (uncommitted)
+
+- Preserved pre-existing review UI/tooling and Whisper-test edits. Compiler
+  `.map(regexLiteral)` callback fixed; wildcard regex/trie cannot consume another
+  blank. Focused regressions pass; structural hash intentionally updated after
+  replay. Global terminal-rule reorder **rejected**: 20 archive regressions vs
+  2 improvements. Authored priority preserved; `which is [__]` shadowing remains
+  unresolved pending full-context evidence. `tmp/release-validation/REVIEW.md`
+  records the rejected variant, not final runtime behavior.
+- Final dense v5 reports reuse verified v4 mode-specific cached audio decisions,
+  with no inference; all four metrics unchanged. Metrics provenance/README
+  regenerated, stale hybrid test count corrected. `npm run test:release` passed:
+  unit/Python tests, both ZIPs, Firefox lint (0 errors/warnings), 223,478-slot
+  archive replay (unchanged 89.36% precision / 39.02% correct coverage).
+- Browser tests **always** stay on `special:uncensored-smoke`; Firefox headless,
+  never a normal-workspace fallback. Five Chromium modes/direct navigation passed
+  (0 late audio words/errors). Runner 61883 resumed only remaining checks:
+  WebDriver Firefox stalled; two-tab playback/identity isolation passed (not
+  caption/cache isolation). 44-minute Chromium seek/memory run **passed**: whole
+  browser 2,673→2,590 MB (peak 2,814), 0 late words/errors, post-seek lead ≥34.1s.
+  Logs: `tmp/release-validation/browser-resume-{status.txt,long.log}`.
+  Firefox subsequently **passed** using genuine non-WebDriver temporary-extension
+  instrumentation (`tmp/firefox-genuine/run.sh`): stock Firefox/156 UA, webdriver
+  false, actual runtime source hashes unchanged, Whisper-first, 20→45 seek,
+  playback to 230.6s; 22 audio-resolved words, 0 late (min lead 1.4s, median 47.9s).
+  Visible restored caption observed at 56.4s. Video muted/volume 0, isolated muted
+  null sink, user's Firefox untouched. `telemetry.jsonl` records evidence.
+  Failures involved delayed cookie consent and the WebDriver setup (even without
+  extension); do not infer Firefox itself cannot play. Diagnostic fixture syntax
+  and host-permission mistakes corrected. No UA/automation getter override in
+  successful test. Empty Chromium DOM still is not visible-fill proof; explicit
+  multi-blank and two-tab caption/cache isolation checks remain pending.
+  No version bump/tag/submission. Caption-patch log now correctly attributes fills
+  to rules **or cached audio**, explaining Whisper-only's two restored slots.
+- Word forms: eight disagreement-enriched development slots with cached scores
+  favor existing next-word rank (6/8 exact) over candidate-only (1/8) and approximate
+  token normalization (4/8). **No scorer change** justified; not a benchmark.
+  `tmp/word-form-experiment/report.md`. New diagnostic CLI/test prepares 15
+  contested labels: `tmp/label-audit/relisten-diagnostic.json`; human re-listening
+  remains required. Never automatically relabel from votes.
+- Untouched benchmark isolated in `tmp/untouched-benchmark-20261001/workspace`.
+  Metadata-only exclusions: 1,835 channel IDs, 100 handles, 311 unresolved records;
+  eight unadmitted candidates, accents unknown. Six canonical IDs resolved;
+  official ownership links verified for Olga/Sindhu/Urzila, but Urzila overlaps
+  historical Funny Or Die speaker metadata and is held/excluded. See
+  `ADMISSION-UPDATE.md`: candidate-specific overlap audit, not a blanket demand
+  to resolve all unrelated historical identities. `SETUP.md`/`PLAN.md` document
+  speaker/audio-accent gates and empty separate manual-auto/synthetic configs.
+  No new held-out captions/labels acquired or inspected; no test-score claim.
+  Code snapshot is preparatory, not an admitted final manifest.
+  `identity-accent-review/QUEUE.md` has seven human-review URLs; Fern/Olga 45-second
+  clips validated, remaining downloads hit authentication. All research video IDs
+  must be excluded from final sampling; accents/speaker confirmations still pending.
+- Acquisition complete/audited/promoted; no vocabulary or evidence-derived rules
+  admitted. New faithful validation: 2,928 eligible rows / 41 creators / 50 fixtures
+  (`tmp/improvement-validation/compact-summary.json`). Queued `son of a [__]`
+  (8 bitch / 1 fuck) and `[__] car` (3 fucking / 1 fuck) have counterexamples;
+  these phrase counts alone do not establish selector precision or retirement.
+  No promotion without complete selector/wider validation; synthetic stays separate.
+
+## Next steps (in order; see current pass above)
 
 1. **Adjacent-blank fix landed (10-01, unreleased)**: sequential prefix in
    `scoreSlots`. Frozen labeled set, before → after precision/coverage: whisper-only
@@ -129,6 +193,12 @@ off 0 filled, rules 9, rules-first 10, whisper-first 9, whisper 0 — as designe
    cleanup) and seek/navigation between videos (SABR reset, decode dedup); Firefox
    playback + seek; two tabs at once; check a multi-blank caption fills distinct words.
    Then bump version in manifests/`tools/test.js`, `./build.sh`, tag, submit.
+   Battery-only continuation: all four lightweight checks in
+   `docs/DEVELOPMENT.md` passed (packaging, audio retry, Whisper scorer/init).
+   Added mocked adjacent-blank regressions: distinct sequential words, token index 0,
+   no decision leakage between windows, and no hybrid rule fallback in Whisper's prefix.
+   All four lightweight checks passed again. Full release tests and real-browser
+   checks remain pending; no version bump.
 3. **Label audit** (`tmp/label-audit/REPORT.md`): 15/1,092 human labels contested,
    mostly inflection slips (motherfucking vs motherfucker, plurals); ~6 likely mishears to re-listen.
    Detectable label noise ~1–2%, so popup figures are ±1–2 pt.
@@ -136,7 +206,14 @@ off 0 filled, rules 9, rules-first 10, whisper-first 9, whisper 0 — as designe
    analysis; acquire a genuinely untouched, accent-diverse creator split for scoring.
 5. **Acquisition**: resume/complete round 2 synthetic; manual-auto yield is best from
    Qxir-like creators (story/commentary with manual subs); drop science feeds.
-6. Rules: five selector removals rejected on wider replay (4 wrong introduced); none
+6. Rules: battery-safe sanity audit in `tmp/rule-sanity/REPORT.md` (all 523 review
+   candidates, 3,809 runtime selectors). Queue: 189 multi-wildcard patterns, 438
+   synthetic leads; no deployed literal has multiple wildcards. Small-input check
+   confirmed `[__] and [__] so → shit so` (wildcard consumes another blank and
+   replacement deletes visible text). Also broad `which is [fucking]` shadows
+   terminal `which is [bullshit]$`; static compiler audit found `.map(regexLiteral)`
+   passing index as punctuation policy. No runtime edits; focused regressions/fixes
+   needed before release. Five selector removals rejected on wider replay (4 wrong introduced); none
    deployed. `son of a [__] → bitch` and `[__] car → fucking` need complete eligible
    evidence. Details `tmp/overnight/rules/pass2/REPORT.md`.
 7. Vocabulary leads `fuckheads`, `chickenshit`: not admitted; need repeated
@@ -149,14 +226,27 @@ off 0 filled, rules 9, rules-first 10, whisper-first 9, whisper 0 — as designe
 
 ## Test harness notes (`tools/browser-smoke.js`)
 
-- `--workspace` runs Chromium visibly on Hyprland `special:uncensored-smoke` (runtime
-  Lua window rule via `hyprctl eval`); Firefox stays headless (it won't play media on a
-  hidden workspace). `--mode` takes the five popup modes; `--rate`, `--seek=FROM:TO`,
-  `--until`, memory and lead summaries; per-mode caption-patch check.
-- Limits: automated YouTube does not render caption DOM (DOM checks can't work);
-  Chromium drops some content-script log lines; headless Firefox playback stalls.
-- Never run two smoke runs at once: start-up deletes all `/tmp/uncensored-*-smoke-*`
-  profiles. Kill leftovers by PID; `pkill -f <pattern>` also kills the shell running it.
+- `--workspace` confines visible Chromium to `special:uncensored-smoke`; visible
+  launches without it are refused (headless is allowed). Firefox now uses native
+  headless temporary-extension telemetry, not BiDi/WebDriver. Use `npm run test:firefox`;
+  single URL / `--initial-only` only. Detailed commands: `docs/DEVELOPMENT.md`.
+- Strict native Firefox validates actual progress/seek, mode/model readiness, raw
+  caption blanks structurally replaced in visible DOM, and post-seek audio decisions.
+  Off/rules/Whisper-first/Whisper-only live checks passed. Pure Whisper run resolved
+  14 words with 3 late (min lead −5.5s), honestly reported as timing diagnostics.
+  Final stricter Whisper-first check: 14 resolved, 3 late (min lead −3.7s);
+  automatic-English identity, viewport-visible raw-slot structural match, sustained
+  progress, post-seek decision, source hashes and silence gates passed. Timing
+  and functionality are separate; no zero-lateness claim. New assertion/cleanup
+  tests pass (41), full release tests pass. Latest report:
+  `tmp/firefox-smoke-verified/summary.json`. Earlier runs:
+  `tmp/firefox-smoke-{integration-2,rules,whisper-final}/summary.json`,
+  `tmp/firefox-smoke-off-final-1790980071/summary.json`.
+- Shared persistent flock prevents overlapping runs. Cleanup only owns its process
+  groups, profiles and unique muted null sink; no broad pkill or global profile deletion.
+  Artifacts retain logs, raw telemetry, runtime hashes, silence state and failure snapshots.
+  Stale builds and reused artifact directories are refused. Chromium DOM remains empty
+  in automation; its zero-line reports do not prove visible restoration.
 - Pick auto-caption-only videos for playback tests (dense/frozen videos have manual
   subtitles, which YouTube may show instead). Good: `an5iFYcjWUM` (short),
   `2z8vHPOW2tk` (115 min).

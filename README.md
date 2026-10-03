@@ -21,7 +21,7 @@ The evaluator's `rules+whisper` mode is "Whisper first".
 <!-- evaluation-metrics:start -->
 ### Current evaluation metrics
 
-The canonical snapshot is [`docs/evaluation-metrics.json`](docs/evaluation-metrics.json), as of 2026-09-05.
+The canonical snapshot is [`docs/evaluation-metrics.json`](docs/evaluation-metrics.json), as of 2026-10-02.
 
 | Tier | Status | Scored slots | Precision | Coverage |
 | --- | --- | ---: | ---: | ---: |
@@ -40,7 +40,7 @@ The canonical snapshot is [`docs/evaluation-metrics.json`](docs/evaluation-metri
 
 Development rows are in-sample.
 No held-out test score is available.
-Rows marked stale/superseded are historical diagnostics, not current-code benchmark results. Current evaluator fingerprints: rules 3795:39:11g0z2u, aux 8hsabx, engine 1ejn65d.
+Rows marked stale/superseded are historical diagnostics, not current-code benchmark results. Current evaluator fingerprints: rules 3795:39:11g0z2u, aux 8hsabx, engine hof9ii.
 <!-- evaluation-metrics:end -->
 
 The later [frozen audio comparison](docs/FROZEN_AUDIO_EXPERIMENT.md) is documented
@@ -175,30 +175,40 @@ Optional checks:
 
 ```sh
 npm test -- --benchmark
-npm test -- --browsers URL [URL...]
-npm test -- --all
+npm test -- --browsers --chromium-only --workspace URL [URL...]
+npm test -- --all --chromium-only --workspace URL [URL...]
 ```
 
-Browser arguments include `--chromium-only`, `--firefox-only`, `--headless`,
-`--via=search|direct|home|home-search`, `--auto-next=N`, `--until=SECONDS`, `--pause=SECONDS`,
-and `--verbose`. Both browsers exercise every URL after the first in order, so
-pass at least three watch URLs to test multiple SPA redirects. `--mode=rules-only|whisper-only|hybrid|both-off`
-selects the extension settings in Chromium and Firefox; `--expect=word[,word...]`
-checks those words in the currently visible caption text. This is a live DOM
-smoke diagnostic, not a slot-level accuracy test.
-
-Exact live multi-redirect command (requires network, Chromium, Firefox, and
-`web-ext`; repeat with each `--mode` value when comparing modes):
+The native, headless Firefox smoke checks one URL only (no SPA, pause, or
+playlist coverage). It defaults to the an5 video, `whisper-first`, and 90 s:
 
 ```sh
-node tools/browser-smoke.js --headless --via=search --mode=hybrid \
+npm run test:firefox
+# Recommended strict pure-audio check:
+npm run test:firefox -- --mode=whisper --rate=1 --seek=20:45 --until=90 \
+  --expect=fucking 'https://www.youtube.com/watch?v=an5iFYcjWUM'
+```
+
+Expected words are optional except in `rules` mode. See
+[Firefox smoke details](docs/DEVELOPMENT.md#native-firefox-smoke) for dependencies,
+isolation, evidence, and artifacts. This is a runtime diagnostic, not accuracy
+validation of every mode.
+
+Chromium separately covers multiple SPA redirects (requires network and Chromium;
+keep `--workspace` or use safe headless execution):
+
+```sh
+node tools/browser-smoke.js --chromium-only --workspace --headless --via=search --mode=hybrid \
   'https://www.youtube.com/watch?v=kTeQSzHGWyw' \
   'https://www.youtube.com/watch?v=an5iFYcjWUM' \
   'https://www.youtube.com/watch?v=jNQXAC9IVRw'
 ```
 
-The automated unit test compiles the generated navigation expressions and
-covers all four mode settings without launching browsers.
+Both runners accept `off`, `rules`, `rules-first`, `whisper-first`, and `whisper`;
+legacy aliases `both-off`, `rules-only`, `hybrid`, and `whisper-only` remain.
+Chromium also accepts `--via=search|direct|home`, `--auto-next=N`,
+`--until=SECONDS`, `--pause=SECONDS`, and `--verbose`. The navigation-expression
+unit test runs without launching browsers.
 
 Specialized corpus acquisition, benchmark evaluation, audio annotation, and
 rule-mining workflows live in
