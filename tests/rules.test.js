@@ -49,7 +49,24 @@ const authoredRuleWords = new Set(deterministicWords.concat(
 ));
 assert.deepStrictEqual(rules.RULE_WORDS.filter((word) => !authoredRuleWords.has(word)), []);
 
+const wildcardSlots = rules.applyDeterministicRules("[__] and [__] so", { trace: true });
+assert.strictEqual(wildcardSlots.text, "[__] and shit so");
+const spacedWildcardSlots = rules.applyDeterministicRules("[ __ ] and [ __ ] so");
+assert.strictEqual(spacedWildcardSlots.text, wildcardSlots.text);
+assert.deepStrictEqual(wildcardSlots.replacements.map(({ tokenIndex, tokenSpan }) =>
+  [tokenIndex, tokenSpan]), [[1, 1]]);
+assert.ok(wildcardSlots.trace.every((slot) => slot.alternatives.every((alternative) =>
+  alternative.rule.template !== "* and [__] so")));
+const visibleWildcard = rules.applyDeterministicRules("well and [__] so");
+assert.strictEqual(visibleWildcard.text, "well and shit so");
+assert.strictEqual(visibleWildcard.replacements[0].rule.template, "* and [__] so");
+// Terminal syntax must not silently override authored rule priorities.
+const terminalWhich = rules.applyDeterministicRules("which is [__]", { trace: true });
+assert.strictEqual(terminalWhich.text, "which is fucking");
+assert.strictEqual(terminalWhich.trace[0].winner.rule.template, "which is [__]");
+
 const examples = [
+  ["which is [__] nonsense", "which is fucking nonsense"],
   ["holy [__]", "holy shit"],
   ["the [__] face", "the fucking face"],
   ["I can't do [__]", "I can't do shit"],

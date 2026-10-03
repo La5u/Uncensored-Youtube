@@ -14,7 +14,7 @@
   var CENSORED_TOKEN = "[__]";
   var CENSORED_TOKEN_REGEX = /\[\s*__\s*\]/gu;
   var WILDCARD_TOKEN = "*";
-  var WILDCARD_REGEX = "\\S+";
+  var WILDCARD_REGEX = "(?:(?!\\[__\\])\\S)+";
   var RULE_WORD_REGEX = /[*]|\[__\]|[\p{L}\p{N}_']+/gu;
   var SENTENCE_END_REGEX = /[.!?]/;
   var QUESTION_PHRASE_REGEX = /(?:whatever|what|how|why|where|who|when)\s+the\s*$/i;
@@ -336,7 +336,9 @@
         exact = node.children.get(words[wordIndex]);
         wildcard = node.children.get(WILDCARD_TOKEN);
         if (exact) walkRulePath(exact, wordIndex + 1);
-        if (wildcard && wildcard !== exact) walkRulePath(wildcard, wordIndex + 1);
+        if (wildcard && wildcard !== exact && words[wordIndex] !== CENSORED_TOKEN) {
+          walkRulePath(wildcard, wordIndex + 1);
+        }
       })(RULE_TRIE, startIndex);
     });
 

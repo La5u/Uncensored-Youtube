@@ -206,7 +206,9 @@
   function regexAlternatives(values) {
     return values.slice().sort(function longestFirst(left, right) {
       return right.length - left.length;
-    }).map(regexLiteral).join("|");
+    }).map(function literalAlternative(value) {
+      return regexLiteral(value);
+    }).join("|");
   }
 
   function compileFramePattern(patternValue, priority, groupId) {

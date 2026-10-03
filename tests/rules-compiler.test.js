@@ -50,6 +50,18 @@ assert.throws(
   /Duplicate rule template/
 );
 
+const alternatives = ["very long phrase", "short phrase", "tiny phrase"];
+for (const values of [alternatives, alternatives.slice().reverse()]) {
+  const matcher = new RegExp(`^(?:${compiler.regexAlternatives(values)})$`, "iu");
+  for (const value of alternatives) {
+    assert.ok(matcher.test(value));
+    assert.ok(matcher.test(value.replace(/ /g, "\t")));
+    assert.ok(!matcher.test(value.replace(" ", ", ")));
+    assert.ok(!matcher.test(value.replace(" ", ' "')));
+    assert.ok(!matcher.test(value.replace(" ", ". ")));
+  }
+}
+
 const intensifier = compiler.set("intensifier", ["fucking", "motherfucking"]);
 const grammar = compiler.compileFramePattern(
   compiler.frame`${compiler.set("subject", ["I", "you"])} ${compiler.slot(intensifier)} ${compiler.set("action", ["go", "stop"])}`
