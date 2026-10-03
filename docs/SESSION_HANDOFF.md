@@ -6,15 +6,17 @@ pre-09-24 archive `.tmp-archive/docs-20260924/SESSION_HANDOFF.md`. Preserve `tmp
 
 ## Restart here
 
-- **1.6.0 is live on all stores and tagged `v1.6.0`.** Post-release maintenance is
-  committed on `main` (not pushed, not released): SABR reset clears prior-video init
-  data; decode dedup no longer blocks replay after PCM eviction and skips obsolete
-  queued audio; Whisper tensors are freed on success/failure (Chromium WASM parity
-  with 1.6.0 verified, identical decisions and scores); refresh-lock/snapshot fixes;
-  Python tests run in the harness; grouped caption review in `annotate-audio.js`.
-  `npm run test:release` passed on 10-01. `dist/` ZIPs are maintenance builds labeled
-  1.6.0, not the store ZIPs. Candidate for a 1.6.1 after real-extension checks
-  (long session memory, Firefox, multiple tabs).
+- **1.6.1 is committed (`release: 1.6.1`), not tagged or submitted.** 1.6.0 is live
+  on all stores (`v1.6.0`). 10-04 on AC: `npm run test:release` passed on the 1.6.1
+  build (web-ext lint 0/0, archive replay unchanged). Native headless Firefox
+  whisper-only an5 to 80 s: 17 decisions, 0 late, min lead 19.6 s; both adjacent-blank
+  captions showed distinct words ("fucking fuck you", "shit fuck she's here").
+  Chromium whisper-first two-tab check (`tmp/release-validation/two-tab-isolation.cjs`,
+  logs `161-{baseline,two-tab}.log`): an5 alone vs an5 with 2z8 playing concurrently;
+  every window with the same start/tokens gave identical words, the only differences
+  came from shifted windows (token 0 skipped as passed in the baseline; token 20
+  asshole/assholes in a 2:44 vs 2:47 window); 0 late/errors in both tabs, peak 3.1 GB.
+  Remaining: tag `v1.6.1`, submit `dist/*-1.6.1.zip`.
 - `gh`: sessions started before 09-26 inherit a stale `GITHUB_TOKEN`; use
   `env -u GITHUB_TOKEN gh …` there.
 
@@ -187,18 +189,7 @@ off 0 filled, rules 9, rules-first 10, whisper-first 9, whisper 0 — as designe
    optimistic (its labels came from the analysis that motivated the fix). Details
    `tmp/adjacent-blanks/REPORT.md`. Remaining error class: same-family forms
    (fuck/fucking/fucker, motherfucker/motherfucking).
-2. **1.6.1** (popup figures and dense metrics already updated; `dense-audio-v4-*`
-   reports in `corpus/generated/`). On AC: `npm run test:release`; Chromium smoke
-   `tools/browser-smoke.js` per mode incl. a 40+ min run watching memory (tensor
-   cleanup) and seek/navigation between videos (SABR reset, decode dedup); Firefox
-   playback + seek; two tabs at once; check a multi-blank caption fills distinct words.
-   Then bump version in manifests/`tools/test.js`, `./build.sh`, tag, submit.
-   Battery-only continuation: all four lightweight checks in
-   `docs/DEVELOPMENT.md` passed (packaging, audio retry, Whisper scorer/init).
-   Added mocked adjacent-blank regressions: distinct sequential words, token index 0,
-   no decision leakage between windows, and no hybrid rule fallback in Whisper's prefix.
-   All four lightweight checks passed again. Full release tests and real-browser
-   checks remain pending; no version bump.
+2. **1.6.1**: all release checks passed (see Restart here); tag and submit.
 3. **Label audit** (`tmp/label-audit/REPORT.md`): 15/1,092 human labels contested,
    mostly inflection slips (motherfucking vs motherfucker, plurals); ~6 likely mishears to re-listen.
    Detectable label noise ~1–2%, so popup figures are ±1–2 pt.
