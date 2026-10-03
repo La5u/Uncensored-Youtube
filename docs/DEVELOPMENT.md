@@ -63,7 +63,7 @@ not evidence that all modes have been validated.
 
 Requires Linux, Firefox, `web-ext`, `pactl` with a working audio server, `flock`,
 network access, and confirmed AC power for heavy inference. Build first with
-`./build.sh 1.6.0`: `dist/firefox/src` must match current `src`; the runner pins
+`./build.sh 1.6.1`: `dist/firefox/src` must match current `src`; the runner pins
 actual runtime hashes and refuses stale builds. Firefox is native headless,
 not WebDriver. Keep `--workspace` on the hidden `special:uncensored-smoke`
 workspace; never fall back to a visible browser on the user's workspace.

@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-version="${1:-1.6.0}"
+version="${1:-1.6.1}"
 if ! printf '%s\n' "$version" | awk -F. '
   NR > 1 || NF < 1 || NF > 4 { exit 1 }
   {

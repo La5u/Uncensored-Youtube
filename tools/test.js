@@ -85,9 +85,9 @@ for (const file of fs.readdirSync(path.join(root, "tests")).filter((name) => nam
 for (const file of fs.readdirSync(path.join(root, "tests")).filter((name) => name.endsWith(".test.py")).sort()) {
   run("python3", [path.join("tests", file)]);
 }
-run("./build.sh", ["1.6.0"]);
-run("unzip", ["-tq", "dist/uncensored-youtube-firefox-1.6.0.zip"]);
-run("unzip", ["-tq", "dist/uncensored-youtube-chromium-1.6.0.zip"]);
+run("./build.sh", ["1.6.1"]);
+run("unzip", ["-tq", "dist/uncensored-youtube-firefox-1.6.1.zip"]);
+run("unzip", ["-tq", "dist/uncensored-youtube-chromium-1.6.1.zip"]);
 if (release) {
   run("npx", ["--yes", "web-ext@10.6.0", "lint",
     "--source-dir", "dist/firefox", "--warnings-as-errors"]);

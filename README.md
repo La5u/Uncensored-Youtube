@@ -221,7 +221,7 @@ text-source notes are in
 ## Build
 
 ```sh
-./build.sh 1.6.0
+./build.sh 1.6.1
 ```
 
 This creates separate Chromium and Firefox ZIPs in `dist/`. See
