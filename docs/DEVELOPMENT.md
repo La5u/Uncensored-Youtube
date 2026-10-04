@@ -156,6 +156,15 @@ node tools/evaluation-metrics.js --import-report "$REPORT" --id dense-audio-hybr
   --expected-rules-fingerprint 3707:39:qoalur --write
 ```
 
+## Windowed audio
+
+`tools/fetch-heldout-audio.js` (`FETCH_AUDIO_IDS`, `FETCH_AUDIO_DIR`, `HELDOUT_NETNS`) keeps
+only merged windows from 35 s before to 30 s after each `[__]` in the video's censored
+automatic track, stream-copied without re-encoding as `<id>.s<start>-<end>.<ext>`.
+`-copyts` keeps the true section start; `evaluate-whisper-only.js` and `deepgram-triage.js`
+seek relative to it, and refuse windows no section covers. `annotate-audio.js` does not
+read sections (it reports the audio missing).
+
 ## Labeling short audio fragments
 
 Use the local annotation page to resolve rules/Whisper disagreements, review

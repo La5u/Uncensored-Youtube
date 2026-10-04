@@ -348,7 +348,28 @@ function findAudio(audioDir, fixture) {
   return file ? path.join(dir, file) : "";
 }
 
+// Windowed downloads (fetch-heldout-audio.js) store `<id>.s<start>-<end>.<ext>` sections whose
+// timestamps keep the original timeline; seek relative to each section's true start_time.
+function audioSection(audioPath, startSeconds, durationSeconds) {
+  const match = path.basename(audioPath).match(/^(.+)\.s\d+-\d+\.\w+$/);
+  if (!match) return { file: audioPath, offset: 0 };
+  const dir = path.dirname(audioPath);
+  for (const name of fs.readdirSync(dir)) {
+    const section = name.match(/^(.+)\.s(\d+)-(\d+)\.\w+$/);
+    if (section && section[1] === match[1] && Number(section[2]) <= Math.max(0, startSeconds) &&
+        startSeconds + durationSeconds <= Number(section[3])) {
+      const file = path.join(dir, name);
+      const probe = spawnSync("ffprobe", ["-v", "error", "-show_entries", "format=start_time", "-of", "csv=p=0", file]);
+      return { file, offset: Number(probe.stdout.toString()) };
+    }
+  }
+  throw new Error(`No audio section covers ${startSeconds}s+${durationSeconds}s of ${match[1]}`);
+}
+
 function pcmSlice(audioPath, startSeconds, durationSeconds) {
+  const { file, offset } = audioSection(audioPath, startSeconds, durationSeconds);
+  startSeconds -= offset;
+  audioPath = file;
   const result = spawnSync("ffmpeg", [
     "-hide_banner",
     "-loglevel",
@@ -1192,6 +1213,8 @@ module.exports = {
   contextWordForToken,
   allowedExpectedWords,
   findAudio,
+  audioSection,
+  pcmSlice,
   isCorrect,
   classifyResult,
   summarize,

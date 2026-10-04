@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
+const { audioSection } = require('./evaluate-whisper-only');
 
 const REPORT = path.resolve('corpus/generated/dense-audio-v2-whisper-triage-current.json');
 const ENDPOINT = 'https://api.deepgram.com/v1/listen?model=nova-3&language=en&profanity_filter=false';
@@ -93,7 +94,8 @@ function atomicSave(file, data) {
 
 function getWav(audio, timeSeconds) {
   const start = Math.max(0, timeSeconds - 5);
-  const proc = spawnSync('ffmpeg', ['-nostdin', '-v', 'error', '-ss', String(start), '-i', audio, '-t', '10', '-ac', '1', '-ar', '16000', '-f', 'wav', 'pipe:1'], { maxBuffer: 16 * 1024 * 1024 });
+  const { file, offset } = audioSection(audio, start, 10);
+  const proc = spawnSync('ffmpeg', ['-nostdin', '-v', 'error', '-ss', String(start - offset), '-i', file, '-t', '10', '-ac', '1', '-ar', '16000', '-f', 'wav', 'pipe:1'], { maxBuffer: 16 * 1024 * 1024 });
   if (proc.status !== 0 || !proc.stdout?.length) throw new Error('audio conversion failed');
   return proc.stdout;
 }
