@@ -36,6 +36,11 @@ pre-09-24 archive `.tmp-archive/docs-20260924/SESSION_HANDOFF.md`. Preserve `tmp
   for development). Separate supervisors with disjoint VPN profile pools, one tunnel each,
   `maxWorkers` 1 (manual-auto first, then synthetic). Promote the development report to
   `corpus/generated/` only when complete.
+- **Test roster addendum 1 (10-04 evening):** 55 more creators (`roster-addendum-1.json`, sha256
+  in `roster-addendum-1.sha256`; 77 test creators total), screened with the same metadata-only
+  rule from Codex and Sonnet candidate lists. Test round 1-2 result before it: manual-auto 86
+  pairs / 792 slots, synthetic 25 / 170. `prescreen.py` now retries unresolved handles and
+  rotates after 5 failed lookups in a row (a dead route had marked 128 handles unresolved).
 - **Audio queue:** `tmp/heldout-20261004/after-captions.sh` (log `after-captions.log`) waits for
   all four caption reports, stops their supervisors/watches, promotes the development
   reports as `corpus/generated/caption-growth-dev-round3-*-20261004-report.json`, then fetches
