@@ -28,6 +28,14 @@ pre-09-24 archive `.tmp-archive/docs-20260924/SESSION_HANDOFF.md`. Preserve `tmp
   `workspace/logs/heldout-*.log`; isolated corpus watch. Never open per-slot captions or
   errors from this set; score aggregates once per release. 60 candidate handles did not
   resolve (fix and screen as a dated roster addendum if yield is short).
+- **10-04 round 1 result (test set):** manual-auto 441 checked / 56 pairs / 408 slots (9 of
+  22 creators yield; 13 had no manual subs); synthetic 403 / 15 / 64. **Round 2 running:**
+  test caps raised to 150 slots / 150 checks per creator (same frozen roster), plus a
+  development lane `tmp/acquisition-20261004/` (40 most productive development creators,
+  300-slot cap, ledger seeded with 21,828 checked videos; user lifted "new creators only"
+  for development). Separate supervisors with disjoint VPN profile pools, one tunnel each,
+  `maxWorkers` 1 (manual-auto first, then synthetic). Promote the development report to
+  `corpus/generated/` only when complete.
 - `gh`: sessions started before 09-26 inherit a stale `GITHUB_TOKEN`; use
   `env -u GITHUB_TOKEN gh …` there.
 
