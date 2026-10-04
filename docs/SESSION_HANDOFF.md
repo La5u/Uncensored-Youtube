@@ -36,6 +36,12 @@ pre-09-24 archive `.tmp-archive/docs-20260924/SESSION_HANDOFF.md`. Preserve `tmp
   for development). Separate supervisors with disjoint VPN profile pools, one tunnel each,
   `maxWorkers` 1 (manual-auto first, then synthetic). Promote the development report to
   `corpus/generated/` only when complete.
+- **Audio queue:** `tmp/heldout-20261004/after-captions.sh` (log `after-captions.log`) waits for
+  all four caption reports, stops their supervisors/watches, promotes the development
+  reports as `corpus/generated/caption-growth-dev-round3-*-20261004-report.json`, then fetches
+  windowed audio (test set into `workspace/test-fixtures/audio`, then 50 round-robin
+  development videos). The workspace's frozen evaluator predates section support: score
+  the test set with the current `tools/evaluate-whisper-only.js` (runtime `src/` unchanged).
 - `gh`: sessions started before 09-26 inherit a stale `GITHUB_TOKEN`; use
   `env -u GITHUB_TOKEN gh …` there.
 
