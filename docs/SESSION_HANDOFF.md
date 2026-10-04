@@ -56,8 +56,10 @@ pre-09-24 archive `.tmp-archive/docs-20260924/SESSION_HANDOFF.md`. Preserve `tmp
 
 - Acquisition: VPN only inside worker netns (max two tunnels, never host-wide); no
   duplicate writers; don't interrupt workers or delete supervisor flocks; promote only
-  complete reports to `corpus/generated/`; new creators only.
-- Evidence tiers stay separate (manual-auto, synthetic, auto-auto). Synthetic pairs and
+  complete reports to `corpus/generated/`; development lanes may revisit existing creators.
+- Evidence tiers stay separate (manual-auto, synthetic, auto-auto). Since 10-05 synthetic may
+  justify a rule on its own if manual-auto does not contradict it (our censoring matches
+  YouTube's: 106 visible vs 37,418 blanked vocabulary words in 674 real censored tracks).
   Filmot snippets never justify a rule alone. Rule gates: `docs/RULES.md`.
 - Deepgram output is triage only — it picks clips for human review; never ground
   truth, never used to score or train models (ToS §2.4.9). Key:
