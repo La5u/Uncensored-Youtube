@@ -255,12 +255,13 @@ def monitor(config):
                 lane['next'] = time.monotonic() + COOLDOWN
                 if current:
                     cooldown[current] = time.monotonic() + COOLDOWN
-                target = None
+                target, unavailable = None, set()
                 for ns in config['namespaces']:
                     if ns == current or cooldown.get(ns, 0) > time.monotonic():
                         continue
                     if config.get('manageNamespaces') is True and not prepare_namespace(ns, config['namespaces']):
                         cooldown[ns] = time.monotonic() + COOLDOWN
+                        unavailable.add(ns)
                         log(f'{ns}: namespace unavailable; deferring (not a YouTube rate-limit result)')
                         continue
                     log(f'Testing captions through {ns}')
@@ -277,6 +278,24 @@ def monitor(config):
                     if probe(current):
                         target = current
                         log(f'{current}: route healthy; restarting only the unhealthy worker')
+                if not target and current and pids and config.get('manageNamespaces') is True:
+                    # The current route failed and the cap blocks a cold alternate: release the
+                    # unhealthy (resumable) worker and its tunnel, then break before make.
+                    log(f'{current}: route failed; releasing it to rotate at the tunnel cap')
+                    stop_tree(pids[0])
+                    pids = []
+                    helper = ROOT / 'tmp/isolated-vpn-netns.sh'
+                    subprocess.run([str(helper), 'cleanup-one', current.removeprefix('uncensored-vpn-').upper()],
+                                   check=True)
+                    for ns in config['namespaces']:
+                        # Routes that only failed setup at the cap are untested, not rate limited.
+                        if ns == current or (cooldown.get(ns, 0) > time.monotonic() and ns not in unavailable):
+                            continue
+                        if prepare_namespace(ns, config['namespaces']) and probe(ns):
+                            target = ns
+                            break
+                        cooldown[ns] = time.monotonic() + COOLDOWN
+                        log(f'{ns}: unavailable or caption probe failed; cooling down')
                 if not target:
                     log('No verified route; retaining existing workers and backing off 30 minutes')
                     continue

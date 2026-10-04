@@ -109,14 +109,14 @@ class SupervisorTests(unittest.TestCase):
             self.assertIn('--ignore-config', cmd)
             self.assertNotIn('test-fixtures', ' '.join(cmd))
 
-    def cycle(self, healthy, probe_result):
+    def cycle(self, healthy, probe_result, **extra):
         (self.root / 'logs').mkdir()
         (self.root / 'report.json').write_text('{"queueComplete": false}')
-        config = dict(namespaces=['uncensored-vpn-old', 'uncensored-vpn-new'], lanes=[self.lane])
+        config = dict(namespaces=['uncensored-vpn-old', 'uncensored-vpn-new'], lanes=[self.lane], **extra)
         events = []
         cwd = Path.cwd()
         try:
-            with patch.object(vpn, 'health', return_value=not healthy), patch.object(vpn, 'workers', return_value=[42]), patch.object(vpn, 'processes', return_value={}), patch.object(vpn, 'namespace', return_value='uncensored-vpn-old'), patch.object(vpn, 'probe', return_value=probe_result if not isinstance(probe_result, list) else None, side_effect=probe_result if isinstance(probe_result, list) else None) as probe, patch.object(vpn, 'stop_tree', side_effect=lambda pid: events.append(('stop', pid))), patch.object(vpn, 'start', side_effect=lambda lane, ns: events.append(('start', ns))), patch.object(vpn.time, 'sleep', side_effect=InterruptedError):
+            with patch.object(vpn, 'health', return_value=not healthy), patch.object(vpn, 'workers', side_effect=lambda *_: [] if ('stop', 42) in events else [42]), patch.object(vpn, 'processes', return_value={}), patch.object(vpn, 'namespace', return_value='uncensored-vpn-old'), patch.object(vpn, 'probe', return_value=probe_result if not isinstance(probe_result, list) else None, side_effect=probe_result if isinstance(probe_result, list) else None) as probe, patch.object(vpn, 'stop_tree', side_effect=lambda pid: events.append(('stop', pid))), patch.object(vpn, 'start', side_effect=lambda lane, ns: events.append(('start', ns))), patch.object(vpn.time, 'sleep', side_effect=InterruptedError):
                 with self.assertRaises(InterruptedError):
                     vpn.main(config)
                 return events, probe.call_count
@@ -137,6 +137,15 @@ class SupervisorTests(unittest.TestCase):
         events, probes = self.cycle(False, True)
         self.assertEqual(events, [('stop', 42), ('start', 'uncensored-vpn-new')])
         self.assertEqual(probes, 1)
+
+    def test_failed_route_at_tunnel_cap_releases_then_rotates(self):
+        # The cap blocks preparing a cold route while the worker holds its tunnel.
+        with patch.object(vpn, 'prepare_namespace', side_effect=[False, True]), \
+                patch.object(vpn.subprocess, 'run') as run:
+            events, probes = self.cycle(False, [False, True], manageNamespaces=True)
+        self.assertEqual(events, [('stop', 42), ('start', 'uncensored-vpn-new')])
+        self.assertEqual(probes, 2)
+        self.assertEqual(run.call_args.args[0][1:], ['cleanup-one', 'OLD'])
 
     def test_waiting_queue_obeys_worker_cap(self):
         (self.root / 'logs').mkdir()
