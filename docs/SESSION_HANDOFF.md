@@ -217,6 +217,10 @@ off 0 filled, rules 9, rules-first 10, whisper-first 9, whisper 0 — as designe
    `tmp/adjacent-blanks/REPORT.md`. Remaining error class: same-family forms
    (fuck/fucking/fucker, motherfucker/motherfucking).
 2. **1.6.1**: all release checks passed (see Restart here); tag and submit.
+2b. **Word-form hints (experimental, may be scrapped)**: `tmp/word-form-hints/REPORT.md`.
+   Caption context predicts the fuck-family form 75.1% vs 51.9% majority on held-out
+   creators; no gain for other families. Next: with development audio, tune a same-family
+   tie-break on per-candidate Whisper scores; ship only if it beats the current scorer.
 3. **Label audit** (`tmp/label-audit/REPORT.md`): 15/1,092 human labels contested,
    mostly inflection slips (motherfucking vs motherfucker, plurals); ~6 likely mishears to re-listen.
    Detectable label noise ~1–2%, so popup figures are ±1–2 pt.
