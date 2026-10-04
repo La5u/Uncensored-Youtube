@@ -17,6 +17,17 @@ pre-09-24 archive `.tmp-archive/docs-20260924/SESSION_HANDOFF.md`. Preserve `tmp
   came from shifted windows (token 0 skipped as passed in the baseline; token 20
   asshole/assholes in a 2:44 vs 2:47 window); 0 late/errors in both tabs, peak 3.1 GB.
   Remaining: tag `v1.6.1`, submit `dist/*-1.6.1.zip`.
+- **Held-out test set acquisition running (started 10-04)** in `tmp/heldout-20261004/`
+  (`PLAN.md` = loosened admission rules; replaces the blocked 10-01 untouched lane). Roster
+  frozen before any download: 22 creators (`roster.json`, sha256 in `roster.sha256`), all
+  absent from 2,472 development channel IDs (`dev-channels.txt`), each with manual+auto
+  English tracks on >=1 of 4 recent uploads (`prescreen-*.jsonl`, metadata only). Isolated
+  root `workspace/` (git archive of `67d6beb`, hashes `code-hashes.txt`); separate
+  manual-auto and synthetic-auto lanes, 50 slots/creator cap, rotating worker-only VPN via
+  `workspace/tools/supervise-caption-vpn.py workspace/tmp/heldout-supervisor.json`; logs
+  `workspace/logs/heldout-*.log`; isolated corpus watch. Never open per-slot captions or
+  errors from this set; score aggregates once per release. 60 candidate handles did not
+  resolve (fix and screen as a dated roster addendum if yield is short).
 - `gh`: sessions started before 09-26 inherit a stale `GITHUB_TOKEN`; use
   `env -u GITHUB_TOKEN gh …` there.
 
