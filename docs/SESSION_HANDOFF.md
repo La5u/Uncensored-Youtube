@@ -41,6 +41,16 @@ pre-09-24 archive `.tmp-archive/docs-20260924/SESSION_HANDOFF.md`. Preserve `tmp
   rule from Codex and Sonnet candidate lists. Test round 1-2 result before it: manual-auto 86
   pairs / 792 slots, synthetic 25 / 170. `prescreen.py` now retries unresolved handles and
   rotates after 5 failed lookups in a row (a dead route had marked 128 handles unresolved).
+- **Synthetic source study (10-05):** 2,096 unique synthetic pairs came from 126 channels; 7
+  channels (NerdCubed, Unsubscribe Podcast, vinesauce, Critical Role, Wubby Stream Archive, Neebs,
+  Jimquisition) give ~1,500 pairs / 140k+ slots. Uncensored auto captions are mostly a channel
+  property (73 channels with >=4 decisions: 19 all-uncensored, 35 all-censored, 19 mixed but
+  usually lopsided). Channel feeds yielded 39% synthetic pairs vs 12% for Filmot video lists:
+  Filmot showed the swears (as `#FUCK#`) when it crawled, but 82% were censored by download time.
+  Not livestream- or age-related; srv3/json3 and android/web_embedded clients are equally censored
+  (tv/ios/web_safari hit the bot check over VPN). Dev lane `synthetic-discovery` checks <=4
+  videos on each of 1,044 never-checked development/Filmot channels (excluding test creators);
+  follow up uncensored ones with a high-cap lane.
 - **Audio queue:** `tmp/heldout-20261004/after-captions.sh` (log `after-captions.log`) waits for
   all four caption reports, stops their supervisors/watches, promotes the development
   reports as `corpus/generated/caption-growth-dev-round3-*-20261004-report.json`, then fetches
