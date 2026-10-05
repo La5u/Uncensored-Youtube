@@ -270,7 +270,9 @@ def monitor(config):
                         break
                     cooldown[ns] = time.monotonic() + COOLDOWN
                     log(f'{ns}: caption probe failed; cooling down')
-                if not target and current:
+                # One probe passing does not prove the route survives sustained use: if the worker
+                # failed again after an in-place restart here, rotate instead of retrying in place.
+                if not target and current and lane.get('inPlace') != current:
                     # At the two-tunnel account cap, break-before-make cannot safely
                     # probe a cold alternate. A healthy current route can still
                     # recover a downloader stuck in its own rate-limit/backoff state.
@@ -307,6 +309,7 @@ def monitor(config):
                     raise RuntimeError('Writer changed during probe; deferring')
                 if pids:
                     stop_tree(pids[0])
+                lane['inPlace'] = target if target == current else None
                 children.append(start(lane, target))
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
                 log(f'Safe deferral: {error}')

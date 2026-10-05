@@ -147,6 +147,14 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(probes, 2)
         self.assertEqual(run.call_args.args[0][1:], ['cleanup-one', 'OLD'])
 
+    def test_repeat_failure_after_in_place_restart_rotates(self):
+        self.lane['inPlace'] = 'uncensored-vpn-old'  # already restarted in place on this route
+        with patch.object(vpn, 'prepare_namespace', side_effect=[False, True]), \
+                patch.object(vpn.subprocess, 'run'):
+            events, probes = self.cycle(False, [True], manageNamespaces=True)
+        self.assertEqual(events, [('stop', 42), ('start', 'uncensored-vpn-new')])
+        self.assertEqual(probes, 1)  # the failed current route is not probed again
+
     def test_waiting_queue_obeys_worker_cap(self):
         (self.root / 'logs').mkdir()
         (self.root / 'report.json').write_text('{"queueComplete": false}')
