@@ -140,7 +140,8 @@
         byTokenIndex.set(replacement.tokenIndex + index, {
           word: pieces[index] || replacement.word,
           candidates: deterministicCandidatePieces(replacement, index),
-          ambiguous: replacement.rule.candidates.length > 1,
+          // Word-class fills are provisional: rules-first still asks Whisper for them.
+          ambiguous: replacement.rule.candidates.length > 1 || replacement.rule.groupId === "fallback/word-class",
           replacement: replacement
         });
       }

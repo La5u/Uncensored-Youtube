@@ -60,7 +60,48 @@ assert.ok(wildcardSlots.trace.every((slot) => slot.alternatives.every((alternati
 const visibleWildcard = rules.applyDeterministicRules("well and [__] so");
 assert.strictEqual(visibleWildcard.text, "well and shit so");
 assert.strictEqual(visibleWildcard.replacements[0].rule.template, "* and [__] so");
-// Terminal syntax must not silently override authored rule priorities.
+// Wildcards never consume a blank or delete visible text, for every deployed wildcard rule.
+for (const rule of rules.DETERMINISTIC_RULES.filter(({ template }) => template.includes("*"))) {
+  const base = rule.template.replace(/^\^|\$$/g, "").trim();
+  for (const filler of ["xx", "[__]"]) {
+    const input = base.replace(/\*/g, filler);
+    const visible = input.replace(/\[__\]/g, " ").toLowerCase().match(/[\p{L}\p{N}']+/gu) || [];
+    const words = rules.applyDeterministicRules(input).text.toLowerCase();
+    let at = 0;
+    for (const word of visible) {
+      at = words.indexOf(word, at);
+      assert.notStrictEqual(at, -1, `${rule.template} deleted "${word}" from "${input}"`);
+      at += word.length;
+    }
+  }
+}
+// A literal [__] in a template (`a [fucking] [__].`) matches one blank and leaves it open: only the
+// other blank is a replacement. Single-blank rules never fill a blank next to another blank, so the
+// kept blank stays open for Whisper. Wildcards still never consume a blank (`[__] and [__] so` above).
+// Kept blanks are intended product output here, unlike filled-slot expectations elsewhere.
+const assertText = (input, expected, options) =>
+  assert.strictEqual(rules.applyDeterministicRules(input, options).text, expected);
+const keptBlank = rules.applyDeterministicRules("a [__] [__].", { trace: true });
+assert.strictEqual(keptBlank.text, "a fucking [__].");
+assert.deepStrictEqual(keptBlank.replacements.map(({ tokenIndex, tokenSpan, word }) =>
+  [tokenIndex, tokenSpan, word]), [[0, 1, "fucking"]]);
+assert.deepStrictEqual(keptBlank.trace.map((slot) => slot.winner && slot.winner.rule.template),
+  ["a [__] [__].", null]);
+assert.strictEqual(keptBlank.trace[1].alternatives.length, 0);
+assertText("a [__] [__].", "a [__] [__].", { disabledRuleTemplate: "a [__] [__]." });
+assertText("A [__] [__].", "A fucking [__].");
+assertText("what a [ __ ] [ __ ].", "what a fucking [__].");
+// near-misses and visible text: a third blank, a missing period or a visible word never loses text.
+assertText("a [__] [__] [__].", "a [__] [__] [__].");
+assertText("a [__] [__] ass.", "a [__] [__] ass.");
+assertText("a [__] [__] Scantron", "a fucking [__]. Scantron");
+assertText("you [__] [__].", "you fucking [__].");
+assertText("your [__] [__] ass.", "your [__] [__] ass.");
+assertText("a [__] word.", "a fucking word.");
+// The kept blank is never filled as a literal `__`.
+assert.ok(rules.DETERMINISTIC_RULES.every((rule) => rule.candidates.every((word) => !word.includes("_"))));
+// Terminal syntax must not silently override authored rule priorities. A narrow swap of
+// `which is [bullshit]$` ahead of `which is [fucking]` cost 18 correct archive slots; keep authored order.
 const terminalWhich = rules.applyDeterministicRules("which is [__]", { trace: true });
 assert.strictEqual(terminalWhich.text, "which is fucking");
 assert.strictEqual(terminalWhich.trace[0].winner.rule.template, "which is [__]");
@@ -599,9 +640,12 @@ assert.strictEqual(
 
 assert.strictEqual(rules.applyDeterministicRules("holy [__]! that was close").text, "holy shit! that was close");
 assert.strictEqual(rules.applyDeterministicRules("I got that [__]").text, "I got that shit");
-assert.strictEqual(rules.applyDeterministicRules("holy [__] it's huge").replacements.length, 0);
+assert.strictEqual(rules.applyDeterministicRules("holy [__] it's huge").text, "holy shit it's huge");
+assert.strictEqual(rules.applyDeterministicRules("holy [__] it was huge").replacements.length, 0);
 assert.strictEqual(rules.applyDeterministicRules("I'll [__] it up").text, "I'll fuck it up");
-assert.strictEqual(rules.applyDeterministicRules("they dug that [__] up yeah").replacements.length, 0);
+// The broad `that [__] up` stays retired; only the narrower word-class `<wc-past> that [shit] up` fills.
+assert.strictEqual(rules.applyDeterministicRules("they dug that [__] up yeah").text, "they dug that shit up yeah");
+assert.strictEqual(rules.applyDeterministicRules("well that [__] up yeah").replacements.length, 0);
 assert.ok(!rules.DETERMINISTIC_RULES.some((rule) => rule.template === "that [__] up"));
 assert.strictEqual(rules.applyDeterministicRules("Oh, son of a [__]").text, "Oh, son of a bitch");
 assert.strictEqual(rules.applyDeterministicRules("welcome to flavortown [__] car very nice").text,
@@ -623,9 +667,9 @@ assert.deepStrictEqual(
 );
 assert.strictEqual(rules.applyDeterministicRules("watch this [__]").text, "watch this shit");
 assert.strictEqual(rules.applyDeterministicRules("what the [__]", { ambiguous: "abstain" }).text, "what the fuck");
-const defaultTraceResult = rules.applyDeterministicRules("Holy [__] it's huge");
+const defaultTraceResult = rules.applyDeterministicRules("Holy [__] it was huge");
 assert.strictEqual(Object.prototype.hasOwnProperty.call(defaultTraceResult, "trace"), false);
-const tracedAbstention = rules.applyDeterministicRules("Holy [__] it's huge", { trace: true });
+const tracedAbstention = rules.applyDeterministicRules("Holy [__] it was huge", { trace: true });
 assert.strictEqual(tracedAbstention.text, defaultTraceResult.text);
 assert.strictEqual(tracedAbstention.trace.length, 1);
 assert.strictEqual(tracedAbstention.trace[0].winner.status, "abstain");
@@ -665,7 +709,8 @@ assert.strictEqual(rules.applyDeterministicRules("he laughs oh [__]").replacemen
 assert.strictEqual(rules.applyDeterministicRules("Petty but I'm also a little [__]").replacements.length, 0);
 assert.strictEqual(rules.applyDeterministicRules("I put a trash bag on my [__]").replacements.length, 0);
 assert.strictEqual(rules.applyDeterministicRules("I didn't feel [__] now").replacements.length, 0);
-assert.strictEqual(rules.applyDeterministicRules("speaking of [__] in the mouth").replacements.length, 0);
+// Under the synthetic-primary gate the measured word-class rule fills this (synthetic 15/16, 4 creators).
+assert.strictEqual(rules.applyDeterministicRules("speaking of [__] in the mouth").text, "speaking of shit in the mouth");
 for (const ambiguous of [
   "You fucking [__].",
   "I want a [__].",
@@ -748,11 +793,53 @@ assert.strictEqual(rules.applyDeterministicRules("a [__] answer").text,
 assert.strictEqual(rules.applyDeterministicRules("every [__] law").text,
   "every fucking law"
 );
-const holyTail = rules.applyDeterministicRules("Holy [__] this guy is");
-assert.strictEqual(holyTail.replacements.length, 0);
-assert.strictEqual(holyTail.decisions[0].rule.template, "holy [__] *");
-const holySpecific = rules.applyDeterministicRules("Holy [__] it's huge", { ambiguous: "first" });
-assert.strictEqual(holySpecific.text, "Holy shit it's huge");
+// `holy [__] this` outranks the abstaining `holy [__] *`; `oh` and `you` failed the synthetic gate (68.8%, 77.1%).
+assert.strictEqual(rules.applyDeterministicRules("Holy [__] this guy is").text, "Holy shit this guy is");
+assert.strictEqual(rules.applyDeterministicRules("Holy [__] this guy is").replacements[0].rule.template, "holy [__] this");
+for (const tail of ["these guys are", "oh my god", "you just heard"]) {
+  const holyTail = rules.applyDeterministicRules(`Holy [__] ${tail}`);
+  assert.strictEqual(holyTail.replacements.length, 0);
+  assert.strictEqual(holyTail.decisions[0].rule.template, "holy [__] *");
+}
+// Phrase rules admitted on gate evidence (corpus/rules/evidence.jsonl, `union-admission-2026-10-08`). Each:
+// positive (fills one word), priority (it wins its own input), ambiguity (one candidate), capitalisation,
+// near-miss (a changed literal never fires it) and punctuation (dropping its comma/period/? never fires it).
+const admittedUnion = [
+  "all this [shit] and", "[fuck] all you", "a [fucking] like a", "[fucking] army", "[bitch] ass nigga",
+  "a whole [fucking]", "[fucking] big ass", "can i [fuck] your", "[shit], chat.", "and [shit],",
+  "don't know [shit] about", "didn't do [shit]", "[fucking] fraud.", "give a [fuck] if you",
+  "give a [fuck]. i", "[fucking] hero", "do * [shit],", "[fucked] in the head", "[shit]. here",
+  "[shit] like that,", "[shit] like this.", "mean, [shit],", "oh [shit]. he's", "[fucking] people.",
+  "some hating [shit]", "same [shit].", "our [shit].", "spin that [shit]", "that [shit], bro.",
+  "that [shit] wasn't", "that [shit] went", "the [fuck] you looking", "that [shit] at", "that [shit]. that",
+  "this [shit]. it's", "this [shit]. like", "[fucking] ticket.", "[fucked] up the whole stream",
+  "the [fuck]? the", "weird as [fuck],", "we've been [fucking]", "[shit], this", "with * [fucking] * and",
+  "we * [shit] to", "this [shit],", "[fuck] y'all.", "you [fuck] off", "you * [fuck] off",
+  "[shit]. yeah. yeah.", "[fucking] change", "like a [fucking] like", "good [shit].", "doing [shit].",
+  "and [shit].", "holy [shit] it's", "holy [shit] * * * the", "holy [shit]. what", "there. holy [shit]",
+  "and * * holy [shit]", "holy [shit] this"
+];
+for (const authored of admittedUnion) {
+  const template = authored.replace(/\[[^\]]+\]/u, "[__]");
+  const word = authored.match(/\[([^\]]+)\]/u)[1];
+  const fill = (text) => text.replace(/\*/gu, "xx");
+  const input = fill(template);
+  const hit = rules.applyDeterministicRules(input);
+  assert.strictEqual(hit.text, fill(authored.replace(/[\[\]]/gu, "")), `${authored} positive`);
+  // Several narrow rules are redundant with a broader admitted one; the fill, not the winner, is the contract.
+  assert.deepStrictEqual(rules.DETERMINISTIC_RULES.find((rule) => rule.template === template).candidates, [word]);
+  assert.strictEqual(rules.applyDeterministicRules(input.replace(/^./u, (c) => c.toUpperCase())).replacements.length, 1);
+  const miss = (text) => rules.applyDeterministicRules(text).replacements.every((r) => r.rule.template !== template);
+  assert.ok(miss(input.replace(/[a-z']+/u, "qq")), `${authored} near-miss`);
+  if (/[.,?]/u.test(template)) assert.ok(miss(input.replace(/[.,?]/gu, "")), `${authored} punctuation`);
+}
+// Kept-blank pairs: only the first blank is filled, the second stays open for Whisper.
+for (const [input, expected] of [["you [__] [__]", "you fucking [__]"], ["you [__] [__].", "you fucking [__]."],
+  ["you [__] word", "you [__] word"]]) {
+  assert.strictEqual(rules.applyDeterministicRules(input).text, expected);
+}
+const holySpecific = rules.applyDeterministicRules("Holy [__] it was huge", { ambiguous: "first" });
+assert.strictEqual(holySpecific.text, "Holy shit it was huge");
 assert.strictEqual(holySpecific.decisions[0].rule.template, "holy [__] *");
 for (const [input, expected] of [
   ["[__] it.", "fuck it."], ["[__] crazy", "fucking crazy"],
@@ -783,9 +870,15 @@ for (const [input, expected] of [
   ["don't [__] care", "don't fucking care"], ["talking [__] about it", "talking shit about it"],
   ["some crazy [__]", "some crazy shit"], ["up in this [__]", "up in this bitch"]
 ]) assert.strictEqual(rules.applyDeterministicRules(input).text, expected);
-for (const input of [
-  "I [__] house", "this [__] spaceship", "we might [__] believe", "we could [__] eat"
-]) {
+// The broad auxiliary frame stays off; the measured word-class `<wc-modal> [__] <wc-verb>`
+// (synthetic 196/210, 11 creators) now fills modal + verb.
+for (const [input, expected] of [["we might [__] believe", "we might fucking believe"], ["we could [__] eat", "we could fucking eat"]]) {
+  assert.strictEqual(rules.applyDeterministicRules(input).text, expected);
+}
+// `<name>` tokens match only words in data.WORD_CLASSES[name].
+assert.ok(data.WORD_CLASSES["wc-verb"].includes("eat"));
+assert.strictEqual(rules.applyDeterministicRules("we could [__] xqzzv").replacements.length, 0);
+for (const input of ["I [__] house", "this [__] spaceship"]) {
   const result = rules.applyDeterministicRules(input);
   assert.strictEqual(result.text, input);
   assert.ok(!result.replacements.some((replacement) =>
@@ -829,5 +922,28 @@ assert.deepStrictEqual(
   ["nigger"]
 );
 assert.ok(rules.DETERMINISTIC_RULES.every((rule) => rule.candidates.length));
+
+// Closed word classes: new class members fire, near-misses outside the class do not, and the
+// literal member keeps its template, punctuation handling and priority.
+[
+  ["what the [__] they want", "fuck", "what the [__] they"],
+  ["so [__] are we doing", "fuck", "[__] are we"],
+  ["holy [__] that was", "shit", "holy [__] that"],
+  ["the [__] is that", "fuck", "the [__] is that"],
+  ["she's too [__] to care", "fucking", "she's too [__]"],
+  ["he's [__] with me", "fucking", "he's [__] with"],
+  ["talking [__] on him", "shit", "talking [__] on"],
+  ["these are [__] good", "fucking", "these are [__]"],
+  ["that on the [__] map", "fucking", "that on the [__]"],
+  ["What the [__] you want?", "fuck", "what the [__] you"]
+].forEach(([text, word, template]) => {
+  const [replacement] = rules.applyDeterministicRules(text).replacements;
+  assert.strictEqual(replacement.word, word, text);
+  assert.strictEqual(replacement.rule.template, template, text);
+});
+["holy [__] banana", "[__] are banana", "the [__] is banana", "she's too [__]x"].forEach((text) => {
+  assert.deepStrictEqual(rules.applyDeterministicRules(text).replacements.filter((replacement) =>
+    replacement.rule.template !== "[__] banana"), [], text);
+});
 
 console.log("rules.test.js passed");

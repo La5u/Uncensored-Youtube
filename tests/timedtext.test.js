@@ -306,7 +306,7 @@ assert.deepStrictEqual(formattedSingleCandidate.deterministicCandidates, ["fucki
 assert.strictEqual(formattedSingleCandidate.deterministicAmbiguous, false);
 
 const broadGrammarPayload = {
-  events: ["[__] it", "[__] this", "[__] me", "[__] all", "you [__] up"].map((text) => ({
+  events: ["[__] it", "[__] those", "[__] me", "[__] all the", "you [__] up"].map((text) => ({
     segs: [{ utf8: text }]
   }))
 };

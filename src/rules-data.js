@@ -70,7 +70,8 @@
       lowConfidence: parts.grammar.lowConfidence,
       fallback: parts.grammar.fallback
     }),
-    CONTINUING_PREFIX_SETS: parts.language.CONTINUING_PREFIX_SETS
+    CONTINUING_PREFIX_SETS: parts.language.CONTINUING_PREFIX_SETS,
+    WORD_CLASSES: parts.language.WORD_CLASSES
   });
 
   root.UncensoredRuleData = exports;
