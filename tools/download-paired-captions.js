@@ -468,8 +468,9 @@ async function runYtDlpWithRetry(ytArgs) {
     }
   }
   result.transient = true;
-  if (/HTTP Error 429|Too Many Requests|confirm you.re not a bot/i
-    .test(`${result.stdout}\n${result.stderr}`)) {
+  const blocked = /HTTP Error 429|Too Many Requests|confirm you.re not a bot/i
+    .test(`${result.stdout}\n${result.stderr}`);
+  if (blocked) {
     consecutiveGlobal429 += 1;
     if (maxGlobal429 && consecutiveGlobal429 >= maxGlobal429) {
       runAborted = true;
@@ -477,7 +478,7 @@ async function runYtDlpWithRetry(ytArgs) {
     }
   }
   blockedUntil = Math.max(blockedUntil, Date.now() + retryDelayMs * 8);
-  console.warn(`[yt-dlp] rate limited; pausing new requests for ${retryDelayMs * 8 / 1000}s`);
+  console.warn(`[yt-dlp] rate limited; pausing new requests for ${retryDelayMs * 8 / 1000}s${blocked ? " (HTTP 429)" : ""}`);
   return result;
 }
 
@@ -656,6 +657,40 @@ function removeFile(filePath) {
   } catch { /* ignore cleanup failures */ }
 }
 
+// A fully listed channel whose saved totals already meet this run's budget needs
+// no relisting. Raising --max-check, --new-slot-cap or a target makes it unmet.
+// Caption requests need no format manifests; skipping them saves one request per video.
+const CAPTION_REQUEST_ARGS = ["--extractor-args", "youtube:skip=hls,dash"];
+const RETRIED_STATUSES = ["transient-failure", "channel-id-mismatch", "channel-id-unverified"];
+const REPEATED_FAILURE_LIMIT = 3;
+// Listing errors no route change can fix; retrying them only relaunches the worker forever.
+const UNAVAILABLE_LISTING = /does not have a \w+ tab|channel does not exist|has been terminated/i;
+
+// A video that failed on several routes is given up: retrying it first would burn every fresh route.
+function abandonedIds(items) {
+  const failures = new Map();
+  for (const item of items) {
+    if (item.status === "transient-failure") failures.set(item.id, (failures.get(item.id) || 0) + 1);
+  }
+  return [...failures].filter(([, count]) => count >= REPEATED_FAILURE_LIMIT).map(([id]) => id);
+}
+
+function resumeBudgetMet(previous, args, audio, slots) {
+  // A finished pass over the whole sampled listing has nothing left to check.
+  const items = previous.items || [];
+  const settled = new Set([
+    ...items.filter((item) => !RETRIED_STATUSES.includes(item.status)).map((item) => item.id),
+    ...abandonedIds(items)
+  ]).size;
+  return previous.queueComplete === true &&
+    (previous.listUnavailable === true ||
+     (previous.pairedSaved >= args.pairTarget && audio >= args.audioTarget) ||
+     previous.checked >= args.maxCheck ||
+     Boolean(args.newSlotCap) && (previous.newSlots ?? slots) >= args.newSlotCap * 0.99 ||
+     previous.availableEntries > 0 &&
+       settled >= Math.min(previous.availableEntries, args.samplePerChannel || Infinity));
+}
+
 function allConfiguredChannelsComplete(configuredChannels, reports) {
   const completed = new Map((reports || []).filter(Boolean).map((channel) => [channel.name, channel]));
   return Boolean(configuredChannels?.length) && configuredChannels.every((channel) => (
@@ -750,12 +785,15 @@ async function downloadCaption(url, videoId, kind, lang, run = runYtDlpWithRetry
     ? ["--write-auto-subs", "--sub-langs", lang]
     : ["--write-subs", "--sub-langs", lang];
   const result = await run([
-    "--no-playlist", "--no-overwrites",
+    ...CAPTION_REQUEST_ARGS, "--no-playlist", "--no-overwrites",
     ...flags, "--sub-format", "json3", "--skip-download",
     "-o", template, url
   ]);
   throwIfTransient(result);
+  return pickCaption(videoId, suffix, lang);
+}
 
+function pickCaption(videoId, suffix, lang) {
   const preferred = path.join(fixturesDir, `${videoId}${suffix}.en.json3`);
   const candidates = fs.readdirSync(fixturesDir)
     .filter((name) => name.startsWith(`${videoId}${suffix}.`) && name.endsWith(".json3"))
@@ -770,9 +808,14 @@ async function downloadCaption(url, videoId, kind, lang, run = runYtDlpWithRetry
   return fs.existsSync(preferred) ? preferred : "";
 }
 
-async function probe(url) {
+// With fetchAutoId, the same request also saves the en-orig automatic track (one page load per video).
+async function probe(url, fetchAutoId = "") {
+  const fetchAuto = fetchAutoId ? [
+    "--no-simulate", "--no-overwrites", "--write-auto-subs", "--sub-langs", "en-orig",
+    "--sub-format", "json3", "-o", path.join(fixturesDir, `${fetchAutoId}_auto.%(ext)s`)
+  ] : [];
   const result = await runYtDlpWithRetry([
-    "--no-playlist", "--skip-download", "--list-subs", url
+    ...CAPTION_REQUEST_ARGS, "--no-playlist", "--skip-download", "--list-subs", ...fetchAuto, url
   ]);
   throwIfTransient(result);
   const text = `${result.stdout || ""}\n${result.stderr || ""}`;
@@ -797,7 +840,10 @@ async function probe(url) {
   };
   const autoLanguages = languages(autoBlock);
   const manualLanguages = languages(manualBlock).filter((lang) => /^en/i.test(lang));
+  const autoPath = fetchAutoId && autoLanguages.includes("en-orig")
+    ? pickCaption(fetchAutoId, "_auto", "en-orig") : "";
   return {
+    autoPath,
     creatorManual: manualLanguages.length > 0,
     manualLang: manualLanguages.includes("en") ? "en" : (manualLanguages[0] || ""),
     autoLang: autoLanguages.includes("en-orig")
@@ -824,7 +870,7 @@ async function tryAlternateGroundTruth(entry, autoLang, slots, censoredPath, des
   for (const lang of ["en-en", "en"]) {
     if (lang === autoLang) continue;
     const result = await runYtDlpWithRetry([
-      "--no-playlist",
+      ...CAPTION_REQUEST_ARGS, "--no-playlist",
       "--write-auto-subs", "--sub-langs", lang,
       "--sub-format", "json3", "--skip-download",
       "-o", template, entry.url
@@ -888,14 +934,15 @@ async function processVideo(entry, args, known, stats, checkType) {
   const existingAutoPath = args.autoAutoOnly
     ? path.join(fixturesDir, `${entry.id}_auto.en.json3`) : "";
   const preserveAuto = Boolean(existingAutoPath && fs.existsSync(existingAutoPath));
-  const captions = preserveAuto ? { autoLang: "" } : await probe(entry.url);
+  const captions = preserveAuto ? { autoLang: "" }
+    : await probe(entry.url, args.syntheticAutoOnly ? entry.id : "");
   if (args.manualAutoOnly && !captions.manualLang) {
     item.status = "no-manual";
     stats.noManual += 1;
     return item;
   }
   const autoPath = preserveAuto ? existingAutoPath : (captions.autoLang
-    ? await downloadCaption(entry.url, entry.id, "auto", captions.autoLang)
+    ? captions.autoPath || await downloadCaption(entry.url, entry.id, "auto", captions.autoLang)
     : "");
   if (!autoPath) {
     item.status = "no-automatic";
@@ -1185,8 +1232,7 @@ async function main() {
       total + (item.status === "paired-saved" ? Number(item.slots) || 0 : 0), 0);
     // Legacy `complete` was written even after failed listings.  Only the
     // explicit queueComplete marker is safe to resume without relisting.
-    if (previous.queueComplete === true &&
-        previous.pairedSaved >= args.pairTarget && previousAudio >= args.audioTarget) {
+    if (resumeBudgetMet(previous, args, previousAudio, previousSlots)) {
       previous.channelId = channel.channelId || previous.channelId || "";
       previous.queueComplete = true;
       previous.complete = true;
@@ -1225,13 +1271,13 @@ async function main() {
       channelIdMismatches: previous.channelIdMismatches || 0,
       channelIdUnverified: previous.channelIdUnverified || 0,
       items: previousItems,
+      listing: previous.listing,
       queueComplete: false,
       complete: false
     };
     channelReports[channelIndex] = stats;
     let consecutiveClean = 0;
-    const isClean = (item) => !["transient-failure", "channel-id-mismatch", "channel-id-unverified"]
-      .includes(item.status) &&
+    const isClean = (item) => !RETRIED_STATUSES.includes(item.status) &&
       (args.syntheticAutoOnly ? item.status !== "paired-saved" :
         (!item.slots || item.status === "no-usable-gt"));
     for (let index = stats.items.length - 1; index >= 0; index -= 1) {
@@ -1253,7 +1299,16 @@ async function main() {
     const rejectedEntries = new Map();
     let listedSource = false;
     let listingFailed = false;
-    for (const source of channel.sources || []) {
+    let listingRetryable = false;
+    if (Array.isArray(stats.listing)) {
+      // Restarts rotate routes often; relisting the unfinished channel would spend a fresh route's budget.
+      for (const entry of stats.listing) {
+        seen.add(entry.id);
+        queue.push(entry);
+      }
+      listedSource = true;
+      console.log(`[${channel.name}] reusing saved listing: ${queue.length} entries`);
+    } else for (const source of channel.sources || []) {
       let listed;
       try {
         listed = await listEntries(source, args.listLimit);
@@ -1261,12 +1316,14 @@ async function main() {
         if (error.abortRun || !error.transient) throw error;
         stats.transientFailures += 1;
         listingFailed = true;
+        listingRetryable = true;
         console.log(`[${channel.name}] list ${source}: transient failure`);
         continue;
       }
       const { error, entries } = listed;
       if (error) {
         listingFailed = true;
+        if (entries.length || !UNAVAILABLE_LISTING.test(error)) listingRetryable = true;
         console.log(`[${channel.name}] list ${source}: ${entries.length
           ? "partial result; " : "fail: "}${error.slice(0, 100)}`);
         if (!entries.length) continue;
@@ -1307,10 +1364,16 @@ async function main() {
 
     if (listingFailed && !listedSource) {
       stats.listFailures += 1;
+      if (!listingRetryable) {
+        stats.listUnavailable = true;
+        stats.queueComplete = true;
+        stats.complete = true;
+      }
       saveReport();
       return;
     }
     if (listingFailed) stats.listFailures += 1;
+    else stats.listing = queue;
 
     for (const entry of rejectedEntries.values()) {
       if (seen.has(entry.id) || stats.items.some((item) => (
@@ -1338,10 +1401,10 @@ async function main() {
 
     const sampledQueue = distributedSample(queue, args.samplePerChannel);
     stats.availableEntries = Math.max(stats.availableEntries, queue.length);
-    const processed = new Set(stats.items
+    const processed = new Set([...stats.items
       .filter((item) => !["transient-failure", "channel-id-mismatch", "channel-id-unverified",
         "skipped-existing-paired"].includes(item.status))
-      .map((item) => item.id));
+      .map((item) => item.id), ...abandonedIds(stats.items)]);
     const pending = sampledQueue.filter((entry) => {
       if (processed.has(entry.id)) return false;
       if (known.paired.has(entry.id)) {
@@ -1428,6 +1491,7 @@ async function main() {
 
     stats.queueComplete = Boolean(listedSource && !listingFailed);
     stats.complete = stats.queueComplete;
+    if (stats.queueComplete) delete stats.listing;
     saveReport();
     console.log(
       `[${channel.name}] summary: paired=${stats.pairedSaved} ` +
@@ -1507,6 +1571,7 @@ module.exports = {
   loadCheckedVideoLedger,
   parseArgs,
   recordCheckedVideo,
+  resumeBudgetMet,
   runYtDlp,
   saveCheckedVideoLedger,
   summarizePairItems,
