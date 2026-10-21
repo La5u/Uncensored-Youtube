@@ -40,6 +40,32 @@ there is no inference cancellation protocol or real-time latency guarantee.
 `png`, `wasm`, `onnx`). Keep scratch code out of `src/` even if it uses one of
 those formats; update the filter/test when introducing a new runtime asset type.
 
+## macOS compatibility checks
+
+CI runs `npm run test:release` on both Ubuntu and macOS. This covers automated
+JavaScript/Python tests, staging both browser packages, ZIP integrity, and Firefox
+extension linting. The packaging test uses tiny fixtures; the release build uses
+the runtime assets present in the checkout. These checks do not launch a browser
+or prove live YouTube playback or Whisper inference works on macOS.
+
+To repeat locally on a Mac, install Node.js 22, Python 3, and ensure `zip` and
+`unzip` are available, then run:
+
+```sh
+npm ci
+npm run test:release
+```
+
+The current browser smoke runners are Linux-specific (including PulseAudio and
+workspace isolation); do not use `npm run test:firefox` as a macOS test. For a
+manual Mac check, load `dist/chromium` as an unpacked extension in a Chromium
+browser that supports unpacked extensions, or load `dist/firefox/manifest.json`
+as a temporary add-on via Firefox's `about:debugging`. Check rules replacement
+on English automatic captions containing `[__]`, then check Whisper audio modes,
+pause/resume, seeking, navigation between videos, and popup settings. Record the
+macOS version, browser version, machine architecture, mode, video URL, and any
+console errors. Safari is not covered by these Chromium/Firefox packages.
+
 ## Native Firefox smoke
 
 `npm run test:firefox` runs `node tools/browser-smoke.js --workspace
@@ -62,7 +88,7 @@ except for `rules` (use `--expect=shit` for the default video). Availability is
 not evidence that all modes have been validated.
 
 Requires Linux, Firefox, `web-ext`, `pactl` with a working audio server, `flock`,
-network access, and confirmed AC power for heavy inference. Build first with
+and network access. Build first with
 `./build.sh 1.6.1`: `dist/firefox/src` must match current `src`; the runner pins
 actual runtime hashes and refuses stale builds. Firefox is native headless,
 not WebDriver. Keep `--workspace` on the hidden `special:uncensored-smoke`
@@ -92,7 +118,14 @@ node tools/evaluate-whisper-only.js --mode rules+whisper \
 ```
 
 `--transcripts` reuses the cached audio decisions (`audioWord`/`audioScore`) of a
-complete Whisper report with the same audio window and scorer fingerprint.
+complete Whisper report with the same audio window and scorer fingerprint. Both
+`--transcripts` and audio-mode `--reuse` also require the current audio-processing
+implementation and per-fixture SHA-256 audio/source-metadata identity. Replaced, added,
+or removed audio invalidates reuse even when captions are unchanged. Legacy transcript
+reports must be regenerated without `--transcripts`; incompatible `--reuse` results are
+recomputed. Rules-only reuse remains caption/rules-based. Full files and section files
+both undergo timestamp/decode coverage validation; source-end truncation requires explicit
+duration metadata.
 
 The evaluator uses only `tools/whisper-audio-fixtures.json` by default. Pass
 `--discoverPaired true` to include every caption pair in `test-fixtures/`.
@@ -164,6 +197,27 @@ automatic track, stream-copied without re-encoding as `<id>.s<start>-<end>.<ext>
 `-copyts` keeps the true section start; `evaluate-whisper-only.js` and `deepgram-triage.js`
 seek relative to it, and refuse windows no section covers. `annotate-audio.js` does not
 read sections (it reports the audio missing).
+
+Audio acquisition requires Linux `flock`, GNU `timeout`, `yt-dlp`, `ffprobe` and `ffmpeg`.
+`tools/audio-coverage.js` checks readable/decodable, continuous media timestamps (cached by
+file identity and modification), not filenames. A truncated final window is accepted only
+with `<id>.source.json` duration metadata acquired from yt-dlp. Existing audio without
+metadata is reusable when it covers every requested window; whole-file completion and
+end clamping require the source duration.
+
+Per-video kernel locks in the audio directory prevent overlapping queues writing the same
+video and release automatically on crash. A separate queue-ledger lock prevents duplicate
+queue writers. Do not mix old, unlocked workers with new ones: let active acquisitions
+finish before deploying the new downloader. Invalid outputs are replaced only under the
+video lock; valid sections and raw captions are untouched.
+
+The downloader retries transient failures up to three attempts with 30/60-second backoff,
+returns nonzero when incomplete, and records unresolved IDs in
+`<FETCH_AUDIO_IDS>.audio-retries.json` (override with `FETCH_AUDIO_LEDGER`). Rerunning the
+same queue validates existing media and retries unresolved transient items. Confirmed
+private/removed/members-only sources remain marked permanent; remove their ledger entries
+only after reviewing availability. Logs include a recent-throughput pass ETA when measured;
+completion ETA stays unknown while failures remain. No boot service is installed.
 
 ## Labeling short audio fragments
 
@@ -341,9 +395,6 @@ node tools/evaluate-whisper-only.js --mode whisper-only --discoverUnpaired true 
   --output corpus/generated/unpaired-whisper-only-report.json
 ```
 
-`tools/compare-unpaired-modes.js` was removed as unused pipeline code; compare
-the two reports directly to find disagreements.
-
 The Whisper run is heavy and checkpoint-resumable. A `--limit 25` run is only a
 sample; complete it with `--limit 0 --transcripts
 corpus/generated/unpaired-whisper-only-report.json`. Do not interpret
@@ -362,9 +413,6 @@ node corpus/evaluate-corpus.js \
   --output corpus/generated/mining/opensubtitles \
   --limit 1000000 --sampleLimit 0
 ```
-
-`tools/mine-rule-opportunities.js` was removed as unused pipeline code; recover
-it from git history to mine these samples again.
 
 Whisper may provide discovery-only labels for captions without a human pair:
 
@@ -590,9 +638,9 @@ aggregate rejection counts and a bounded sample of rejected-pattern evidence;
 passing candidates are never capped by that sampling. Counterexample row IDs
 refer back to the discovery dataset rather than duplicating raw captions.
 Passing patterns are also checked against the other caption tier: sufficient
-contradictory support rejects them, while absent support is explicitly marked
-unsupported. Manual-auto and synthetic counts remain separate, never pooled as
-independent human evidence. These are in-sample screens, not held-out validation.
+contradictory synthetic support rejects a manual-auto lead, while manual-auto
+contradictions of a synthetic lead (the primary tier) are only recorded; absent
+support is marked unsupported. Manual-auto and synthetic counts remain separate. These are in-sample screens, not held-out validation.
 
 For reviewed exclusions, pass `--exclude tmp/rejected-patterns.json` to the miner;
 the file is an array of exact candidate IDs (or `{ "keys": [...] }`). Excluding

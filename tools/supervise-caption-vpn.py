@@ -16,13 +16,25 @@ import re
 import signal
 import subprocess
 import sys
-import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parent.parent
-FAILURE = re.compile(r"transient failure|rate limited|HTTP Error (?:429|50[234])|Sign in to confirm", re.I)
+# The downloader emits this once per exhausted request, including DNS failures.
+FAILURE = re.compile(r"^\[yt-dlp\] rate limited; pausing new requests")
+BLOCKED = re.compile(r"HTTP(?: Error)?[ :]+429\b|Too Many Requests|Sign in to confirm|confirm you[.’']?re not a bot", re.I)
+LIST_SUCCESS = re.compile(r"\] list .+: \d+ listed, \d+ new$")
 SUCCESS = re.compile(r"\] \[\d+\] (?:paired-saved|no-censored-slots|no-allowed-words|no-manual|no-automatic)\b")
 COOLDOWN = 1800
+INFRA_COOLDOWN = 60
+RETRY = 30
+POLL = 10  # notice a failed worker quickly; each idle second is lost route time
+
+
+def route_delay(result):
+    return COOLDOWN if result == 'blocked' else INFRA_COOLDOWN
+
+
+setup_failures = {}  # namespace -> (consecutive setup failures, monotonic retry time)
 
 
 def log(message):
@@ -138,10 +150,13 @@ def health(lane):
     for line in lines:
         if FAILURE.search(line):
             lane['failures'] += 1
-        elif SUCCESS.search(line):
+            lane['blocked'] = lane.get('blocked') or bool(BLOCKED.search(line))
+        elif SUCCESS.search(line) or LIST_SUCCESS.search(line):
             lane['failures'] = 0
-    # Enough time for downloader retries and its own 240-second backoff.
-    return lane['failures'] >= 6 or time.time() - path.stat().st_mtime > 1200
+            lane['blocked'] = False
+    # The downloader has already exhausted its own retries before FAILURE is logged.
+    # Probe/rotate now instead of waiting through repeated four-minute backoffs.
+    return lane['failures'] >= 1 or time.time() - path.stat().st_mtime > 1200
 
 
 def prepare_namespace(ns, allowed):
@@ -149,6 +164,9 @@ def prepare_namespace(ns, allowed):
         raise ValueError('Namespace is not allowed')
     if Path('/run/netns', ns).exists():
         return True
+    failures, retry_at = setup_failures.get(ns, (0, 0))
+    if time.monotonic() < retry_at:
+        return False
     helper = ROOT / 'tmp/isolated-vpn-netns.sh'
     # Reclaim only idle, explicitly allowed tunnels. Never remove a worker's route.
     for other in allowed:
@@ -162,27 +180,30 @@ def prepare_namespace(ns, allowed):
     if len(list(Path('/run/netns').glob('uncensored-vpn-*'))) >= 2:
         log('Two tunnels already active; not disturbing busy namespaces')
         return False
-    return subprocess.run([str(helper), 'setup-one', ns.removeprefix('uncensored-vpn-').upper()]).returncode == 0
+    if subprocess.run([str(helper), 'setup-one', ns.removeprefix('uncensored-vpn-').upper()]).returncode == 0:
+        setup_failures.pop(ns, None)
+        return True
+    # Dead routes cost a slow setup check each time; back off instead of retrying every rotation.
+    delay = min(COOLDOWN, INFRA_COOLDOWN * 2 ** (failures + 1))
+    setup_failures[ns] = (failures + 1, time.monotonic() + delay)
+    log(f'{ns}: setup failed {failures + 1}x; skipping it for {delay // 60} minutes')
+    return False
+
+
+def probe_result(ns):
+    if not Path('/run/netns', ns).exists():
+        return 'unavailable'
+    # A tiny YouTube endpoint checks reachability without spending the route's caption budget;
+    # the worker's first request shows whether captions are rate limited.
+    cmd = ['sudo', '-n', 'ip', 'netns', 'exec', ns, 'runuser', '-u', 'lasu', '--',
+           'curl', '-sS', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '15',
+           'https://www.youtube.com/generate_204']
+    status = subprocess.run(cmd, capture_output=True, text=True).stdout.strip()
+    return {'204': 'ok', '429': 'blocked'}.get(status, 'infrastructure')
 
 
 def probe(ns):
-    if not Path('/run/netns', ns).exists():
-        return False
-    # Download an actual known English track, never into the fixture directory.
-    with tempfile.TemporaryDirectory(prefix='caption-vpn-') as directory:
-        cmd = ['sudo', '-n', 'ip', 'netns', 'exec', ns, 'runuser', '-u', 'lasu', '--',
-               'timeout', '--kill-after=5s', '100s', 'yt-dlp', '--ignore-config',
-               '--socket-timeout', '15', '--retries', '0', '--extractor-retries', '0',
-               '--skip-download', '--write-auto-subs', '--sub-langs', 'en-orig',
-               '--sub-format', 'json3', '--no-playlist', '-o', directory + '/probe.%(ext)s',
-               'https://www.youtube.com/watch?v=XUqDddNo_FM']
-        # timeout runs inside the namespace and kills its entire probe process group.
-        result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        try:
-            body = json.loads(Path(directory, 'probe.en-orig.json3').read_text())
-            return result.returncode == 0 and any(e.get('segs') for e in body.get('events', []))
-        except (OSError, ValueError):
-            return False
+    return probe_result(ns) == 'ok'
 
 
 def start(lane, ns):
@@ -199,7 +220,7 @@ def start(lane, ns):
     Path(ROOT / lane['log']).with_suffix('.pid').write_text(str(child.pid) + '\n')
     lane['offset'] = (ROOT / lane['log']).stat().st_size
     lane['failures'], lane['pending'] = 0, ''
-    lane['next'] = time.monotonic() + COOLDOWN
+    lane['next'] = time.monotonic() + RETRY
     lane['turn'] = time.monotonic()
     lane['launchUntil'] = time.monotonic() + 30
     log(f"Resumed {option(lane['args'], '--report')} via {ns}; launcher {child.pid}")
@@ -252,54 +273,82 @@ def monitor(config):
                 current = namespace(pids[0], config['namespaces']) if pids else None
                 if pids and not current:
                     raise RuntimeError('Worker outside allowed namespaces; refusing takeover')
-                lane['next'] = time.monotonic() + COOLDOWN
-                if current:
+                lane['next'] = time.monotonic() + RETRY
+                if lane.pop('blocked', False) and current:
+                    # The worker saw YouTube 429s; a one-off probe passing does not clear the route.
                     cooldown[current] = time.monotonic() + COOLDOWN
+                    log(f'{current}: worker hit HTTP 429; cooling it for {COOLDOWN // 60} minutes')
+                current_ready = cooldown.get(current, 0) <= time.monotonic()
+                if current and current_ready:
+                    # Generic worker logs do not establish a YouTube block.
+                    cooldown[current] = time.monotonic() + INFRA_COOLDOWN
+                # Another lane's route is not a fresh IP: sharing it doubles that route's load.
+                busy = {namespace(pid, config['namespaces']) for other in config['lanes'] if other is not lane
+                        for pid in workers(other, procs)}
                 target, unavailable = None, set()
                 for ns in config['namespaces']:
-                    if ns == current or cooldown.get(ns, 0) > time.monotonic():
+                    if ns == current or ns in busy or cooldown.get(ns, 0) > time.monotonic():
                         continue
                     if config.get('manageNamespaces') is True and not prepare_namespace(ns, config['namespaces']):
-                        cooldown[ns] = time.monotonic() + COOLDOWN
                         unavailable.add(ns)
                         log(f'{ns}: namespace unavailable; deferring (not a YouTube rate-limit result)')
                         continue
                     log(f'Testing captions through {ns}')
-                    if probe(ns):
+                    result = probe_result(ns)
+                    if result == 'ok':
                         target = ns
                         break
-                    cooldown[ns] = time.monotonic() + COOLDOWN
-                    log(f'{ns}: caption probe failed; cooling down')
+                    if result != 'unavailable':
+                        cooldown[ns] = time.monotonic() + route_delay(result)
+                    log(f'{ns}: caption probe {result}; deferring')
                 # One probe passing does not prove the route survives sustained use: if the worker
                 # failed again after an in-place restart here, rotate instead of retrying in place.
-                if not target and current and lane.get('inPlace') != current:
+                if (not target and current and lane.get('inPlace') != current
+                        and current_ready):
                     # At the two-tunnel account cap, break-before-make cannot safely
                     # probe a cold alternate. A healthy current route can still
                     # recover a downloader stuck in its own rate-limit/backoff state.
                     log(f'Testing current route {current} for in-place recovery')
-                    if probe(current):
+                    result = probe_result(current)
+                    if result == 'ok':
                         target = current
                         log(f'{current}: route healthy; restarting only the unhealthy worker')
+                    elif result != 'unavailable':
+                        cooldown[current] = time.monotonic() + route_delay(result)
                 if not target and current and pids and config.get('manageNamespaces') is True:
                     # The current route failed and the cap blocks a cold alternate: release the
                     # unhealthy (resumable) worker and its tunnel, then break before make.
                     log(f'{current}: route failed; releasing it to rotate at the tunnel cap')
+                    if not health(lane):
+                        log('Worker recovered during probe; leaving it running')
+                        continue
+                    if workers(lane, processes()) != pids:
+                        raise RuntimeError('Writer changed during probe; deferring')
                     stop_tree(pids[0])
                     pids = []
+                    occupants = subprocess.run(['sudo', '-n', 'ip', 'netns', 'pids', current],
+                                               capture_output=True, text=True)
+                    if occupants.returncode != 0 or occupants.stdout.strip():
+                        log(f'{current}: namespace still busy; refusing cleanup')
+                        continue
                     helper = ROOT / 'tmp/isolated-vpn-netns.sh'
                     subprocess.run([str(helper), 'cleanup-one', current.removeprefix('uncensored-vpn-').upper()],
                                    check=True)
                     for ns in config['namespaces']:
                         # Routes that only failed setup at the cap are untested, not rate limited.
-                        if ns == current or (cooldown.get(ns, 0) > time.monotonic() and ns not in unavailable):
+                        if ns == current or ns in busy or (cooldown.get(ns, 0) > time.monotonic() and ns not in unavailable):
                             continue
-                        if prepare_namespace(ns, config['namespaces']) and probe(ns):
+                        if not prepare_namespace(ns, config['namespaces']):
+                            continue
+                        result = probe_result(ns)
+                        if result == 'ok':
                             target = ns
                             break
-                        cooldown[ns] = time.monotonic() + COOLDOWN
-                        log(f'{ns}: unavailable or caption probe failed; cooling down')
+                        if result != 'unavailable':
+                            cooldown[ns] = time.monotonic() + route_delay(result)
+                        log(f'{ns}: caption probe {result}; deferring')
                 if not target:
-                    log('No verified route; retaining existing workers and backing off 30 minutes')
+                    log('No verified route; retrying eligible routes in 30 seconds')
                     continue
                 # Recheck after slow probes: do not stop a worker that recovered.
                 if pids and not health(lane):
@@ -313,8 +362,8 @@ def monitor(config):
                 children.append(start(lane, target))
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
                 log(f'Safe deferral: {error}')
-                lane['next'] = time.monotonic() + COOLDOWN
-        time.sleep(30)
+                lane['next'] = time.monotonic() + RETRY
+        time.sleep(POLL)
 
 
 if __name__ == '__main__':

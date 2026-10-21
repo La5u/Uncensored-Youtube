@@ -1,11 +1,13 @@
 #!/usr/bin/env node
-// Mine word-class rules from the caption archive and rewrite the generated blocks: WORD_CLASSES in
-// src/rule-data/language.js and the fallback/word-class group in src/rule-data/grammar.js.
-// node --max-old-space-size=3000 tools/mine-word-class-rules.js [--report chosen.json]
+// Diagnostic-only word-class mining; not runtime admission. --write is disabled.
+// node --max-old-space-size=3000 tools/mine-word-class-rules.js [--report tmp/chosen.json]
+// --audit / --dry-run are report-only aliases (candidate audit, not committed-template audit).
 // Held-out videos are excluded by ID (read from acquisition metadata, never caption text).
 "use strict";
 const fs = require("fs");
 const path = require("path");
+const vm = require("vm");
+const crypto = require("crypto");
 const nlpModule = require("compromise");
 
 const nlp = nlpModule.default || nlpModule;
@@ -98,66 +100,208 @@ function heldoutIds() {
   return ids;
 }
 
-function replaceBlock(file, body) {
-  const p = path.join(ROOT, file), s = fs.readFileSync(p, "utf8");
+function blockSource(s, body) {
   const a = s.indexOf(BEGIN), b = s.indexOf(END, a);
-  if (a < 0 || b < 0) throw new Error("Missing generated-block markers in " + file);
-  fs.writeFileSync(p, s.slice(0, a) + `${BEGIN}\n${body}\n` + s.slice(b));
+  if (a < 0 || b < 0) throw new Error("Missing generated-block markers");
+  return s.slice(0, a) + `${BEGIN}\n${body}\n` + s.slice(b);
+}
+
+// Canonical YouTube channel IDs take precedence over display-name aliases.
+function creatorKey(row) {
+  const id = typeof row.creatorId === "string" ? row.creatorId.trim() : "";
+  if (/^UC[A-Za-z0-9_-]{22}$/.test(id)) return "id:" + id;
+  const name = typeof row.creator === "string" ? row.creator.normalize("NFKC").trim()
+    .toLowerCase().replace(/\s+/g, " ") : "";
+  const placeholder = name.replace(/[^\p{L}\p{N}]/gu, "");
+  if (!placeholder || /^(unknown|unknowncreator|unknownchannel|na|none|null|undefined|anonymous|anon|unidentified|notavailable|notapplicable)$/.test(placeholder)) return null;
+  return "name:" + name;
+}
+
+// Dataset-independent, whole-creator assignment across both tiers.
+function creatorFold(key) {
+  return crypto.createHash("sha256").update("word-class-creator-v1\0" + key).digest()[0] & 1;
+}
+
+function canonicalTier(row) {
+  // pairClass is archive provenance, not a fallback for a conflicting tier.
+  if (Object.hasOwn(row, "pairClass")) {
+    if (Object.hasOwn(row, "tier") && row.tier !== row.pairClass) return null;
+    return TIERS.includes(row.pairClass) ? row.pairClass : null;
+  }
+  return TIERS.includes(row.tier) ? row.tier : null;
+}
+
+function expectedWords(row) {
+  if ((Object.hasOwn(row, "labeled") && row.labeled !== true) ||
+    (Object.hasOwn(row, "label") && row.label !== "eligible") ||
+    !Array.isArray(row.expected) || !row.expected.length) return null;
+  // Same lowercase/trim and terminal-punctuation comparison as the benchmark,
+  // but do not apply its slang, masked-word, compound or context-dependent aliases.
+  if (row.expected.some((w) => typeof w !== "string")) return null;
+  const words = [...new Set(row.expected.map((w) => w.trim().toLowerCase().replace(/[.,!?;:…]+$/g, "")))];
+  return words.length === 1 && /^[a-z]+(?:'[a-z]+)?$/.test(words[0]) ? words : null;
+}
+
+function eligibleRow(row) {
+  return !!row && row.evidenceEligible !== false && !!canonicalTier(row) &&
+    !!creatorKey(row) && !!expectedWords(row);
+}
+
+function normalizedRows(rows) {
+  return rows.filter(eligibleRow).map((r) => ({ ...r, tier: canonicalTier(r), expected: expectedWords(r) }));
+}
+
+function targetSlot(row) {
+  const count = typeof row.context === "string" ? (row.context.match(/\[__\]/g) || []).length : 0;
+  if (count === 1) return 0; // simplified archive contexts discard original slot numbering
+  const slot = Object.hasOwn(row, "targetSlotIndex") ? row.targetSlotIndex :
+    row.contextFaithful === true ? row.slotIndex : null;
+  return Number.isSafeInteger(slot) && slot >= 0 && slot < count ? slot : null;
+}
+
+function baselineWord(engine, row) {
+  const d = engine.applyDeterministicRules(row.context).decisions
+    .find((d) => d.tokenIndex <= row.targetSlotIndex && row.targetSlotIndex < d.tokenIndex + d.tokenSpan);
+  return d && d.word ? d.word.toLowerCase() : "";
+}
+
+function prepareRows(archive, engine) {
+  return normalizedRows(archive).flatMap((r) => {
+    const targetSlotIndex = targetSlot(r);
+    if (targetSlotIndex === null) return [];
+    // The tokenizer treats its first blank as the target; keep sibling blanks as separators.
+    let slot = 0;
+    const context = r.context.replace(/\[__\]/g, () => slot++ === targetSlotIndex ? "[__]" : " , ");
+    const tokens = tokenize(context);
+    const prepared = { ...r, targetSlotIndex, tokens, pats: patterns(tokens) };
+    return [{ ...prepared, current: baselineWord(engine, prepared) }];
+  });
+}
+
+// Use the browser-style loaders in an isolated realm; no disk or require-cache mutation.
+function loadRuntime(generated = {}) {
+  const context = vm.createContext({});
+  for (const file of ["rules-compiler.js", "rule-data/language.js", "rule-data/exact.js",
+    "rule-data/grammar.js", "rules-data.js", "rules.js"]) {
+    let source = fs.readFileSync(path.join(ROOT, "src", file), "utf8");
+    if (file === "rule-data/language.js") source = blockSource(source, generated.language ?? "  var WORD_CLASSES = Object.freeze({});");
+    if (file === "rule-data/grammar.js") source = blockSource(source, generated.grammar ?? "");
+    vm.runInContext(source, context, { filename: file });
+  }
+  return { engine: context.UncensoredRules, language: context.UncensoredRuleDataParts.language };
 }
 
 const wilson = (k, n) => {
   const z = 1.96, p = k / n;
   return (p + z * z / (2 * n) - z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))) / (1 + z * z / n);
 };
-const summarize = (t, w) => t ? `${t.words[w] || 0}/${t.n} cr${t.cr[w] ? t.cr[w].size : 0}` : "-";
+
+function tierStats(rows, word) {
+  const stats = {};
+  for (const tier of TIERS) {
+    const rs = rows.filter((r) => r.tier === tier);
+    const correct = rs.filter((r) => r.expected.includes(word));
+    stats[tier] = { n: rs.length, correct: correct.length,
+      creators: new Set(correct.map(creatorKey)).size };
+  }
+  return stats;
+}
+
+function passes(t, tier) {
+  return t.n >= MIN_MATCHES && t.correct / t.n >= MIN_PRECISION && t.creators >= MIN_CREATORS &&
+    (tier !== "manual-auto" || wilson(t.correct, t.n) >= MANUAL_LOWER_BOUND);
+}
+
+function tierPass(stats, tier) {
+  return passes(stats[tier], tier) && (tier !== "manual-auto" ||
+    stats.synthetic.n < MIN_MATCHES || stats.synthetic.correct / stats.synthetic.n >= MIN_PRECISION);
+}
+
+// Choice and support use training labels only; ties have a stable lexical order.
+function wordChoice(rows) {
+  for (const tier of TIERS) {
+    const counts = new Map();
+    for (const r of rows) if (r.tier === tier) counts.set(r.expected[0], (counts.get(r.expected[0]) || 0) + 1);
+    const top = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+    if (top && tierPass(tierStats(rows, top[0]), tier)) return { word: top[0], tier };
+  }
+  return null;
+}
+
+// Two deterministic folds, whole creators (across both tiers), raw labeled matches.
+// Both directions must independently support the same word/tier. Sparse folds abstain.
+function creatorGate(rows, marginal = rows.filter((r) => !r.current)) {
+  rows = rows.filter((r) => r && expectedWords(r));
+  marginal = marginal.filter((r) => r && expectedWords(r));
+  if (rows.some((r) => !eligibleRow(r)) || marginal.some((r) => !eligibleRow(r))) return null;
+  rows = normalizedRows(rows);
+  marginal = normalizedRows(marginal);
+  const choice = wordChoice(rows);
+  if (!choice) return null;
+  const creators = [...new Set(rows.map(creatorKey))].sort();
+  const foldOf = new Map(creators.map((creator) => [creator, creatorFold(creator)]));
+  const firstChoice = tierStats(rows, choice.word), marginalStats = tierStats(marginal, choice.word);
+  if (!tierPass(marginalStats, choice.tier)) return null;
+  const folds = [];
+  for (let fold = 0; fold < 2; fold++) {
+    const train = rows.filter((r) => foldOf.get(creatorKey(r)) !== fold);
+    const validation = rows.filter((r) => foldOf.get(creatorKey(r)) === fold);
+    const trained = wordChoice(train);
+    if (!trained || trained.word !== choice.word || trained.tier !== choice.tier) return null;
+    const trainMarginal = tierStats(marginal.filter((r) => foldOf.get(creatorKey(r)) !== fold), trained.word);
+    const first = tierStats(validation, trained.word);
+    const remaining = tierStats(marginal.filter((r) => foldOf.get(creatorKey(r)) === fold), trained.word);
+    if (!tierPass(trainMarginal, trained.tier) || !tierPass(first, trained.tier) ||
+      !tierPass(remaining, trained.tier)) return null;
+    folds.push({ trainCreators: creators.filter((c) => foldOf.get(c) !== fold),
+      validationCreators: creators.filter((c) => foldOf.get(c) === fold), word: trained.word,
+      passedOn: trained.tier, firstChoice: first, marginal: remaining });
+  }
+  return { ...choice, firstChoice, marginal: marginalStats, folds };
+}
 
 // Greedy rule choice over rows the current runtime leaves blank.
-function mine(rows) {
-  const stats = new Map(); // pattern -> {tier: {n, words: {w: n}, cr: {w: Set}}}
+function mine(rows, canEmit = () => true) {
+  rows = normalizedRows(rows);
+  const stats = new Map(); // cheap full-data prefilter; never used as validation
   for (const r of rows) for (const p of r.pats) {
     let s = stats.get(p); if (!s) stats.set(p, s = {});
-    const t = s[r.tier] || (s[r.tier] = { n: 0, words: {}, cr: {} });
+    const t = s[r.tier] || (s[r.tier] = { n: 0, words: {} });
     t.n++; t.words[r.expected[0]] = (t.words[r.expected[0]] || 0) + 1;
   }
-  for (const [p, s] of stats) { // creators only for patterns that can still pass (keeps memory low)
+  for (const [p, s] of stats) { // retain row indices only for plausible patterns (keeps memory low)
     if (!Object.values(s).some((t) => t.n >= MIN_MATCHES && Math.max(...Object.values(t.words)) / t.n >= MIN_PRECISION)) stats.delete(p);
   }
-  for (const r of rows) for (const p of r.pats) {
-    const t = stats.get(p) && stats.get(p)[r.tier]; if (!t) continue;
-    (t.cr[r.expected[0]] || (t.cr[r.expected[0]] = new Set())).add(r.creator);
-  }
-  const pass = (t, w, tier) => t.n >= MIN_MATCHES && (t.words[w] || 0) / t.n >= MIN_PRECISION &&
-    t.cr[w] && t.cr[w].size >= MIN_CREATORS && (tier !== "manual-auto" || wilson(t.words[w] || 0, t.n) >= MANUAL_LOWER_BOUND);
-  const candidates = new Map();
-  for (const [p, s] of stats) {
-    for (const tier of TIERS) {
-      const t = s[tier]; if (!t || t.n < MIN_MATCHES) continue;
-      const w = Object.entries(t.words).sort((a, b) => b[1] - a[1])[0][0];
-      const other = s[tier === "synthetic" ? "manual-auto" : "synthetic"];
-      if (!pass(t, w, tier)) continue;
-      if (tier === "manual-auto" && other && other.n >= MIN_MATCHES && (other.words[w] || 0) / other.n < MIN_PRECISION) continue;
-      candidates.set(p, { p, w, tier, s });
-      break;
-    }
-  }
+  const candidates = new Map([...stats.keys()].map((p) => [p, { p }]));
+  stats.clear();
   const rowsOf = new Map();
   rows.forEach((r, i) => {
-    if (r.current) return;
     for (const p of r.pats) if (candidates.has(p)) (rowsOf.get(p) || rowsOf.set(p, []).get(p)).push(i);
   });
+  for (const [p, c] of candidates) {
+    const gate = creatorGate(rowsOf.get(p).map((i) => rows[i]));
+    if (!gate || !canEmit({ pattern: p, word: gate.word, tier: gate.tier })) { candidates.delete(p); rowsOf.delete(p); }
+    else Object.assign(c, { w: gate.word, tier: gate.tier, gate });
+  }
   const covered = new Set(), chosen = [];
   let pool = [...candidates.values()];
   for (;;) {
-    let best = null, bestRows = null, bestOk = 0, bestScore = 0;
+    let best = null, bestRows = null, bestOk = 0, bestScore = 0, bestGate = null;
     for (const c of pool) {
-      const rs = (rowsOf.get(c.p) || []).filter((i) => !covered.has(i));
+      const rs = (rowsOf.get(c.p) || []).filter((i) => !rows[i].current && !covered.has(i));
       const ok = rs.filter((i) => rows[i].expected.includes(c.w)).length;
-      const score = ok - WRONG_FILL_COST * (rs.length - ok);
-      if (score > bestScore) { best = c; bestRows = rs; bestOk = ok; bestScore = score; }
+      const primary = rs.filter((i) => rows[i].tier === c.tier);
+      const primaryOk = primary.filter((i) => rows[i].expected.includes(c.w)).length;
+      const score = primaryOk - WRONG_FILL_COST * (primary.length - primaryOk);
+      if (score < MIN_SCORE || (best && (best.tier === "synthetic" && c.tier !== "synthetic" ||
+        best.tier === c.tier && score <= bestScore))) continue;
+      const gate = covered.size ? creatorGate(rowsOf.get(c.p).map((i) => rows[i]), rs.map((i) => rows[i])) : c.gate;
+      if (!gate) continue;
+      best = c; bestRows = rs; bestOk = ok; bestScore = score; bestGate = gate;
     }
     if (!best || bestScore < MIN_SCORE) break;
     chosen.push({ pattern: best.p, word: best.w, passedOn: best.tier, newFills: bestRows.length, newCorrect: bestOk,
-      synthetic: summarize(best.s.synthetic, best.w), manual: summarize(best.s["manual-auto"], best.w) });
+      gate: bestGate });
     bestRows.forEach((i) => covered.add(i));
     pool = pool.filter((c) => c !== best);
   }
@@ -167,7 +311,7 @@ function mine(rows) {
 // Closed classes as tagged; open classes keep words seen 3+ times with 90%+ in one class.
 function lexicons(rows, allowed) {
   const counts = new Map(), lexicon = {};
-  for (const r of rows) for (const t of r.tokens) {
+  for (const r of rows.filter(eligibleRow)) for (const t of r.tokens) {
     if (!t.cls) continue;
     if (CLOSED[t.cls]) { (lexicon[t.cls] || (lexicon[t.cls] = new Set())).add(t.lit); continue; }
     const c = counts.get(t.lit) || counts.set(t.lit, {}).get(t.lit);
@@ -209,42 +353,129 @@ function templates(chosen, lexicon, ruleWords, existing) {
   };
 }
 
+// Retrospective candidate diagnostic only: selection on these data is not admission.
+// Each VM uses final static classes learned solely from its training tokens, never labels.
+function validateCompiledCandidate(candidate, rows, options = {}) {
+  const baseline = options.baseline || loadRuntime();
+  const allowed = new Set(baseline.language.ALLOWED_WORDS.map((w) => w.toLowerCase()));
+  const ruleWords = new Set(baseline.language.RULE_WORDS.map((w) => w.toLowerCase()));
+  const existing = new Set(baseline.engine.DETERMINISTIC_RULES.map((r) => r.template));
+  const excluded = { ineligibleEvidence: 0, unsupportedLabel: 0, ambiguousTarget: 0 };
+  rows = rows.flatMap((r) => {
+    if (!r || !expectedWords(r)) { excluded.unsupportedLabel++; return []; }
+    if (!eligibleRow(r)) { excluded.ineligibleEvidence++; return []; }
+    const targetSlotIndex = targetSlot(r);
+    if (targetSlotIndex === null) { excluded.ambiguousTarget++; return []; }
+    const row = { ...r, tier: canonicalTier(r), expected: expectedWords(r), targetSlotIndex };
+    return [{ ...row, current: baselineWord(baseline.engine, row) }];
+  });
+  const folds = [];
+  for (let fold = 0; fold < 2; fold++) {
+    const train = rows.filter((r) => creatorFold(creatorKey(r)) !== fold);
+    const validation = rows.filter((r) => creatorFold(creatorKey(r)) === fold);
+    const emitted = templates([candidate], lexicons(train, allowed), ruleWords, existing);
+    const support = { fold, rules: emitted.rules, classes: emitted.classes, passed: false };
+    folds.push(support);
+    if (emitted.rules.length !== 1) { support.reason = "insufficient emitted vocabulary or ineligible template"; continue; }
+    const { engine } = loadRuntime(emitted);
+    const matches = (rs) => rs.filter((r) => engine.applyDeterministicRules(r.context, { trace: true }).trace
+      .some((s) => s.tokenIndex === r.targetSlotIndex && s.tokenSpan === 1 &&
+        s.alternatives.some((a) => a.rule.template === emitted.rules[0].replace(/\[[a-z']+\]/, "[__]"))));
+    const training = matches(train), testing = matches(validation);
+    const trained = wordChoice(training);
+    Object.assign(support, { trained,
+      train: tierStats(training, candidate.word),
+      trainMarginal: tierStats(training.filter((r) => !r.current), candidate.word),
+      validation: tierStats(testing, candidate.word),
+      validationMarginal: tierStats(testing.filter((r) => !r.current), candidate.word) });
+    const tier = candidate.passedOn || candidate.tier;
+    support.passed = !!trained && trained.word === candidate.word && trained.tier === tier &&
+      [support.train, support.trainMarginal, support.validation, support.validationMarginal]
+        .every((stats) => tierPass(stats, tier));
+    if (!support.passed) support.reason = "compiled match choice or fold support failed";
+  }
+  return { status: "not runtime admission", passed: folds.every((f) => f.passed), folds, excluded,
+    caveat: "Retrospective diagnostic: candidate selection uses the same data; pooled/effective coverage, multi-slot behavior and independent/frozen vocabulary remain unresolved. No deployment or prospective accuracy claim." };
+}
+
+// Pool admission: the emitted template and the compiled train-only fold check must both pass.
+function poolGate(rows, lexicon, ruleWords, existing, baseline, validated = []) {
+  return (c) => {
+    if (!templates([c], lexicon, ruleWords, existing).rules.length) return false;
+    const check = validateCompiledCandidate(c, rows, { baseline });
+    validated.push({ pattern: c.pattern, word: c.word, tier: c.tier, passed: check.passed,
+      reasons: check.folds.map((f) => f.reason).filter(Boolean) });
+    return check.passed;
+  };
+}
+
+// Reports are new files only, under the real project tmp directory. Refuse symlinks
+// in every path component; exclusive creation also prevents overwriting raced-in files.
+function reportPath(file) {
+  const target = path.resolve(ROOT, file), tmp = path.join(ROOT, "tmp");
+  if (!target.startsWith(tmp + path.sep)) throw new Error("Report must be a new file under tmp/");
+  const parts = path.relative(ROOT, target).split(path.sep);
+  let current = ROOT;
+  for (let i = 0; i < parts.length; i++) {
+    current = path.join(current, parts[i]);
+    let stat;
+    try { stat = fs.lstatSync(current); } catch (error) {
+      if (error.code === "ENOENT" && i === parts.length - 1) break;
+      throw error;
+    }
+    if (stat.isSymbolicLink()) throw new Error("Report path must not contain symlinks");
+    if (i === parts.length - 1) throw new Error("Report must be a new file (already exists)");
+    if (!stat.isDirectory()) throw new Error("Report parent must be a directory");
+  }
+  if (fs.realpathSync(path.dirname(target)) !== path.dirname(target)) {
+    throw new Error("Report parent must be a real resolved path, without symlinks");
+  }
+  return target;
+}
+
+function writeReport(file, report) {
+  const target = reportPath(file);
+  fs.writeFileSync(target, JSON.stringify(report, null, 1) + "\n", { flag: "wx" });
+}
+
+function parseArgs(args) {
+  const options = { write: false, report: null };
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--write") options.write = true;
+    else if (args[i] === "--audit" || args[i] === "--dry-run") continue;
+    else if (args[i] === "--report" && args[i + 1] && !args[i + 1].startsWith("--")) options.report = args[++i];
+    else throw new Error("Unknown or incomplete option: " + args[i]);
+  }
+  if (options.write) throw new Error("--write is disabled: final compiled-template matching and an independent/frozen class vocabulary gate are required; diagnostics are not runtime admission");
+  if (options.report) reportPath(options.report);
+  return options;
+}
+
 function main() {
-  const reportIndex = process.argv.indexOf("--report");
+  const options = parseArgs(process.argv.slice(2));
   const heldout = heldoutIds();
-  // Mine against the runtime without its generated rules.
-  replaceBlock("src/rule-data/language.js", "  var WORD_CLASSES = Object.freeze({});");
-  replaceBlock("src/rule-data/grammar.js", "");
-  const engine = require("../src/rules.js"); // before anything else loads it
+  const { engine, language } = loadRuntime();
   const { DEFAULT_REPORTS, DEFAULT_PROVENANCE_REPORTS, loadArchivedRows } = require("./archived-rules-benchmark");
-  const language = require("../src/rule-data/language.js");
   const loaded = loadArchivedRows(DEFAULT_REPORTS, DEFAULT_PROVENANCE_REPORTS);
   const conflicts = new Set(loaded.slotConflictIds);
   const archive = loaded.rows.filter((r) => !heldout.has(r.fixture) && !conflicts.has(r.id) &&
     r.labeled && r.expected && r.expected.length);
   console.error("archive rows", archive.length, "held-out videos excluded", heldout.size);
-  const tokenized = archive.map((r) => ({ tokens: tokenize(r.context) }));
-  const rows = [];
-  archive.forEach((r, i) => {
-    if (!TIERS.includes(r.pairClass)) return;
-    const d = engine.applyDeterministicRules(r.context).decisions[0];
-    rows.push({ tier: r.pairClass, creator: r.creator, expected: r.expected.map((w) => w.toLowerCase()),
-      current: d && d.word ? d.word.toLowerCase() : "", pats: patterns(tokenized[i].tokens) });
-  });
-  const { candidates, chosen } = mine(rows);
-  const lexicon = lexicons(tokenized, new Set(language.ALLOWED_WORDS.map((w) => w.toLowerCase())));
+  const rows = prepareRows(archive, engine);
+  const lexicon = lexicons(rows, new Set(language.ALLOWED_WORDS.map((w) => w.toLowerCase())));
   const existing = new Set(engine.DETERMINISTIC_RULES.map((r) => r.template));
-  const out = templates(chosen, lexicon, new Set(language.RULE_WORDS.map((w) => w.toLowerCase())), existing);
-  replaceBlock("src/rule-data/language.js", out.language);
-  replaceBlock("src/rule-data/grammar.js", out.grammar);
-  if (reportIndex > 0) fs.writeFileSync(process.argv[reportIndex + 1], JSON.stringify({ chosen }, null, 1) + "\n");
-  console.log(JSON.stringify({ candidates, chosen: chosen.length, newFills: chosen.reduce((a, c) => a + c.newFills, 0),
+  const ruleWords = new Set(language.RULE_WORDS.map((w) => w.toLowerCase()));
+  const validated = [];
+  const { candidates, chosen } = mine(rows, poolGate(rows, lexicon, ruleWords, existing, { engine, language }, validated));
+  const out = templates(chosen, lexicon, ruleWords, existing);
+  const diagnostic = { status: "not runtime admission", creatorGateVersion: "sha256-word-class-creator-v1",
+    limitations: "Pool candidates pass compiled train-only folds, but greedy selection and the emitted class vocabulary use all data; not independent/frozen." };
+  if (options.report) writeReport(options.report, { ...diagnostic, candidates, validated, chosen });
+  console.log(JSON.stringify({ ...diagnostic, candidates, validated: validated.length,
+    validatedPassed: validated.filter((v) => v.passed).length, chosen: chosen.length, newFills: chosen.reduce((a, c) => a + c.newFills, 0),
     newCorrect: chosen.reduce((a, c) => a + c.newCorrect, 0), rules: out.rules.length, classes: out.classes }));
 }
 
-if (require.main === module) {
-  const files = ["language.js", "grammar.js"].map((f) => path.join(ROOT, "src/rule-data", f));
-  const original = files.map((f) => fs.readFileSync(f, "utf8"));
-  try { main(); } catch (error) { files.forEach((f, i) => fs.writeFileSync(f, original[i])); throw error; }
-}
-module.exports = { tokenize, patterns };
+if (require.main === module) main();
+module.exports = { tokenize, patterns, creatorKey, creatorFold, creatorGate, mine, prepareRows,
+  lexicons, templates, loadRuntime, validateCompiledCandidate, poolGate, parseArgs, reportPath, writeReport };

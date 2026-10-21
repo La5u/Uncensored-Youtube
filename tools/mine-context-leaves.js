@@ -563,7 +563,10 @@ function discoverDiscoveryLeads(rows, tier, options = {}) {
       if (lead.precision < options.minPrecision) reasons.push("precision"); if (lead.marginalSupport < options.minMarginalSupport) reasons.push("marginalSupport"); if (lead.marginalPrecision < options.minMarginalPrecision) reasons.push("marginalPrecision");
       if (!reasons.length && options.crossTierIndex) {
         lead.crossTier = { tier: options.crossTierTier || null, ...crossTierAudit(lead, options.crossTierIndex) };
-        if (lead.crossTier.support >= options.minSupport && lead.crossTier.precision < options.minPrecision) reasons.push("crossTierPrecision");
+        // Synthetic is the primary tier: it can veto a manual-auto lead, but manual-auto
+        // contradictions of a synthetic lead are only recorded.
+        if (options.crossTierTier === "synthetic" && lead.crossTier.support >= options.minSupport &&
+            lead.crossTier.precision < options.minPrecision) reasons.push("crossTierPrecision");
       }
       lead.qualified = !reasons.length && !(options.exclude instanceof Set && options.exclude.has(lead.id));
       if (lead.qualified) leads.push(lead); else {

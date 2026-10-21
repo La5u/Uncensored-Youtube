@@ -174,4 +174,4 @@ if (require.main === module) {
     .catch(error => { console.error(error.message); process.exitCode = 1; });
 }
 
-module.exports = { categoryFor, selectItems, extractWords, requestTranscript, run, ENDPOINT, MAX_REQUESTS };
+module.exports = { selectItems, run, ENDPOINT, MAX_REQUESTS };

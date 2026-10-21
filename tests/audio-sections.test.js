@@ -24,7 +24,30 @@ try {
     assert.strictEqual(actual.length, expected.length);
     assert.ok(actual.every((value, index) => Math.abs(value - expected[index]) < 1e-6), `section differs at ${time}s`);
   }
+  assert.throws(() => pcmSlice(path.join(dir, "vid.s17-33.webm"), 10, 5), /No audio section covers/);
+  // The last AVAILABLE section is not evidence of the source end.
   assert.throws(() => pcmSlice(path.join(dir, "vid.s17-33.webm"), 30, 5), /No audio section covers/);
+  // A real source end permits a clamped window only with independent duration metadata.
+  ffmpeg("-ss", "35", "-i", full, "-c", "copy", "-copyts", path.join(dir, "vid.s35-40.webm"));
+  assert.throws(() => pcmSlice(path.join(dir, "vid.s17-33.webm"), 30, 5), /No audio section covers/);
+  assert.throws(() => pcmSlice(path.join(dir, "vid.s35-40.webm"), 37, 5), /No audio section covers/);
+  fs.writeFileSync(path.join(dir, "vid.source.json"), JSON.stringify({ videoId: "vid", duration: 40 }));
+  const expected = pcmSlice(full, 37, 5);
+  const actual = pcmSlice(path.join(dir, "vid.s35-40.webm"), 37, 5);
+  // A section cut through the file end decodes ~1 ms shifted (Opus padding); allow <= 2 ms.
+  assert.ok(Math.abs(actual.length - expected.length) <= 32);
+  const error = (shift) => expected.slice(100, -100).reduce((sum, value, i) => sum + Math.abs(value - actual[i + 100 + shift]), 0) / (expected.length - 200);
+  assert.ok(Array.from({ length: 65 }, (_, i) => error(i - 32)).some((mean) => mean < 1e-3), "clamped last section differs");
+
+  const truncated = path.join(dir, "truncated.webm");
+  ffmpeg("-to", "33", "-i", full, "-c", "copy", truncated);
+  assert.throws(() => pcmSlice(truncated, 30, 5), /No audio coverage/);
+  fs.unlinkSync(path.join(dir, "vid.source.json"));
+  assert.throws(() => pcmSlice(full, 37, 5), /No audio coverage/);
+  fs.writeFileSync(path.join(dir, "vid.source.json"), JSON.stringify({ videoId: "vid", duration: 40 }));
+  assert.ok(pcmSlice(full, 37, 5).length > 0);
+  fs.writeFileSync(path.join(dir, "broken.webm"), "corrupt");
+  assert.throws(() => pcmSlice(path.join(dir, "broken.webm"), 0, 5), /No audio coverage/);
 } finally {
   fs.rmSync(dir, { recursive: true, force: true });
 }

@@ -138,11 +138,6 @@ function runtimeHashes(directory, prefix = '') {
 }
 async function run(args = process.argv.slice(2)) {
   const config = options(args);
-  const supplies = fs.readdirSync('/sys/class/power_supply').map(name => `/sys/class/power_supply/${name}`);
-  const read = (dir, key) => fs.existsSync(`${dir}/${key}`) ? fs.readFileSync(`${dir}/${key}`, 'utf8').trim() : '';
-  if (supplies.some(dir => read(dir, 'type') === 'Battery') &&
-      !supplies.some(dir => read(dir, 'type') !== 'Battery' && read(dir, 'online') === '1'))
-    throw Error('Refusing heavy Firefox inference without confirmed AC power');
   const artifacts = path.resolve(config.artifacts || path.join(root, 'tmp', `firefox-smoke-${Date.now()}-${process.pid}`));
   if (!artifacts.startsWith(path.join(root, 'tmp') + path.sep)) throw Error('Artifacts must be under ignored tmp/');
   if (fs.existsSync(artifacts)) throw Error('Artifacts directory already exists');

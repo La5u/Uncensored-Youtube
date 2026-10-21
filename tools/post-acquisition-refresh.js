@@ -203,4 +203,4 @@ function run(options = {}) {
   return result;
 }
 if (require.main === module) { try { console.log(JSON.stringify(run(parseArgs()), null, 2)); } catch (error) { console.error(error.message || error); process.exit(1); } }
-module.exports = { defaults, fingerprint, parseArgs, queueComplete, run, slots, validateReport, writeAtomic };
+module.exports = { defaults, parseArgs, queueComplete, run, slots, validateReport, writeAtomic };
