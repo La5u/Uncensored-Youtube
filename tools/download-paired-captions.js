@@ -1546,7 +1546,6 @@ module.exports = {
   classifyPairKind,
   checkedVideoKey,
   checkedVideoType,
-  checkedVideoTypeFromReport,
   distributedSample,
   hasSwears,
   hasTimedGroundTruth,
