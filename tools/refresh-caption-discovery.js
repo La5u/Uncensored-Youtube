@@ -7,6 +7,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { readJson, writeAtomic } = require("./shared");
 const builder = require("./build-caption-discovery");
 const miner = require("./mine-context-leaves");
 const { defaultReports } = require("./audit-caption-corpus");
@@ -72,13 +73,6 @@ function snapshotFingerprint(files) {
   return sha(Buffer.from(parts.join("")));
 }
 
-function readJson(file, fallback = null, snapshot) {
-  try {
-    const value = JSON.parse(snapshot === undefined ? fs.readFileSync(file, "utf8") : snapshot);
-    return value && typeof value === "object" && !Array.isArray(value) ? value : fallback;
-  } catch { return fallback; }
-}
-
 function fileFingerprint(file) {
   try { return sha(fs.readFileSync(file)); } catch { return ""; }
 }
@@ -126,18 +120,6 @@ function indexedSourceRegression(previousDataset, currentDataset) {
   const previous = indexedSourceCounts(previousDataset);
   const current = indexedSourceCounts(currentDataset);
   return [...previous.entries()].some(([identity, count]) => (current.get(identity) || 0) < count);
-}
-
-function writeAtomic(file, value) {
-  const destination = path.resolve(file);
-  fs.mkdirSync(path.dirname(destination), { recursive: true });
-  const temporary = `${destination}.tmp-${process.pid}-${Math.random().toString(16).slice(2)}`;
-  try {
-    fs.writeFileSync(temporary, value);
-    fs.renameSync(temporary, destination);
-  } finally {
-    try { fs.unlinkSync(temporary); } catch { /* renamed or already absent */ }
-  }
 }
 
 function restore(file, previous) {

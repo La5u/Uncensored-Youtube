@@ -5,6 +5,7 @@
 // decisions and rule fingerprints are evidence sources, never trusted output.
 const fs = require("fs");
 const path = require("path");
+const { creatorKey } = require("./shared");
 const rules = require("../src/rules");
 const data = require("../src/rules-data");
 const compiler = require("../src/rules-compiler");
@@ -329,16 +330,6 @@ function addBucket(bucket, row, attempted, correct) {
   if (correct) bucket.correct += 1;
 }
 
-function creatorKey(row) {
-  // Match the faithful dataset's identity policy; placeholders are not creators.
-  const id = typeof row.creatorId === "string" ? row.creatorId.trim() : "";
-  if (/^UC[A-Za-z0-9_-]{22}$/u.test(id)) return `id:${id}`;
-  const name = typeof row.creator === "string"
-    ? row.creator.trim().normalize("NFKC").replace(/\s+/gu, " ").toLowerCase() : "";
-  return name && !/^(?:anonymous|na|n\/a|none|null|unknown)(?: creator)?$/u.test(name)
-    ? `name:${name}` : "unknown";
-}
-
 function emptyRule(definition) {
   return {
     ruleId: ruleId(definition),
@@ -387,9 +378,9 @@ function increment(object, key) {
 }
 
 function creatorBucket(stat, row) {
-  const key = creatorKey(row);
+  const key = creatorKey(row) || "unknown";
   const bucket = stat.creatorCounts.get(key) || {
-    creator: row.creator || (key === "unknown" ? "unknown" : key),
+    creator: row.creator || key,
     creatorId: row.creatorId || "",
     matched: 0,
     scored: 0,
@@ -421,7 +412,7 @@ function addRuleOutcome(stat, row, choice, correct, candidateCorrect) {
   stat.correctCount += Number(scored && correct);
   stat.evidenceCorrectCount += Number(evidenceEligible && correct);
   stat.realEvidenceCorrectCount += Number(realEvidenceEligible && correct);
-  if (realEvidenceEligible && creatorKey(row) !== "unknown") {
+  if (realEvidenceEligible && creatorKey(row)) {
     stat.realEvidenceCreators.add(creatorKey(row));
   }
   stat.wrongCount += Number(scored && attempted && !correct);
@@ -432,7 +423,7 @@ function addRuleOutcome(stat, row, choice, correct, candidateCorrect) {
   const creator = creatorBucket(stat, row);
   creator.matched += 1;
   creator.scored += Number(scored);
-  creator.labeledEvidence += Number(evidenceEligible && creatorKey(row) !== "unknown");
+  creator.labeledEvidence += Number(evidenceEligible && Boolean(creatorKey(row)));
   creator.attempts += Number(scored && attempted);
   creator.correct += Number(scored && correct);
   creator.wrong += Number(scored && attempted && !correct);
@@ -649,7 +640,7 @@ function auditCurrentRules({
       };
       edge.count += 1;
       const creator = creatorKey(row);
-      if (row.expected.length && row.pairClass !== "conflict" && creator !== "unknown") {
+      if (row.expected.length && row.pairClass !== "conflict" && creator) {
         edge.creators.add(creator);
       }
       overlaps.set(edgeKey, edge);

@@ -6,6 +6,7 @@
 // rebuilding/auditing, but explicitly incomplete reports cannot trigger mining.
 const fs = require("fs");
 const path = require("path");
+const { readJson, writeAtomic } = require("./shared");
 const os = require("os");
 const crypto = require("crypto");
 const { buildFaithfulDataset, currentFingerprints } = require("./build-real-manual-auto-dataset");
@@ -75,23 +76,6 @@ function queueComplete(report) {
   const channelsComplete = report.channels.length > 0 && report.channels.every((channel) => channel.queueComplete === true);
   return channelsComplete && report.queueComplete !== false;
 }
-function readJson(file, fallback) {
-  try {
-    const value = JSON.parse(fs.readFileSync(absolute(file), "utf8"));
-    return value && typeof value === "object" && !Array.isArray(value) ? value : fallback;
-  } catch { return fallback; }
-}
-function writeAtomic(file, value) {
-  const destination = absolute(file); fs.mkdirSync(path.dirname(destination), { recursive: true });
-  const temporary = `${destination}.${process.pid}.${Date.now()}.tmp`;
-  try {
-    fs.writeFileSync(temporary, value);
-    fs.renameSync(temporary, destination);
-  } catch (error) {
-    try { fs.unlinkSync(temporary); } catch { /* ignore cleanup failures */ }
-    throw error;
-  }
-}
 function fileFingerprint(file) {
   try { return sha256(file); } catch { return ""; }
 }
@@ -130,10 +114,10 @@ function run(options = {}) {
   if (fs.existsSync(`${acquisition}.lock`)) {
     throw new Error(`Acquisition report is still being written: ${args.acquisition}`);
   }
-  const report = validateReport(readJson(args.acquisition, null));
+  const report = validateReport(readJson(absolute(args.acquisition), null));
   const reports = provenanceReports(args.acquisition);
   const sourceFiles = [...reports, ...captionFiles(args.fixtures)];
-  const sourceFingerprint = fingerprint(sourceFiles), previous = readJson(args.state, {}), currentSlots = slots(report);
+  const sourceFingerprint = fingerprint(sourceFiles), previous = readJson(absolute(args.state), {}), currentSlots = slots(report);
   const gainedSlots = Math.max(0, currentSlots - (Number(previous.slots) || 0));
   const rules = (options.currentFingerprints || currentFingerprints)();
   const fingerprints = { source: sourceFingerprint, rules, evidencePolicy: EVIDENCE_POLICY };
@@ -153,10 +137,10 @@ function run(options = {}) {
   if (changed || !datasetCurrent) {
     dataset = buildDataset({ fixturesDir: args.fixtures, provenanceReports: reports });
     if (!faithfulDataset(dataset)) throw new Error("Refusing to use a non-faithful dataset.");
-    writeAtomic(args.dataset, `${JSON.stringify(dataset, null, 2)}\n`);
+    writeAtomic(absolute(args.dataset), `${JSON.stringify(dataset, null, 2)}\n`);
     result.dataset = "rebuilt";
   } else result.dataset = "unchanged";
-  if (!dataset) dataset = readJson(args.dataset, null);
+  if (!dataset) dataset = readJson(absolute(args.dataset), null);
   if (!faithfulDataset(dataset)) throw new Error("Refusing to use a non-faithful dataset.");
   const datasetFingerprint = fileFingerprint(args.dataset);
   if (!datasetFingerprint) throw new Error(`Dataset output is missing: ${args.dataset}`);
@@ -170,7 +154,7 @@ function run(options = {}) {
       Boolean(previous.auditOutputFingerprint) && fileFingerprint(args.audit) === previous.auditOutputFingerprint;
     if (!auditCurrent) {
       const audit = auditRules({ fixturesDir: args.fixtures, reportPaths: [archive.file], provenanceReports: reports });
-      writeAtomic(args.audit, `${JSON.stringify(audit, null, 2)}\n`); result.audit = "rebuilt";
+      writeAtomic(absolute(args.audit), `${JSON.stringify(audit, null, 2)}\n`); result.audit = "rebuilt";
     } else result.audit = "unchanged";
     const auditOutputFingerprint = fileFingerprint(args.audit);
     if (!auditOutputFingerprint) throw new Error(`Audit output is missing: ${args.audit}`);
@@ -194,7 +178,7 @@ function run(options = {}) {
   } finally {
     archive.cleanup();
   }
-  writeAtomic(args.state, `${JSON.stringify({ ...fingerprints, source: sourceFingerprint, slots: currentSlots,
+  writeAtomic(absolute(args.state), `${JSON.stringify({ ...fingerprints, source: sourceFingerprint, slots: currentSlots,
     datasetFingerprint, auditFingerprint,
     auditOutputFingerprint: fileFingerprint(args.audit),
     miningEligible: result.miningEligible,

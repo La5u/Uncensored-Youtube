@@ -6,6 +6,7 @@
  */
 const fs = require("fs");
 const path = require("path");
+const { writeAtomic } = require("./shared");
 const { spawn } = require("child_process");
 
 const root = path.join(__dirname, "..");
@@ -696,17 +697,6 @@ function allConfiguredChannelsComplete(configuredChannels, reports) {
   return Boolean(configuredChannels?.length) && configuredChannels.every((channel) => (
     completed.get(channel.name)?.queueComplete === true
   ));
-}
-
-function writeAtomic(filePath, contents) {
-  const temporaryPath = `${filePath}.tmp-${process.pid}`;
-  try {
-    fs.writeFileSync(temporaryPath, contents);
-    fs.renameSync(temporaryPath, filePath);
-  } catch (error) {
-    removeFile(temporaryPath);
-    throw error;
-  }
 }
 
 function acquireReportLock(filePath) {

@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
 const path = require("path");
+const { writeAtomic } = require("./shared");
 const { ALLOWED_WORDS } = require("../src/rules");
 const { currentFingerprints } = require("./evaluation-metrics");
 const timedText = require("../src/timedtext");
@@ -678,13 +679,6 @@ function applyCaptionBatch(state, groupId, labels, edits = []) {
   return members.map(({ id, annotation }) => ({ id, annotation }));
 }
 
-function writeAtomic(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temporary = `${file}.tmp-${process.pid}`;
-  fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`);
-  fs.renameSync(temporary, file);
-}
-
 function publicState(state) {
   const frequencies = {};
   for (const item of state.items) {
@@ -942,7 +936,7 @@ function startServer(state, output, args) {
           try {
             const annotations = apply(JSON.parse(body));
             state.updatedAt = new Date().toISOString();
-            writeAtomic(output, state);
+            writeAtomic(output, `${JSON.stringify(state, null, 2)}\n`);
             sendJson(response, 200, { annotations });
           } catch (error) {
             state.items.forEach((item, index) => { item.annotation = snapshot[index]; });
@@ -1015,7 +1009,7 @@ function main(argv) {
       deepgramTriage: deepgramTriage && { path: path.relative(root, deepgramTriage.path), sha256: deepgramTriage.sha256 },
       falseFills: falseFillReport && fs.existsSync(falseFillReport) && { path: path.relative(root, falseFillReport),
         sha256: `sha256:${crypto.createHash("sha256").update(fs.readFileSync(falseFillReport)).digest("hex")}` } }, items: built.items }, output);
-  writeAtomic(output, state);
+  writeAtomic(output, `${JSON.stringify(state, null, 2)}\n`);
   console.log(`Queue: ${state.items.length}; missing local audio: ${state.missingAudio}`);
   return startServer(state, output, args);
 }

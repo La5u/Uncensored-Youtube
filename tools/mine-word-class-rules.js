@@ -6,6 +6,7 @@
 "use strict";
 const fs = require("fs");
 const path = require("path");
+const { creatorKey } = require("./shared");
 const vm = require("vm");
 const crypto = require("crypto");
 const nlpModule = require("compromise");
@@ -104,17 +105,6 @@ function blockSource(s, body) {
   const a = s.indexOf(BEGIN), b = s.indexOf(END, a);
   if (a < 0 || b < 0) throw new Error("Missing generated-block markers");
   return s.slice(0, a) + `${BEGIN}\n${body}\n` + s.slice(b);
-}
-
-// Canonical YouTube channel IDs take precedence over display-name aliases.
-function creatorKey(row) {
-  const id = typeof row.creatorId === "string" ? row.creatorId.trim() : "";
-  if (/^UC[A-Za-z0-9_-]{22}$/.test(id)) return "id:" + id;
-  const name = typeof row.creator === "string" ? row.creator.normalize("NFKC").trim()
-    .toLowerCase().replace(/\s+/g, " ") : "";
-  const placeholder = name.replace(/[^\p{L}\p{N}]/gu, "");
-  if (!placeholder || /^(unknown|unknowncreator|unknownchannel|na|none|null|undefined|anonymous|anon|unidentified|notavailable|notapplicable)$/.test(placeholder)) return null;
-  return "name:" + name;
 }
 
 // Dataset-independent, whole-creator assignment across both tiers.
