@@ -357,7 +357,12 @@
   function uncensoredOpen(method, url) {
     var timedText = isTimedTextUrl(url);
     var videoId = timedText ? timedTextVideoId(url) : currentVideoId();
-    var result = originalXHROpen.apply(this, arguments);
+    var result;
+
+    // A reused XHR must not keep the previous request's patched caption body.
+    delete this.responseText;
+    delete this.response;
+    result = originalXHROpen.apply(this, arguments);
 
     if (timedText) {
       this.addEventListener("readystatechange", function onReadyStateChange() {
@@ -379,8 +384,8 @@
         if (patchedBody === this.responseText) return;
 
         try {
-          Object.defineProperty(this, "responseText", { value: patchedBody });
-          Object.defineProperty(this, "response", { value: patchedBody });
+          Object.defineProperty(this, "responseText", { value: patchedBody, configurable: true });
+          Object.defineProperty(this, "response", { value: patchedBody, configurable: true });
         } catch (error) {}
       });
     }
