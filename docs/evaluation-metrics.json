@@ -133,18 +133,18 @@
       "diagnostic": true,
       "mode": "rules-only",
       "scoredSlots": 2493,
-      "attempted": 1408,
-      "correct": 1315,
-      "precision": 0.9339488636363636,
-      "coverage": 0.5274769354191737,
+      "attempted": 1407,
+      "correct": 1314,
+      "precision": 0.9339019189765458,
+      "coverage": 0.5270758122743683,
       "source": {
-        "report": "corpus/generated/dense-audio-v6-rules-only.json",
-        "reportFingerprint": "sha256:9e3bdf38903afaeced62e2c8f863daf047403f380eccc8e5fa421d78e8b026fe",
+        "report": "corpus/generated/dense-audio-v7-rules-only.json",
+        "reportFingerprint": "sha256:02e3d3e72e5c1c2e46039af464a342ffe1d918a3f145b7312cbf8da69f543429",
         "mode": "rules-only",
         "complete": true,
         "rulesFingerprint": "5548:39:jocd34",
         "rulesAuxFingerprint": "8hsabx",
-        "rulesEngineFingerprint": "10n9rlk"
+        "rulesEngineFingerprint": "1y8z46n"
       },
       "note": "Dense development set (24+ creators, human expectedByToken overrides), not held-out. Word-class rules (tools/mine-word-class-rules.js) with provisional fills; replay from cached Whisper decisions after the timedtext.js change."
     },
@@ -161,13 +161,13 @@
       "precision": 0.971301335972291,
       "coverage": 0.8015516537362188,
       "source": {
-        "report": "corpus/generated/dense-audio-v6-whisper-scoring.json",
-        "reportFingerprint": "sha256:6210b514f2404ea9d46cc8427e32c18c5547ed06a6b740612c5e86863a4e57fe",
+        "report": "corpus/generated/dense-audio-v7-whisper-scoring.json",
+        "reportFingerprint": "sha256:679856bd013a2a85c661df4028ea850c3bcd3f7dbf45e7877360c0a96bbfe88c",
         "mode": "whisper-only",
         "complete": true,
         "rulesFingerprint": "5548:39:jocd34",
         "rulesAuxFingerprint": "8hsabx",
-        "rulesEngineFingerprint": "10n9rlk"
+        "rulesEngineFingerprint": "1y8z46n"
       },
       "note": "Dense development set (24+ creators, human expectedByToken overrides), not held-out. Word-class rules (tools/mine-word-class-rules.js) with provisional fills; replay from cached Whisper decisions after the timedtext.js change."
     },
@@ -184,13 +184,13 @@
       "precision": 0.9640449438202248,
       "coverage": 0.8758677011024908,
       "source": {
-        "report": "corpus/generated/dense-audio-v6-hybrid-scoring.json",
-        "reportFingerprint": "sha256:5d1f4fae747bf1bde75bc8bbd9a92f5feb80d6f1c39d624d120846072bc88535",
+        "report": "corpus/generated/dense-audio-v7-hybrid-scoring.json",
+        "reportFingerprint": "sha256:cd5b13ec8fd1e2b04ca628dcac88936d638fcbe0da1094e0b2143dc69989694e",
         "mode": "rules+whisper",
         "complete": true,
         "rulesFingerprint": "5548:39:jocd34",
         "rulesAuxFingerprint": "8hsabx",
-        "rulesEngineFingerprint": "10n9rlk"
+        "rulesEngineFingerprint": "1y8z46n"
       },
       "note": "Dense development set (24+ creators, human expectedByToken overrides), not held-out. Word-class rules (tools/mine-word-class-rules.js) with provisional fills; replay from cached Whisper decisions after the timedtext.js change."
     },
@@ -207,13 +207,13 @@
       "precision": 0.9492134831460675,
       "coverage": 0.8623928133932217,
       "source": {
-        "report": "corpus/generated/dense-audio-v6-rules-first-scoring.json",
-        "reportFingerprint": "sha256:cf1609f3e26fa633df440e37c5621ae2e5cb20384c06b0869079ac07723a9534",
+        "report": "corpus/generated/dense-audio-v7-rules-first-scoring.json",
+        "reportFingerprint": "sha256:9b952b3b84bd62dbc2ba4a07d1362e92d6c6142f312aebfd7d66c5c33c6be830",
         "mode": "rules-first",
         "complete": true,
         "rulesFingerprint": "5548:39:jocd34",
         "rulesAuxFingerprint": "8hsabx",
-        "rulesEngineFingerprint": "10n9rlk"
+        "rulesEngineFingerprint": "1y8z46n"
       },
       "note": "Dense development set (24+ creators, human expectedByToken overrides), not held-out. Word-class rules (tools/mine-word-class-rules.js) with provisional fills; replay from cached Whisper decisions after the timedtext.js change."
     }

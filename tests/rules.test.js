@@ -878,6 +878,16 @@ for (const [input, expected] of [["we might [__] believe", "we might fucking bel
 // `<name>` tokens match only words in data.WORD_CLASSES[name].
 assert.ok(data.WORD_CLASSES["wc-verb"].includes("eat"));
 assert.strictEqual(rules.applyDeterministicRules("we could [__] xqzzv").replacements.length, 0);
+// Cache invalidation sees text the way runtime preprocesses it.
+assert.strictEqual(rules.applyDeterministicRules("piece [Music] of [__]").text, "piece   of shit");
+assert.ok(rules.templatesMatch(["piece of [__]"], "piece [Music] of [__]"));
+// A class slot holds one lexical word; a hyphenated chunk fails closed.
+assert.ok(!rules.applyDeterministicRules("we could [__] eat-xqzzv").replacements
+  .some((replacement) => replacement.rule.template.includes("<wc-")));
+// `*` takes a whole non-space chunk, so hyphenated words and decimals reach the regex.
+for (const input of ["to build a [__]", "to build 3-D [__]", "to build 2.5 [__]"]) {
+  assert.strictEqual(rules.applyDeterministicRules(input).text, input.replace("[__]", "fucking"));
+}
 for (const input of ["I [__] house", "this [__] spaceship"]) {
   const result = rules.applyDeterministicRules(input);
   assert.strictEqual(result.text, input);

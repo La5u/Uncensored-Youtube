@@ -42,6 +42,7 @@ const timedTextDetails = [];
 const patchOverrides = [];
 const deterministicModes = [];
 let fetchResult;
+const audioMessages = [];
 const context = {
   URL,
   URLSearchParams,
@@ -58,6 +59,7 @@ const context = {
     removeItem(key) { storage.delete(key); }
   },
   fetch() { return fetchResult; },
+  postMessage(message) { if (message.uncensoredSabrAudio) audioMessages.push(message); },
   addEventListener(type, listener) { listeners.set(type, listener); },
   dispatchEvent(event) {
     if (event.type === "uncensored-timedtext") timedTextDetails.push(JSON.parse(event.detail));
@@ -161,6 +163,29 @@ assert.strictEqual(plain.responseText, "plain response");
   fetchResult = Promise.reject(networkError);
   await assert.rejects(context.fetch("/youtubei/v1/browse"), (error) => error === networkError,
     "real Fetch failures must pass through unchanged");
+
+  // Audio requested during one navigation must not be relabeled after a newer one starts.
+  context.dispatchEvent(new context.CustomEvent("uncensored-settings", {
+    detail: JSON.stringify({ rulesEnabled: true, whisperEnabled: true, audioEnabled: true, videoId: "test" })
+  }));
+  let cancelled = false;
+  listeners.get("yt-navigate-start")();
+  fetchResult = Promise.resolve({
+    url: "https://rr1.googlevideo.com/videoplayback?sabr=1",
+    clone() {
+      return { body: {
+        cancel() { cancelled = true; return Promise.resolve(); },
+        getReader() { return { read: () => Promise.resolve({ done: true }), cancel: () => Promise.resolve() }; }
+      } };
+    }
+  });
+  await context.fetch("https://rr1.googlevideo.com/videoplayback?sabr=1");
+  // The newer navigation's URL is live before its finish event resets audio settings.
+  listeners.get("yt-navigate-start")();
+  context.location.href = "https://www.youtube.com/watch?v=newer";
+  for (let i = 0; i < 8; i += 1) await Promise.resolve();
+  assert.ok(cancelled, "superseded navigation audio is cancelled");
+  assert.strictEqual(audioMessages.length, 0);
 
   console.log("page-hook.test.js passed");
 })().catch((error) => {

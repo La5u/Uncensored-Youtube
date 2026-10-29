@@ -33,14 +33,14 @@ The canonical snapshot is [`docs/evaluation-metrics.json`](docs/evaluation-metri
 | Any-candidate oracle | diagnostic | — | 90.81% | 49.83% |
 | Synthetic Filmot gap sample, rules-only | diagnostic (stale/superseded) | 110 | 85.37% | 31.82% |
 | Manual Filmot wave, rules-only | diagnostic (stale/superseded) | 275 | 69.72% | 27.64% |
-| Dense audio set, rules only | diagnostic | 2,493 | 93.39% | 52.75% |
+| Dense audio set, rules only | diagnostic | 2,493 | 93.39% | 52.71% |
 | Dense audio set, Whisper | diagnostic | 2,449 | 97.13% | 80.16% |
 | Dense audio set, Whisper first | diagnostic | 2,449 | 96.40% | 87.59% |
 | Dense audio set, rules first (default) | diagnostic | 2,449 | 94.92% | 86.24% |
 
 Development rows are in-sample.
 No held-out test score is available.
-Rows marked stale/superseded are historical diagnostics, not current-code benchmark results. Current evaluator fingerprints: rules 5548:39:jocd34, aux 8hsabx, engine 10n9rlk.
+Rows marked stale/superseded are historical diagnostics, not current-code benchmark results. Current evaluator fingerprints: rules 5548:39:jocd34, aux 8hsabx, engine 1y8z46n.
 <!-- evaluation-metrics:end -->
 
 The later [frozen audio comparison](docs/FROZEN_AUDIO_EXPERIMENT.md) is documented

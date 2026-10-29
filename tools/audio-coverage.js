@@ -18,13 +18,16 @@ function probeAudio(file) {
     const stat = fs.statSync(file);
     const key = `${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
     if (cache.get(file)?.key === key) return cache.get(file).value;
+    // CSV keeps hours-long files within the buffer (JSON is ~5x larger). Packet lines are
+    // "pts,duration[,side data...]"; the last line is the format start_time.
     const probe = spawnSync("ffprobe", ["-v", "error", "-select_streams", "a:0", "-show_packets",
-      "-show_entries", "packet=pts_time,duration_time:format=start_time", "-of", "json", file],
+      "-show_entries", "packet=pts_time,duration_time:format=start_time", "-of", "csv=p=0", file],
     { encoding: "utf8", timeout: 120000, maxBuffer: 64 * 1024 * 1024 });
     let value = null;
     if (probe.status === 0 && !probe.stderr.trim()) {
-      const body = JSON.parse(probe.stdout);
-      const packets = (body.packets || []).map((p) => [Number(p.pts_time), Number(p.duration_time)]);
+      const lines = probe.stdout.trim().split("\n");
+      const packets = lines.slice(0, -1).map((line) => line.split(",", 2).map(Number));
+      const body = { format: { start_time: lines.at(-1) } };
       if (packets.length && packets.every(([t, d]) => Number.isFinite(t) && Number.isFinite(d) && d > 0)) {
         const start = packets[0][0];
         let end = start, continuous = true;

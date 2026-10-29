@@ -16,6 +16,8 @@
   var currentCaptionTrackId = "";
   var activeVideoId = currentVideoId();
   var navigationPending = false;
+  // Counts navigation starts so a response from a superseded navigation is not relabeled.
+  var navigationGeneration = 0;
   var navigationWaiters = [];
 
   function currentVideoId() {
@@ -270,7 +272,7 @@
     });
   }
 
-  function processSabrResponse(response, responseVideoId, duringNavigation) {
+  function processSabrResponse(response, responseVideoId, duringNavigation, requestGeneration) {
     var streamId = nextAudioStreamId;
     nextAudioStreamId += 1;
     var cloned = response.clone();
@@ -279,7 +281,8 @@
       return waitForAudioDecision();
     }).then(function startWhenNeeded(needed) {
       var videoId = duringNavigation ? currentVideoId() : responseVideoId;
-      if (!needed || !videoId || videoId !== currentVideoId()) {
+      if (!needed || !videoId || videoId !== currentVideoId() ||
+          duringNavigation && requestGeneration !== navigationGeneration) {
         debugLog("audio stream skipped", {
           needed: needed,
           responseVideoId: responseVideoId,
@@ -338,13 +341,14 @@
   function uncensoredFetch() {
     var requestVideoId = currentVideoId();
     var requestDuringNavigation = navigationPending;
+    var requestGeneration = navigationGeneration;
 
     return originalFetch.apply(this, arguments).then(function observeAudio(response) {
       try {
         if (settings.whisperEnabled && (navigationPending ||
             settings.audioEnabled !== false && currentVideoId()) &&
             isGoogleVideoPlaybackUrl(response.url)) {
-          processSabrResponse(response, requestVideoId, requestDuringNavigation);
+          processSabrResponse(response, requestVideoId, requestDuringNavigation, requestGeneration);
         }
       } catch (error) {
         debugLog("fetch observation failed", error && (error.message || String(error)));
@@ -402,6 +406,7 @@
     installNetworkHooks();
     releaseNavigationWaiters();
     navigationPending = true;
+    navigationGeneration += 1;
   });
 
   globalThis.addEventListener("yt-navigate-finish", function navigationFinished() {

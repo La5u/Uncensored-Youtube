@@ -184,7 +184,7 @@
       compiler.regexLiteral(template.slice(blankAt)))
       .replace(/\\\[__\\\]/g, "\\[__\\]")
       .replace(/\\\*/g, WILDCARD_REGEX)
-      .replace(WORD_CLASS_REGEX, WILDCARD_REGEX);
+      .replace(WORD_CLASS_REGEX, "(" + WILDCARD_REGEX + ")");
     var suffix = endsSentence
       ? "(?=[^\\p{L}\\p{N}_'’]*$)"
       : endsWithSpace ? "(?=\\s|$)" : "(?=$|[^\\p{L}\\p{N}_'’])";
@@ -199,22 +199,21 @@
     };
   }
 
-  // Word positions of `<name>` tokens, checked after the wildcard regex matches.
+  // `<name>` tokens become capture groups 3, 4, ... after the prefix and full-match groups.
   function wordClassSlots(template) {
-    var slots = [];
-    (template.match(/<[a-z-]+>|[*]|\[__\]|[\p{L}\p{N}_']+/gu) || []).forEach(function slot(token, wordIndex) {
-      if (!/^<.+>$/.test(token)) return;
+    var slots = (template.match(WORD_CLASS_REGEX) || []).map(function slot(token, index) {
       var name = token.slice(1, -1);
       if (!WORD_CLASSES.has(name)) throw new Error("Unknown word class " + token + " in " + template);
-      slots.push({ wordIndex: wordIndex, words: WORD_CLASSES.get(name) });
+      return { group: index + 3, words: WORD_CLASSES.get(name) };
     });
     return slots.length ? slots : null;
   }
 
-  function matchesWordClasses(slots, matchedText) {
-    var words = ruleWords(matchedText);
+  // A class slot must hold exactly one lexical word; "3-D" or "x-ray" fail closed.
+  function matchesWordClasses(slots, match) {
     return slots.every(function member(slot) {
-      return words[slot.wordIndex] !== undefined && slot.words.has(words[slot.wordIndex]);
+      var words = ruleWords(match[slot.group]);
+      return words.length === 1 && slot.words.has(words[0]);
     });
   }
 
@@ -297,7 +296,7 @@
       spans.push({ start: match.index, end: match.index + match[0].length });
     }
 
-    return { words: words, spans: spans };
+    return { words: words, spans: spans, text: normalized };
   }
 
   function buildRuleTrie(compiledRules) {
@@ -345,6 +344,7 @@
       (function walkRulePath(node, wordIndex) {
         var exact;
         var wildcard;
+        var end;
 
         if (wordIndex > startIndex) {
           node.rules.forEach(function rememberRule(compiled) {
@@ -364,8 +364,12 @@
         exact = node.children.get(words[wordIndex]);
         wildcard = node.children.get(WILDCARD_TOKEN);
         if (exact) walkRulePath(exact, wordIndex + 1);
-        if (wildcard && wildcard !== exact && words[wordIndex] !== CENSORED_TOKEN) {
-          walkRulePath(wildcard, wordIndex + 1);
+        if (wildcard && wildcard !== exact) {
+          // The regex wildcard takes a whole non-space chunk, so "3-D" may span several words.
+          for (end = wordIndex; end < words.length && words[end] !== CENSORED_TOKEN; end += 1) {
+            walkRulePath(wildcard, end + 1);
+            if (end + 1 >= words.length || /\s/.test(wordData.text.slice(spans[end].end, spans[end + 1].start))) break;
+          }
         }
       })(RULE_TRIE, startIndex);
     });
@@ -625,7 +629,7 @@
           var tokenRange = findTokenRange(matchedText, compiled.rule.kept);
 
           if (!tokenRange) continue;
-          if (compiled.classSlots && !matchesWordClasses(compiled.classSlots, matchedText)) continue;
+          if (compiled.classSlots && !matchesWordClasses(compiled.classSlots, match)) continue;
 
           var tokenStart = matchStart + tokenRange.start;
           var tokenEnd = matchStart + tokenRange.end;
@@ -770,12 +774,15 @@
     });
   }
 
+  // Conservative cache check: true if a template could match the raw text or the text as
+  // applyDeterministicRules preprocesses it.
   function templatesMatch(templates, text) {
-    var candidateData = candidateRuleData(text);
+    var candidateData = [text, insertVirtualSentencePunctuation(ignoreNonSpeechLabels(normalizeCensoredTokens(text)))]
+      .map(candidateRuleData);
 
     return templates.some(function matchesTemplate(template) {
       var entry = RULE_ENTRIES_BY_TEMPLATE.get(template);
-      return Boolean(entry && candidateData.ranges.has(entry.index));
+      return Boolean(entry && candidateData.some(function hasRange(data) { return data.ranges.has(entry.index); }));
     });
   }
 
