@@ -360,14 +360,18 @@ function audioSection(audioPath, startSeconds, durationSeconds) {
     if (covers(audioPath, Math.max(0, startSeconds), startSeconds + durationSeconds, sourceDuration(dir, id))) {
       return { file: audioPath, offset: probeAudio(audioPath).offset };
     }
-    throw new Error(`No audio coverage for ${startSeconds}s+${durationSeconds}s of ${id}`);
+    throw coverageError(`No audio coverage for ${startSeconds}s+${durationSeconds}s of ${id}`);
   }
   const duration = sourceDuration(dir, match[1]);
   const file = audioFiles(dir, match[1]).find((candidate) =>
     /\.s\d+-\d+\.[^.]+$/.test(candidate) &&
     covers(candidate, Math.max(0, startSeconds), startSeconds + durationSeconds, duration));
   if (file) return { file, offset: probeAudio(file).offset };
-  throw new Error(`No audio section covers ${startSeconds}s+${durationSeconds}s of ${match[1]}`);
+  throw coverageError(`No audio section covers ${startSeconds}s+${durationSeconds}s of ${match[1]}`);
+}
+
+function coverageError(message) {
+  return Object.assign(new Error(message), { code: "NO_AUDIO_COVERAGE" });
 }
 
 function pcmSlice(audioPath, startSeconds, durationSeconds) {
@@ -542,8 +546,15 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults, reu
     : new Map();
   const selectedTokens = args.limit > 0 ? tokens.slice(0, args.limit) : tokens;
   const timelineIndex = new Map(timedData.timeline.map((event, index) => [event.eventIndex, index]));
-  const audioDecisions = await windowedAudioDecisions(args, audio, selectedTokens.filter((token) =>
-    shouldTranscribeToken(token, args.mode) && !(cachedResults && cachedResults.get(token.tokenIndex))), getTranscriber);
+  let audioDecisions;
+  try {
+    audioDecisions = await windowedAudioDecisions(args, audio, selectedTokens.filter((token) =>
+      shouldTranscribeToken(token, args.mode) && !(cachedResults && cachedResults.get(token.tokenIndex))), getTranscriber);
+  } catch (error) {
+    if (error.code !== "NO_AUDIO_COVERAGE") throw error;
+    // Incomplete or invalid audio skips this fixture instead of aborting the whole run.
+    return { name: fixture.name, skipped: true, reason: "incomplete audio coverage", audio, tokenCount: tokens.length };
+  }
   const results = [];
   let reusedSlotCount = 0;
 

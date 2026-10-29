@@ -78,6 +78,11 @@ const { runQueue, lockedFetch, sections, config } = require("../tools/fetch-held
       assert.strictEqual(hasAudio(dir, "video", null), true);
       fs.truncateSync(full, 0);
       assert.strictEqual(hasAudio(dir, "video", null), false);
+      fs.copyFileSync(path.join(dir, "reference.webm"), full);
+      const pathEnv = process.env.PATH;
+      process.env.PATH = "";
+      try { assert.throws(() => probeAudio(full), /Audio probe unavailable/, "missing tools must not read as invalid media"); }
+      finally { process.env.PATH = pathEnv; }
 
       // Exercise the real parent -> flock -> child -> mocked yt-dlp path, without network.
       if (spawnSync("flock", ["--version"]).status === 0) {

@@ -210,9 +210,6 @@ async function run(args = process.argv.slice(2)) {
     const deadline = Date.now() + ((config.until + (config.seek?.[0] || 0)) / config.rate + 180) * 1000;
     let lastError;
     while (Date.now() < deadline) {
-      if (supplies.some(dir => read(dir, 'type') === 'Battery') &&
-          !supplies.some(dir => read(dir, 'type') !== 'Battery' && read(dir, 'online') === '1'))
-        throw Error('AC power lost');
       if (interrupted) throw Error('Firefox smoke interrupted');
       if (launchError) throw launchError;
       if (child.exitCode !== null || child.signalCode !== null) throw Error('Firefox launcher exited prematurely');

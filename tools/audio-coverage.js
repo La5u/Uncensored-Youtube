@@ -13,40 +13,47 @@ function sourceDuration(dir, id) {
   } catch (_) { return null; }
 }
 
+// Tool failures (missing binary, timeout, buffer overflow) throw: "unknown" must never read as "invalid".
+function toolRan(result, name) {
+  if (result.error || result.status === null) {
+    throw new Error(`Audio probe unavailable (${name}): ${result.error?.message || result.signal}`);
+  }
+  return result;
+}
+
 function probeAudio(file) {
-  try {
-    const stat = fs.statSync(file);
-    const key = `${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
-    if (cache.get(file)?.key === key) return cache.get(file).value;
-    // CSV keeps hours-long files within the buffer (JSON is ~5x larger). Packet lines are
-    // "pts,duration[,side data...]"; the last line is the format start_time.
-    const probe = spawnSync("ffprobe", ["-v", "error", "-select_streams", "a:0", "-show_packets",
-      "-show_entries", "packet=pts_time,duration_time:format=start_time", "-of", "csv=p=0", file],
-    { encoding: "utf8", timeout: 120000, maxBuffer: 64 * 1024 * 1024 });
-    let value = null;
-    if (probe.status === 0 && !probe.stderr.trim()) {
-      const lines = probe.stdout.trim().split("\n");
-      const packets = lines.slice(0, -1).map((line) => line.split(",", 2).map(Number));
-      const body = { format: { start_time: lines.at(-1) } };
-      if (packets.length && packets.every(([t, d]) => Number.isFinite(t) && Number.isFinite(d) && d > 0)) {
-        const start = packets[0][0];
-        let end = start, continuous = true;
-        for (const [t, d] of packets) {
-          if (t > end + TOLERANCE) continuous = false;
-          end = Math.max(end, t + d);
-        }
-        const offset = Number(body.format?.start_time);
-        const decode = continuous && spawnSync("ffmpeg", ["-v", "error", "-i", file, "-map", "0:a:0", "-f", "null", "-"],
-          { encoding: "utf8", timeout: 120000, maxBuffer: 1024 * 1024 });
-        if (continuous && Number.isFinite(offset) && decode.status === 0 && !decode.stderr.trim()) {
-          value = { start, end, offset };
-        }
+  let stat;
+  try { stat = fs.statSync(file); } catch (_) { return null; }
+  const key = `${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+  if (cache.get(file)?.key === key) return cache.get(file).value;
+  // CSV keeps hours-long files within the buffer (JSON is ~5x larger). Packet lines are
+  // "pts,duration[,side data...]"; the last line is the format start_time.
+  const probe = toolRan(spawnSync("ffprobe", ["-v", "error", "-select_streams", "a:0", "-show_packets",
+    "-show_entries", "packet=pts_time,duration_time:format=start_time", "-of", "csv=p=0", file],
+  { encoding: "utf8", timeout: 120000, maxBuffer: 64 * 1024 * 1024 }), "ffprobe");
+  let value = null;
+  if (probe.status === 0 && !probe.stderr.trim()) {
+    const lines = probe.stdout.trim().split("\n");
+    const packets = lines.slice(0, -1).map((line) => line.split(",", 2).map(Number));
+    const body = { format: { start_time: lines.at(-1) } };
+    if (packets.length && packets.every(([t, d]) => Number.isFinite(t) && Number.isFinite(d) && d > 0)) {
+      const start = packets[0][0];
+      let end = start, continuous = true;
+      for (const [t, d] of packets) {
+        if (t > end + TOLERANCE) continuous = false;
+        end = Math.max(end, t + d);
+      }
+      const offset = Number(body.format?.start_time);
+      const decode = continuous && toolRan(spawnSync("ffmpeg", ["-v", "error", "-i", file, "-map", "0:a:0", "-f", "null", "-"],
+        { encoding: "utf8", timeout: 120000, maxBuffer: 1024 * 1024 }), "ffmpeg");
+      if (continuous && Number.isFinite(offset) && decode.status === 0 && !decode.stderr.trim()) {
+        value = { start, end, offset };
       }
     }
-    if (cache.size >= 512) cache.clear();
-    cache.set(file, { key, value });
-    return value;
-  } catch (_) { return null; }
+  }
+  if (cache.size >= 512) cache.clear();
+  cache.set(file, { key, value });
+  return value;
 }
 
 function covers(file, start, end, duration = null) {
