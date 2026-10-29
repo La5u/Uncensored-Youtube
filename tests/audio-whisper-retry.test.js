@@ -192,6 +192,32 @@ async function nearbyTokensShareWindow() {
   assert.strictEqual(h.posted.length, 2);
 }
 
+// A same-track refresh that rewrites a slot drops the old slot's in-flight result.
+async function sameTrackRefreshDropsStaleResult() {
+  let reply;
+  const h = makeHarness([(callback) => { reply = callback; }]);
+  h.start([h.token(0)]);
+  await h.advance(0);
+  assert.ok(reply, "the original slot is in flight");
+  h.audio.rememberTimedTextData({ tokens: [Object.assign(h.token(0), { context: "said [__] later" })], timeline: [] },
+    "track-a", "video-a");
+  reply({ decision: { decisions: [{ word: "fuck", evidence: "candidate-score" }] } });
+  await h.advance(0);
+  assert.ok(!h.posted.some((message) => message.uncensoredWhisperResolution &&
+    JSON.parse(message.uncensoredWhisperResolution).word === "fuck"), "stale result must not publish");
+}
+
+// Audio ends with the video, so a slot in its last 1.5 s must still get a window.
+async function endOfVideoSlotScored() {
+  const h = makeHarness([(callback) => callback({ decision: { decisions: [{ word: "fuck", evidence: "candidate-score" }] } })]);
+  h.video.currentTime = 8;
+  h.video.duration = 10;
+  h.start([h.token(0, 0, 9.5)], "track-a", "video-a", false, 10);
+  await h.advance(0);
+  assert.strictEqual(h.messages.filter((message) => message.type === "transcribe").length, 1);
+  assert.strictEqual(JSON.parse(h.posted[0].uncensoredWhisperResolution).word, "fuck");
+}
+
 async function passedSlotsNotScored() {
   const h = makeHarness([(callback) => callback({ decision: { decisions: [{ word: "fuck", evidence: "candidate-score" }] } })]);
   h.video.currentTime = 5;
@@ -316,6 +342,8 @@ async function hostFailuresAreRetryable() {
   await nearbyTokensShareWindow();
   await rulesFirstSkipsRuleFills();
   await passedSlotsNotScored();
+  await endOfVideoSlotScored();
+  await sameTrackRefreshDropsStaleResult();
   await staleWorkIsAborted();
   await trackAndSeekCancelBackoff();
   await lateSuccessDoesNotApply();

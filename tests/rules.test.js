@@ -783,6 +783,13 @@ for (const [input, expected] of [
   ["don't [__] care", "don't fucking care"], ["talking [__] about it", "talking shit about it"],
   ["some crazy [__]", "some crazy shit"], ["up in this [__]", "up in this bitch"]
 ]) assert.strictEqual(rules.applyDeterministicRules(input).text, expected);
+// Cache invalidation sees text the way runtime preprocesses it.
+assert.strictEqual(rules.applyDeterministicRules("piece [Music] of [__]").text, "piece   of shit");
+assert.ok(rules.templatesMatch(["piece of [__]"], "piece [Music] of [__]"));
+// `*` takes a whole non-space chunk, so hyphenated words and decimals reach the regex.
+for (const input of ["to build a [__]", "to build 3-D [__]", "to build 2.5 [__]"]) {
+  assert.strictEqual(rules.applyDeterministicRules(input).text, input.replace("[__]", "fucking"));
+}
 for (const input of [
   "I [__] house", "this [__] spaceship", "we might [__] believe", "we could [__] eat"
 ]) {

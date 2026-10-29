@@ -269,7 +269,7 @@
       spans.push({ start: match.index, end: match.index + match[0].length });
     }
 
-    return { words: words, spans: spans };
+    return { words: words, spans: spans, text: normalized };
   }
 
   function buildRuleTrie(compiledRules) {
@@ -317,6 +317,7 @@
       (function walkRulePath(node, wordIndex) {
         var exact;
         var wildcard;
+        var end;
 
         if (wordIndex > startIndex) {
           node.rules.forEach(function rememberRule(compiled) {
@@ -336,8 +337,12 @@
         exact = node.children.get(words[wordIndex]);
         wildcard = node.children.get(WILDCARD_TOKEN);
         if (exact) walkRulePath(exact, wordIndex + 1);
-        if (wildcard && wildcard !== exact && words[wordIndex] !== CENSORED_TOKEN) {
-          walkRulePath(wildcard, wordIndex + 1);
+        if (wildcard && wildcard !== exact) {
+          // The regex wildcard takes a whole non-space chunk, so "3-D" may span several words.
+          for (end = wordIndex; end < words.length && words[end] !== CENSORED_TOKEN; end += 1) {
+            walkRulePath(wildcard, end + 1);
+            if (end + 1 >= words.length || /\s/.test(wordData.text.slice(spans[end].end, spans[end + 1].start))) break;
+          }
         }
       })(RULE_TRIE, startIndex);
     });
@@ -736,12 +741,15 @@
     });
   }
 
+  // Conservative cache check: true if a template could match the raw text or the text as
+  // applyDeterministicRules preprocesses it.
   function templatesMatch(templates, text) {
-    var candidateData = candidateRuleData(text);
+    var candidateData = [text, insertVirtualSentencePunctuation(ignoreNonSpeechLabels(normalizeCensoredTokens(text)))]
+      .map(candidateRuleData);
 
     return templates.some(function matchesTemplate(template) {
       var entry = RULE_ENTRIES_BY_TEMPLATE.get(template);
-      return Boolean(entry && candidateData.ranges.has(entry.index));
+      return Boolean(entry && candidateData.some(function hasRange(data) { return data.ranges.has(entry.index); }));
     });
   }
 

@@ -471,10 +471,15 @@
     return output;
   }
 
+  // Audio ends with the media, so slots near the end must not wait for audio past it.
+  // A duration shorter than the slot time belongs to something else (an ad) and is ignored.
   function tokenWindow(token) {
+    var video = findVideo();
+    var duration = video && video.duration;
+    var endTime = token.timeSeconds + AUDIO_AFTER_SECONDS;
     return {
       startTime: Math.max(0, token.timeSeconds - AUDIO_BEFORE_SECONDS),
-      endTime: token.timeSeconds + AUDIO_AFTER_SECONDS
+      endTime: Number.isFinite(duration) && duration >= token.timeSeconds ? Math.min(endTime, duration) : endTime
     };
   }
 
@@ -853,6 +858,18 @@
     if (pendingTokens.size) watchCaptionMutations();
   }
 
+  // A same-track refresh can move or rewrite slots; pending and in-flight work for slots that
+  // are gone must not publish under a token index that now names different text.
+  function retireChangedTokens(tokens) {
+    var keys = new Set(tokens.map(tokenCacheKey));
+
+    pendingTokens.forEach(function retire(token, key) {
+      if (keys.has(key)) return;
+      token.captionGeneration = -1;
+      pendingTokens.delete(key);
+    });
+  }
+
   function rememberTimedTextData(data, trackId, videoId) {
     var trackChanged;
 
@@ -868,6 +885,8 @@
       resolvedTokens.clear();
       failedTokens.clear();
       lastPatchedCaptionText = "";
+    } else if (data.tokens && data.tokens.length) {
+      retireChangedTokens(data.tokens);
     }
     if (trackChanged || data.timeline && data.timeline.length) {
       captionTimeline = data.timeline || [];
