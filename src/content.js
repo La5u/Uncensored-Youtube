@@ -101,6 +101,8 @@
 
     if (audioEnabled === enabled) return;
     audioEnabled = enabled;
+    // End messages are dropped while disabled, so open streams would hold parser slots.
+    if (!enabled && sabrDecoder) sabrDecoder.reset();
     if (!enabled && hasCensoredSlots !== null) {
       debugLog("audio decoding stopped", { reason: "no censored captions" });
     }
@@ -186,7 +188,12 @@
         return injectScript(path);
       });
     }, Promise.resolve());
-  }).then(updateAudioNeeded, dispatchSettings);
+  }).then(function scriptsInjected() {
+    // Navigation may have changed the audio decision before the page hook existed, so
+    // updateAudioNeeded() can return early; always hand the hook the current settings.
+    updateAudioNeeded();
+    dispatchSettings();
+  }, dispatchSettings);
 
   window.addEventListener("uncensored-timedtext", function rememberTimedText(event) {
     var detail = event && event.detail;

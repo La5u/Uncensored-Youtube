@@ -183,4 +183,29 @@ const recovered = streamDecoder.push({ type: "chunk", streamId: 3, buffer: media
 assert.strictEqual(recovered.length, 1);
 assert.deepStrictEqual(Array.from(new Uint8Array(recovered[0].buffer)), [...freshWebmInit, 20, 21, 22]);
 
+// Unfinished segments and headers are bounded per stream; an exhausted stream is retired.
+// UMP sizes above 127 use UMP's length-prefixed varint, not protobuf's.
+function largePart(type, data) {
+  const size = data.length;
+  return concat([Uint8Array.from([type, 0xe0 | (size & 0x0f), (size >> 4) & 0xff, (size >> 12) & 0xff,
+    (size >> 20) & 0xff]), data]);
+}
+const unfinished = sabr.createParser({});
+const megabyte = concat([Uint8Array.from([5]), new Uint8Array(1024 * 1024)]);
+const unfinishedResults = [unfinished.push(part(20, header({ headerId: 5, itag: 140 })).buffer)];
+for (let i = 0; i < 20; i += 1) unfinishedResults.push(unfinished.push(largePart(21, megabyte).buffer));
+assert.strictEqual(unfinishedResults.indexOf(false), 17, "retired once retained bytes pass 16 MiB");
+assert.strictEqual(unfinished.retired(), true);
+const headerFlood = sabr.createParser({});
+assert.strictEqual(headerFlood.push(concat(Array.from({ length: 300 }, (_, index) =>
+  part(20, header({ headerId: index + 1, itag: 140 })))).buffer), false);
+const budgetDecoder = sabr.createStreamDecoder();
+budgetDecoder.push({ type: "chunk", streamId: 1, buffer: part(20, header({ headerId: 5, itag: 140 })).buffer });
+for (let i = 0; i < 17; i += 1) budgetDecoder.push({ type: "chunk", streamId: 1, buffer: largePart(21, megabyte).buffer });
+for (let streamId = 2; streamId <= 9; streamId += 1) {
+  budgetDecoder.push({ type: "chunk", streamId, buffer: decoderInit.buffer });
+}
+assert.strictEqual(budgetDecoder.push({ type: "chunk", streamId: 9, buffer: mediaPayload.buffer }).length, 1,
+  "a retired stream frees its parser slot");
+
 console.log("sabr-parser.test.js passed");

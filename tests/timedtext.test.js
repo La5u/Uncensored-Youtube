@@ -379,4 +379,10 @@ const overrideResult = JSON.parse(overrideBody);
 
 assert.strictEqual(overrideResult.events[0].segs.map((seg) => seg.utf8).join(""), "what the fuck did you just fucking call me");
 
+
+// Word-class fills are provisional: with Whisper on (resolveAmbiguous false) the body keeps the blank.
+const wordClassBody = JSON.stringify({ events: [{ tStartMs: 0, segs: [{ utf8: "we might [ __ ] believe" }] }] });
+assert.ok(!timedText.patchTimedTextBodyWithOverrides(wordClassBody, [], true, false).includes("fucking"));
+assert.ok(timedText.patchTimedTextBodyWithOverrides(wordClassBody, [], true, true).includes("fucking"));
+
 console.log("timedtext.test.js passed");

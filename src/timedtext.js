@@ -128,6 +128,11 @@
     return Array.from(new Set(candidates.concat(pieces[pieceIndex] || replacement.word))).filter(Boolean);
   }
 
+  // Word-class fills are provisional: rules-first still asks Whisper for them.
+  function isAmbiguousRule(rule) {
+    return rule.candidates.length > 1 || rule.groupId === "fallback/word-class";
+  }
+
   function deterministicTokenMap(replacements) {
     var byTokenIndex = new Map();
 
@@ -140,8 +145,7 @@
         byTokenIndex.set(replacement.tokenIndex + index, {
           word: pieces[index] || replacement.word,
           candidates: deterministicCandidatePieces(replacement, index),
-          // Word-class fills are provisional: rules-first still asks Whisper for them.
-          ambiguous: replacement.rule.candidates.length > 1 || replacement.rule.groupId === "fallback/word-class",
+          ambiguous: isAmbiguousRule(replacement.rule),
           replacement: replacement
         });
       }
@@ -363,7 +367,7 @@
     var tokenOffset = 0;
 
     result.replacements.forEach(function mapDeterministicReplacement(replacement) {
-      if (resolveAmbiguous !== false || replacement.rule.candidates.length === 1) {
+      if (resolveAmbiguous !== false || !isAmbiguousRule(replacement.rule)) {
         replacementByTokenIndex.set(replacement.tokenIndex, replacement);
       }
     });

@@ -4,6 +4,10 @@
 
   var MAX_CARRY_BYTES = 1024 * 1024;
   var MAX_PART_BYTES = 2 * 1024 * 1024;
+  // Per-stream budgets for init chunks, unfinished segments and media headers; a stream
+  // that exceeds them is retired rather than allowed to grow without bound.
+  var MAX_RETAINED_BYTES = 16 * 1024 * 1024;
+  var MAX_HEADERS = 256;
 
   function readUmpVarint(bytes, offset) {
     var first = bytes[offset];
@@ -170,18 +174,24 @@
     var carry = new Uint8Array(0);
     var headers = Object.create(null);
     var audio = new Map();
+    var retainedBytes = 0;
+    var headerCount = 0;
+    var retired = false;
     var onSegment = options && options.onSegment;
     var onInitSegment = options && options.onInitSegment;
 
     function resetState() {
       carry = new Uint8Array(0);
       headers = Object.create(null);
+      headerCount = 0;
       audio.clear();
+      retainedBytes = 0;
     }
 
     function resetScratch() {
       carry = new Uint8Array(0);
       headers = Object.create(null);
+      headerCount = 0;
     }
 
     function appendAudioChunk(header, chunk) {
@@ -192,6 +202,7 @@
       if (!header.itag || !chunk.length) {
         return;
       }
+      retainedBytes += chunk.length;
 
       entry = audio.get(key);
       if (!entry) {
@@ -235,6 +246,7 @@
       }
 
       delete entry.activeSegments[String(headerId)];
+      retainedBytes -= segment.bytes;
       chunks = entry.initChunks.concat(segment.chunks);
       if (onSegment) {
         onSegment({
@@ -252,6 +264,9 @@
         var combined;
         var parsed;
 
+        if (retired) {
+          return false;
+        }
         if (!buffer) {
           return true;
         }
@@ -277,6 +292,7 @@
           if (part.type === 20) {
             header = parseMediaHeader(part.data);
             if (header.headerId !== undefined) {
+              if (!headers[header.headerId]) headerCount += 1;
               headers[header.headerId] = header;
             }
           } else if (part.type === 21 && part.data.length) {
@@ -288,11 +304,20 @@
             headerId = readUmpVarint(part.data, 0);
             if (headerId) {
               finalizeSegment(headerId.value);
+              if (headers[headerId.value]) headerCount -= 1;
               delete headers[headerId.value];
             }
           }
         });
+        if (retainedBytes > MAX_RETAINED_BYTES || headerCount > MAX_HEADERS) {
+          resetState();
+          retired = true;
+          return false;
+        }
         return true;
+      },
+      retired: function isRetired() {
+        return retired;
       },
       flush: function flush() {
         Object.keys(headers).forEach(finalizeSegment);
@@ -300,6 +325,7 @@
       },
       reset: function reset() {
         resetState();
+        retired = false;
       }
     };
   }
@@ -330,6 +356,8 @@
       var pending = state.pending.get(key);
 
       if (hasWebmHeader(pending)) {
+        // A handful of audio itags is normal; do not let streams grow this cache without bound.
+        if (initByItag.size >= 16 && !initByItag.has(key)) initByItag.clear();
         initByItag.set(key, pending);
         return pending;
       }
@@ -382,7 +410,11 @@
         } else if (message.type === "chunk" && message.buffer) {
           if (!ignoredStreams.has(message.streamId)) {
             state = parsers.get(message.streamId) || parserFor(message.streamId);
-            if (state) state.parser.push(message.buffer);
+            if (state && !state.parser.push(message.buffer) && state.parser.retired()) {
+              parsers.delete(message.streamId);
+              ignoredStreams.add(message.streamId);
+              state = null;
+            }
           }
         } else if (message.type === "end") {
           ignoredStreams.delete(message.streamId);

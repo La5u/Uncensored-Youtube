@@ -140,6 +140,12 @@ rulesTrack.open("GET", captionUrl + "&name=rules");
 rulesTrack.finish('{"events":[{"segs":[{"utf8":"[__]"}]}]}');
 assert.strictEqual(deterministicModes.at(-1), true);
 
+// Reopening a patched XHR restores native responses for the next request.
+xhr.open("GET", "https://www.youtube.com/youtubei/v1/player");
+xhr.finish("next response");
+assert.strictEqual(xhr.responseText, "next response");
+assert.strictEqual(xhr.response, "next response");
+
 const plain = new FakeXHR();
 plain.open("GET", "https://www.youtube.com/youtubei/v1/player");
 plain.finish("plain response");
