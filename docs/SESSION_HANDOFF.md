@@ -76,8 +76,9 @@ open its captions or errors; score aggregates once per release with the current
   until integration tests on `main` and the prospective gate.
 
 **Next:**
-1. Prospective development validation per `tmp/word-class-prospective-dev-current/PLAN.md`
-   (frozen `frozen-model.json`): first build the creator/speaker exclusion union and freeze 12
+1. Prospective development validation per `tmp/word-class-prospective-dev-v2/PLAN.md`
+   (frozen `frozen-model.json`, refrozen 10-30 after `1d6c0c5` changed `src/rules.js`; the
+   v1 freeze in `-current/` aborted on that drift): first build the creator/speaker exclusion union and freeze 12
    novel creators (fewer → stay blocked). New downloads need fresh user approval, after the
    current queues finish, in a new isolated root with separate tier reports.
 2. Score that frozen bundle once against the predeclared gates; synthetic primary,
