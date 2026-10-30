@@ -22,7 +22,7 @@ const manual = data.rows.find((row) => row.id === "manual-auto");
 assert.ok(Math.abs(manual.correct / manual.attempted - 0.89598) < 0.00001);
 assert.strictEqual(data.rows.find((row) => row.id === "held-out-test").available, false);
 assert.strictEqual(data.rows.find((row) => row.id === "dense-audio-whisper").diagnostic, true);
-assert.strictEqual(data.rows.find((row) => row.id === "dense-audio-hybrid").correct, 2127);
+assert.strictEqual(data.rows.find((row) => row.id === "dense-audio-hybrid").correct, 2128);
 const staleRow = data.rows.find((row) => row.id === "manual-filmot-wave-20260905");
 assert.ok(staleRow.stale && staleRow.superseded);
 // Dense reports for all four modes are current-fingerprint diagnostics.

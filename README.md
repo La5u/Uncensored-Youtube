@@ -34,13 +34,13 @@ The canonical snapshot is [`docs/evaluation-metrics.json`](docs/evaluation-metri
 | Synthetic Filmot gap sample, rules-only | diagnostic (stale/superseded) | 110 | 85.37% | 31.82% |
 | Manual Filmot wave, rules-only | diagnostic (stale/superseded) | 275 | 69.72% | 27.64% |
 | Dense audio set, rules only | diagnostic | 2,493 | 95.18% | 49.10% |
-| Dense audio set, Whisper | diagnostic | 2,449 | 96.94% | 80.16% |
-| Dense audio set, Whisper first | diagnostic | 2,449 | 96.55% | 86.85% |
-| Dense audio set, rules first (default) | diagnostic | 2,449 | 95.41% | 84.89% |
+| Dense audio set, Whisper | diagnostic | 2,449 | 97.13% | 80.16% |
+| Dense audio set, Whisper first | diagnostic | 2,449 | 96.77% | 86.89% |
+| Dense audio set, rules first (default) | diagnostic | 2,449 | 95.45% | 85.71% |
 
 Development rows are in-sample.
 No held-out test score is available.
-Rows marked stale/superseded are historical diagnostics, not current-code benchmark results. Current evaluator fingerprints: rules 3795:39:11g0z2u, aux 8hsabx, engine hof9ii.
+Rows marked stale/superseded are historical diagnostics, not current-code benchmark results. Current evaluator fingerprints: rules 3795:39:11g0z2u, aux 8hsabx, engine 1xbkz1h.
 <!-- evaluation-metrics:end -->
 
 The later [frozen audio comparison](docs/FROZEN_AUDIO_EXPERIMENT.md) is documented
@@ -221,7 +221,7 @@ text-source notes are in
 ## Build
 
 ```sh
-./build.sh 1.6.1
+./build.sh 1.6.2
 ```
 
 This creates separate Chromium and Firefox ZIPs in `dist/`. See
