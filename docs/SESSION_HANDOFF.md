@@ -1,4 +1,4 @@
-# Session handoff — 2026-10-02
+# Session handoff — 2026-10-31
 
 Current state only; history is in git (`git log -p docs/SESSION_HANDOFF.md`) and the
 pre-09-24 archive `.tmp-archive/docs-20260924/SESSION_HANDOFF.md`. Preserve `tmp/`,
@@ -6,17 +6,17 @@ pre-09-24 archive `.tmp-archive/docs-20260924/SESSION_HANDOFF.md`. Preserve `tmp
 
 ## Restart here
 
-- **1.6.1 is committed (`release: 1.6.1`), not tagged or submitted.** 1.6.0 is live
-  on all stores (`v1.6.0`). 10-04 on AC: `npm run test:release` passed on the 1.6.1
-  build (web-ext lint 0/0, archive replay unchanged). Native headless Firefox
-  whisper-only an5 to 80 s: 17 decisions, 0 late, min lead 19.6 s; both adjacent-blank
-  captions showed distinct words ("fucking fuck you", "shit fuck she's here").
-  Chromium whisper-first two-tab check (`tmp/release-validation/two-tab-isolation.cjs`,
-  logs `161-{baseline,two-tab}.log`): an5 alone vs an5 with 2z8 playing concurrently;
-  every window with the same start/tokens gave identical words, the only differences
-  came from shifted windows (token 0 skipped as passed in the baseline; token 20
-  asshole/assholes in a 2:44 vs 2:47 window); 0 late/errors in both tabs, peak 3.1 GB.
-  Remaining: tag `v1.6.1`, submit `dist/*-1.6.1.zip`.
+- **1.6.2 is tagged (`v1.6.2`) and merged to `main`, not submitted.** `v1.6.1` is the
+  previous GitHub release. Rules match 1.6.1; word-class work stays on `word-class-rules`
+  (needs a rebase onto `main`). Checks 10-30/31: `npm run test:release` passed on the
+  build; held-out (aggregates, `tmp/heldout-score-1.6.2/`) synthetic identical in all four
+  modes, manual-auto slightly up; dense re-scored with fresh Whisper. Firefox headless
+  whisper-first and strict whisper-only with seek: 0 late. Chromium navigation (`--via=direct`),
+  two tabs (peak 3.2 GB) and 47-minute whisper-first (2.74 → 2.29 GB): 0 late, 0 errors.
+  Unseen creators, Firefox whisper-first and rules-first to 360 s: Doggie `OJLo4Xwddq8`
+  and Banana & Bread `Eu_gSVrTjCQ`, 0 late, min lead 57.9 s. Logs in `tmp/release-validation/`.
+  Known flake: "Empty visible caption DOM" means timedtext returned 200 with 0 events (3 runs,
+  including Off mode); rerun. Remaining: submit `dist/*-1.6.2.zip`.
 - **Held-out test set acquisition running (started 10-04)** in `tmp/heldout-20261004/`
   (`PLAN.md` = loosened admission rules; replaces the blocked 10-01 untouched lane). Roster
   frozen before any download: 22 creators (`roster.json`, sha256 in `roster.sha256`), all
@@ -233,7 +233,7 @@ off 0 filled, rules 9, rules-first 10, whisper-first 9, whisper 0 — as designe
    optimistic (its labels came from the analysis that motivated the fix). Details
    `tmp/adjacent-blanks/REPORT.md`. Remaining error class: same-family forms
    (fuck/fucking/fucker, motherfucker/motherfucking).
-2. **1.6.1**: all release checks passed (see Restart here); tag and submit.
+2. **1.6.2**: all release checks passed (see Restart here); submit.
 2b. **Word-form hints (experimental, may be scrapped)**: `tmp/word-form-hints/REPORT.md`.
    Caption context predicts the fuck-family form 75.1% vs 51.9% majority on held-out
    creators; no gain for other families. Next: with development audio, tune a same-family
