@@ -61,8 +61,16 @@ global.location = { href: "https://www.youtube.com/watch?v=test" };
 global.addEventListener = function addEventListener(type, listener) {
   navigationListeners[type] = listener;
 };
-global.requestAnimationFrame = function requestAnimationFrame(callback) { callback(); };
+// Frames run at once unless a test queues them to mimic a throttled (hidden) window.
+let queuedFrames = null;
+let captionObserverCallback = null;
+global.requestAnimationFrame = function requestAnimationFrame(callback) {
+  if (queuedFrames) queuedFrames.push(callback); else callback();
+};
 global.MutationObserver = class MutationObserver {
+  constructor(callback) {
+    captionObserverCallback = callback;
+  }
   disconnect() {}
   observe(target) {
     observedCaptionTargets.push(target);
@@ -175,6 +183,20 @@ audio.rememberTimedTextData({
   ]
 }, "lang=en&kind=formatted");
 assert.strictEqual(captionSegment.textContent, "Stop. Fucking hell");
+
+// A re-rendered cue with a resolved slot is patched in the observer callback, before paint,
+// even when animation frames are throttled; our own write does not trigger another patch.
+queuedFrames = [];
+const captionMutation = [{ target: { nodeType: 1, closest: () => true } }];
+captionSegment.textContent = "Stop. [__] hell";
+captionObserverCallback(captionMutation);
+assert.strictEqual(captionSegment.textContent, "Stop. Fucking hell");
+assert.strictEqual(queuedFrames.length, 0);
+captionObserverCallback(captionMutation);
+captionObserverCallback(captionMutation);
+assert.strictEqual(captionSegment.textContent, "Stop. Fucking hell");
+queuedFrames.splice(0).forEach((callback) => callback());
+queuedFrames = null;
 assert.strictEqual(audio.pendingTokenValues().length, 0);
 
 audio.setOptions({ rulesEnabled: false, whisperEnabled: true, audioEnabled: true });

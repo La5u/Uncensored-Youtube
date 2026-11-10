@@ -1103,7 +1103,9 @@
         lastPatchedCaptionText = "";
         return;
       }
-      scheduleVisibleCaptionResolution();
+      // Patch a freshly rendered cue before it paints; throttled frames (hidden or background
+      // windows) would otherwise show [__] for up to a second. Our own write is skipped above.
+      if (!applyResolvedVisibleTimeline()) scheduleVisibleCaptionResolution();
     });
     captionObserver.observe(target, {
       childList: true,
