@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Uncensored YouTube",
+  "name": "Uncensored YouTube – Restore Swear Words",
   "version": "1.6.2",
   "description": "Replaces the [ __ ] in YouTube's auto-generated captions with the real swear words. Runs locally, using Whisper speech recognition.",
   "icons": {
