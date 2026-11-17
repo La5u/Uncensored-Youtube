@@ -306,7 +306,7 @@ assert.deepStrictEqual(formattedSingleCandidate.deterministicCandidates, ["fucki
 assert.strictEqual(formattedSingleCandidate.deterministicAmbiguous, false);
 
 const broadGrammarPayload = {
-  events: ["[__] it", "[__] this", "[__] me", "[__] all", "you [__] up"].map((text) => ({
+  events: ["[__] it", "[__] those", "[__] me", "[__] all the", "you [__] up"].map((text) => ({
     segs: [{ utf8: text }]
   }))
 };
@@ -378,5 +378,11 @@ const overrideBody = timedText.patchTimedTextBodyWithOverrides(JSON.stringify(ov
 const overrideResult = JSON.parse(overrideBody);
 
 assert.strictEqual(overrideResult.events[0].segs.map((seg) => seg.utf8).join(""), "what the fuck did you just fucking call me");
+
+
+// Word-class fills are provisional: with Whisper on (resolveAmbiguous false) the body keeps the blank.
+const wordClassBody = JSON.stringify({ events: [{ tStartMs: 0, segs: [{ utf8: "we might [ __ ] believe" }] }] });
+assert.ok(!timedText.patchTimedTextBodyWithOverrides(wordClassBody, [], true, false).includes("fucking"));
+assert.ok(timedText.patchTimedTextBodyWithOverrides(wordClassBody, [], true, true).includes("fucking"));
 
 console.log("timedtext.test.js passed");

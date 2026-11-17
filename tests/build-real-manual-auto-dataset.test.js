@@ -161,7 +161,7 @@ try {
   assert.strictEqual(creatorKey({ creatorId: "UCAAAAAAAAAAAAAAAAAAAAAA", creator: "Different" }),
     "id:UCAAAAAAAAAAAAAAAAAAAAAA");
   assert.strictEqual(creatorKey({ creator: " Alice  " }), "name:alice");
-  assert.strictEqual(creatorKey({ creator: "unknown" }), "");
+  assert.strictEqual(creatorKey({ creator: "unknown" }), null);
   assert.deepStrictEqual(parseArgs(["--report", reportPath, "--provenance", provenancePath, "--folds", "3"]), {
     mode: "archived", fixturesDir: "test-fixtures", reportPaths: [reportPath], provenanceReports: [provenancePath],
     outputPath: ".tmp-real-manual-auto-dataset.json", foldCount: 3

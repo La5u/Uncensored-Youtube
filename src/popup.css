@@ -30,6 +30,67 @@ small {
   color: #52616f;
 }
 
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.switch input {
+  appearance: none;
+  position: relative;
+  width: 34px;
+  height: 20px;
+  margin: 0;
+  border-radius: 10px;
+  background: #9aa5b1;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.switch input::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: left 0.15s;
+}
+
+.switch input:checked {
+  background: #2563eb;
+}
+
+.switch input:checked::before {
+  left: 16px;
+}
+
+.switch input:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+#modeControls {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+#modeControls:disabled {
+  opacity: 0.45;
+}
+
+#modeControls:disabled #mode {
+  cursor: not-allowed;
+}
+
 #mode {
   width: 100%;
   margin: 0;
@@ -94,6 +155,15 @@ dd {
   margin: 0;
 }
 
+.option {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.option small {
+  margin-left: 20px;
+}
+
 footer {
   margin-top: 8px;
 }
@@ -101,4 +171,8 @@ footer {
 .version {
   margin: 0;
   text-align: right;
+}
+
+[hidden] {
+  display: none;
 }

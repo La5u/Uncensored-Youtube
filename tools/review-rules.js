@@ -657,4 +657,4 @@ if (require.main === module) {
     .catch(error => { console.error(error.message || error); process.exit(1); });
 }
 
-module.exports = { args: parseArgs, parseArgs, createServer, discoveryFeatureVector: miner.discoveryFeatureVector };
+module.exports = { parseArgs, createServer };

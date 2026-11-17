@@ -1,10 +1,12 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { spawnSync } = require("child_process");
 const rules = require("../src/rules");
 const ruleData = require("../src/rules-data");
 const timedText = require("../src/timedtext");
 const decision = require("../src/whisper-local");
+const acousticHead = require("../src/acoustic-head");
 const { align, manualSwearEvents } = require("./evaluation-alignment");
 const { buildProvenanceIndex, defaultReports } = require("./audit-caption-corpus");
 
@@ -49,7 +51,9 @@ function parseArgs(argv) {
     pairClass: "all",
     creatorManifest: "",
     creatorSplit: "all",
-    provenanceReports: ""
+    provenanceReports: "",
+    model: "",
+    acousticHead: "src/models/acoustic-head-cnn.bin"
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -352,18 +356,25 @@ function findAudio(audioDir, fixture) {
 // timestamps keep the original timeline; seek relative to each section's true start_time.
 function audioSection(audioPath, startSeconds, durationSeconds) {
   const match = path.basename(audioPath).match(/^(.+)\.s\d+-\d+\.\w+$/);
-  if (!match) return { file: audioPath, offset: 0 };
   const dir = path.dirname(audioPath);
-  for (const name of fs.readdirSync(dir)) {
-    const section = name.match(/^(.+)\.s(\d+)-(\d+)\.\w+$/);
-    if (section && section[1] === match[1] && Number(section[2]) <= Math.max(0, startSeconds) &&
-        startSeconds + durationSeconds <= Number(section[3])) {
-      const file = path.join(dir, name);
-      const probe = spawnSync("ffprobe", ["-v", "error", "-show_entries", "format=start_time", "-of", "csv=p=0", file]);
-      return { file, offset: Number(probe.stdout.toString()) };
+  const { audioFiles, sourceDuration, covers, probeAudio } = require("./audio-coverage");
+  if (!match) {
+    const id = path.basename(audioPath).replace(/\.[^.]+$/, "").split("_(")[0];
+    if (covers(audioPath, Math.max(0, startSeconds), startSeconds + durationSeconds, sourceDuration(dir, id))) {
+      return { file: audioPath, offset: probeAudio(audioPath).offset };
     }
+    throw coverageError(`No audio coverage for ${startSeconds}s+${durationSeconds}s of ${id}`);
   }
-  throw new Error(`No audio section covers ${startSeconds}s+${durationSeconds}s of ${match[1]}`);
+  const duration = sourceDuration(dir, match[1]);
+  const file = audioFiles(dir, match[1]).find((candidate) =>
+    /\.s\d+-\d+\.[^.]+$/.test(candidate) &&
+    covers(candidate, Math.max(0, startSeconds), startSeconds + durationSeconds, duration));
+  if (file) return { file, offset: probeAudio(file).offset };
+  throw coverageError(`No audio section covers ${startSeconds}s+${durationSeconds}s of ${match[1]}`);
+}
+
+function coverageError(message) {
+  return Object.assign(new Error(message), { code: "NO_AUDIO_COVERAGE" });
 }
 
 function pcmSlice(audioPath, startSeconds, durationSeconds) {
@@ -408,15 +419,22 @@ async function importTransformers() {
     "node_modules/@huggingface/transformers/dist/transformers.node.mjs"));
 }
 
-async function createTranscriber() {
+// The bundled tiny.en by default; --model <dir> loads another local export (evaluation only).
+function whisperModel(dir = "") {
+  return dir ? { name: path.basename(resolvePath(dir)), path: `${path.dirname(resolvePath(dir))}/` }
+    : { name: "whisper-tiny.en", path: "./src/models/" };
+}
+
+async function createTranscriber(dir = "") {
   const transformers = await importTransformers();
   const { pipeline, env } = transformers;
+  const model = whisperModel(dir);
 
   env.allowRemoteModels = false;
   env.allowLocalModels = true;
-  env.localModelPath = "./src/models/";
+  env.localModelPath = model.path;
 
-  const asr = await pipeline("automatic-speech-recognition", "whisper-tiny.en", {
+  const asr = await pipeline("automatic-speech-recognition", model.name, {
     dtype: "q8",
     device: "cpu"
   });
@@ -475,8 +493,9 @@ async function windowedAudioDecisions(args, audio, tokens, getTranscriber) {
     const scored = await decision.scoreSlots(transformers, asr, pcm, rules.ALLOWED_WORDS, group.map((token) => ({
       tokenIndex: token.tokenIndex,
       prefix: (token.precedingWords || []).filter((word) => word.time >= start),
-      nextWord: token.nextWord
-    })));
+      nextWord: token.nextWord,
+      time: token.timeSeconds - start
+    })), { acousticHead: args.acousticHeadModel });
     group.forEach((token, slot) => decisions.set(token.tokenIndex, scored[slot]));
   }
   return decisions;
@@ -538,8 +557,15 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults, reu
     : new Map();
   const selectedTokens = args.limit > 0 ? tokens.slice(0, args.limit) : tokens;
   const timelineIndex = new Map(timedData.timeline.map((event, index) => [event.eventIndex, index]));
-  const audioDecisions = await windowedAudioDecisions(args, audio, selectedTokens.filter((token) =>
-    shouldTranscribeToken(token, args.mode) && !(cachedResults && cachedResults.get(token.tokenIndex))), getTranscriber);
+  let audioDecisions;
+  try {
+    audioDecisions = await windowedAudioDecisions(args, audio, selectedTokens.filter((token) =>
+      shouldTranscribeToken(token, args.mode) && !(cachedResults && cachedResults.get(token.tokenIndex))), getTranscriber);
+  } catch (error) {
+    if (error.code !== "NO_AUDIO_COVERAGE") throw error;
+    // Incomplete or invalid audio skips this fixture instead of aborting the whole run.
+    return { name: fixture.name, skipped: true, reason: "incomplete audio coverage", audio, tokenCount: tokens.length };
+  }
   const results = [];
   let reusedSlotCount = 0;
 
@@ -675,8 +701,33 @@ function fixtureFingerprint(fixturesPath, fixture, censoredBody) {
   return contentFingerprint(`${censored}\n${uncensored}`);
 }
 
-function transcriptCacheResults(fixture, currentFingerprint) {
-  return fixture && currentFingerprint && fixture.contentFingerprint === currentFingerprint
+// Hash bytes, including source-end evidence: paths/size/mtime alone are not audio identity.
+function audioFingerprint(audioDir, fixture) {
+  const dir = resolvePath(audioDir), id = fixture.videoId || fixture.name;
+  try {
+    const names = fs.readdirSync(dir).filter((name) =>
+      ((name.startsWith(`${id}.`) || name.startsWith(`${id}_(`)) && /\.(webm|m4a|opus|mp3|wav)$/i.test(name)) ||
+      name === `${id}.source.json`).sort();
+    if (!names.some((name) => /\.(webm|m4a|opus|mp3|wav)$/i.test(name))) return "";
+    const hash = crypto.createHash("sha256"), buffer = Buffer.alloc(512 * 1024);
+    for (const name of names) {
+      const file = path.join(dir, name), before = fs.statSync(file);
+      const fd = fs.openSync(file, "r");
+      hash.update(`${name}\0${before.size}\0`);
+      try {
+        let count;
+        while ((count = fs.readSync(fd, buffer, 0, buffer.length, null))) hash.update(buffer.subarray(0, count));
+      } finally { fs.closeSync(fd); }
+      const after = fs.statSync(file);
+      if (["ino", "size", "mtimeMs", "ctimeMs"].some((key) => before[key] !== after[key])) return "";
+    }
+    return hash.digest("hex");
+  } catch (_) { return ""; }
+}
+
+function transcriptCacheResults(fixture, currentFingerprint, currentAudioFingerprint) {
+  return fixture && currentFingerprint && fixture.contentFingerprint === currentFingerprint &&
+    currentAudioFingerprint && fixture.audioFingerprint === currentAudioFingerprint
     ? new Map((fixture.results || []).map((result) => [result.tokenIndex, result]))
     : null;
 }
@@ -721,9 +772,16 @@ function decisionFingerprint() {
   ].map((value) => String(value)).join("\n"));
 }
 
-function transcriptGenerationFingerprint() {
+function transcriptGenerationFingerprint(model = "", head = "") {
   return contentFingerprint([
-    "candidate-scoring-v1",
+    "candidate-scoring-v3",
+    head ? contentFingerprint(fs.readFileSync(resolvePath(head)).toString("base64") +
+      fs.readFileSync(path.join(root, "src", "acoustic-head.js"), "utf8")) : "",
+    JSON.stringify(whisperModel(model)),
+    whisperModel,
+    fs.readFileSync(path.join(__dirname, "audio-coverage.js"), "utf8"),
+    audioSection,
+    audioFingerprint,
     fs.readFileSync(path.join(root, "src", "whisper-local.js"), "utf8"),
     audioWindowKey,
     findAudio,
@@ -1018,7 +1076,11 @@ async function main(argv = process.argv.slice(2)) {
   const cachedReport = args.transcripts
     ? JSON.parse(fs.readFileSync(resolvePath(args.transcripts), "utf8"))
     : null;
-  const transcriptGenerationFingerprintValue = transcriptGenerationFingerprint();
+  // --acousticHead <file> (default: the shipped head, as the extension runs it; "none" turns it off):
+  // fuses with the decoder (file with fusion parameters) or fills its uncertain slots (without them).
+  if (args.acousticHead === "none") args.acousticHead = "";
+  const transcriptGenerationFingerprintValue = transcriptGenerationFingerprint(args.model, args.acousticHead);
+  args.acousticHeadModel = args.acousticHead ? acousticHead.parse(fs.readFileSync(resolvePath(args.acousticHead))) : null;
   if (cachedReport) validateTranscriptCache(cachedReport, args, transcriptGenerationFingerprintValue);
   const cachedByFixture = new Map((cachedReport?.fixtures || [])
     .map((fixture) => [fixture.name, fixture]));
@@ -1028,7 +1090,7 @@ async function main(argv = process.argv.slice(2)) {
   let transcriberPromise = null;
   const getTranscriber = () => {
     if (args.mode === "rules-only") return Promise.resolve(null);
-    if (!transcriberPromise) transcriberPromise = createTranscriber();
+    if (!transcriberPromise) transcriberPromise = createTranscriber(args.model);
     return transcriberPromise;
   };
   const fixtures = [];
@@ -1053,7 +1115,8 @@ async function main(argv = process.argv.slice(2)) {
     reuseReport.creatorManifestFingerprint === (creatorManifest?.fingerprint || "") &&
     reuseReport.creatorSplit === args.creatorSplit &&
     reuseReport.unpairedMinBlanks === args.unpairedMinBlanks &&
-    reuseReport.decisionFingerprint === decisionFingerprintValue;
+    reuseReport.decisionFingerprint === decisionFingerprintValue &&
+    (args.mode === "rules-only" || reuseReport.transcriptGenerationFingerprint === transcriptGenerationFingerprintValue);
   const reusedByName = new Map((reuseCompatible && reuseReport.fixtures || [])
     .map((fixture) => [fixture.name, fixture]));
   const previousSignature = reuseCompatible && reuseReport.ruleSignature || null;
@@ -1083,7 +1146,9 @@ async function main(argv = process.argv.slice(2)) {
     minimumCreators: creatorManifest?.manifest.minimumCreators || 0,
     minimumSlots: creatorManifest?.manifest.minimumSlots || 0,
     provenanceReports: reportPaths.map((file) => path.relative(root, file)),
-    unpairedMinBlanks: args.unpairedMinBlanks
+    unpairedMinBlanks: args.unpairedMinBlanks,
+    whisperModel: whisperModel(args.model).name,
+    acousticHead: args.acousticHead
   };
   const reportFingerprints = {
     rulesFingerprint: fingerprint, rulesAuxFingerprint: auxiliaryFingerprint,
@@ -1105,10 +1170,12 @@ async function main(argv = process.argv.slice(2)) {
     let reusableResults = null;
     const body = fixtureBody(fixture);
     const currentFixtureFingerprint = fixtureFingerprint(fixturesPath, fixture, body);
+    const currentAudioFingerprint = args.mode === "rules-only" ? "" : audioFingerprint(args.audioDir, fixture);
     const transcriptResults = transcriptCacheResults(cachedByFixture.get(fixture.name),
-      currentFixtureFingerprint);
+      currentFixtureFingerprint, currentAudioFingerprint);
     if (cached && cached.results) {
-      const sameContent = cached.contentFingerprint && cached.contentFingerprint === currentFixtureFingerprint;
+      const sameContent = cached.contentFingerprint && cached.contentFingerprint === currentFixtureFingerprint &&
+        (args.mode === "rules-only" || (currentAudioFingerprint && cached.audioFingerprint === currentAudioFingerprint));
       if (sameContent) reusableResults = new Map(cached.results.map((result) => [result.tokenIndex, result]));
       if (sameContent && rulesUnchanged &&
           cached.results.every((result) => result.reviewContext)) {
@@ -1134,6 +1201,9 @@ async function main(argv = process.argv.slice(2)) {
       const evaluated = await evaluateFixture(
         args, fixture, getTranscriber, transcriptResults, reusableResults
       );
+      // If acquisition changed an input while scoring, do not make the result reusable.
+      evaluated.audioFingerprint = currentAudioFingerprint &&
+        audioFingerprint(args.audioDir, fixture) === currentAudioFingerprint ? currentAudioFingerprint : "";
       evaluated.pairClass = fixture.pairClass;
       evaluated.creator = fixture.creator;
       evaluated.creatorId = fixture.creatorId;
@@ -1222,6 +1292,7 @@ module.exports = {
   contentFingerprint,
   fixtureFingerprint,
   transcriptCacheResults,
+  audioFingerprint,
   auxiliaryRulesFingerprint,
   reviewContextForToken,
   ruleQualityGate,

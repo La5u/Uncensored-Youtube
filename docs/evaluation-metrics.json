@@ -133,20 +133,20 @@
       "diagnostic": true,
       "mode": "rules-only",
       "scoredSlots": 2493,
-      "attempted": 1286,
-      "correct": 1224,
-      "precision": 0.9517884914463453,
-      "coverage": 0.49097472924187724,
+      "attempted": 1407,
+      "correct": 1314,
+      "precision": 0.9339019189765458,
+      "coverage": 0.5270758122743683,
       "source": {
-        "report": "corpus/generated/dense-audio-162-rules-only.json",
-        "reportFingerprint": "sha256:834dace98d60c4f952eae594725cee030db558c286f8ca678c6360f663170629",
+        "report": "corpus/generated/dense-audio-v7-rules-only.json",
+        "reportFingerprint": "sha256:02e3d3e72e5c1c2e46039af464a342ffe1d918a3f145b7312cbf8da69f543429",
         "mode": "rules-only",
         "complete": true,
-        "rulesFingerprint": "3795:39:11g0z2u",
+        "rulesFingerprint": "5548:39:jocd34",
         "rulesAuxFingerprint": "8hsabx",
-        "rulesEngineFingerprint": "1xbkz1h"
+        "rulesEngineFingerprint": "1y8z46n"
       },
-      "note": "Dense development set (24+ creators, human expectedByToken overrides); gate and adjacent-blank variant chosen here. Fresh Whisper inference for 1.6.2 (cIrZX2tQAFI audio is private, skipped in audio modes); not held-out."
+      "note": "Dense development set (24+ creators, human expectedByToken overrides), not held-out. Word-class rules (tools/mine-word-class-rules.js) with provisional fills; replay from cached Whisper decisions after the timedtext.js change."
     },
     {
       "id": "dense-audio-whisper",
@@ -161,15 +161,15 @@
       "precision": 0.971301335972291,
       "coverage": 0.8015516537362188,
       "source": {
-        "report": "corpus/generated/dense-audio-162-whisper-scoring.json",
-        "reportFingerprint": "sha256:2828e3e47ae1e7c6340c563d0d505a8031dda1773a005e5986db5c908cd8cfcb",
+        "report": "corpus/generated/dense-audio-v7-whisper-scoring.json",
+        "reportFingerprint": "sha256:679856bd013a2a85c661df4028ea850c3bcd3f7dbf45e7877360c0a96bbfe88c",
         "mode": "whisper-only",
         "complete": true,
-        "rulesFingerprint": "3795:39:11g0z2u",
+        "rulesFingerprint": "5548:39:jocd34",
         "rulesAuxFingerprint": "8hsabx",
-        "rulesEngineFingerprint": "1xbkz1h"
+        "rulesEngineFingerprint": "1y8z46n"
       },
-      "note": "Dense development set (24+ creators, human expectedByToken overrides); gate and adjacent-blank variant chosen here. Fresh Whisper inference for 1.6.2 (cIrZX2tQAFI audio is private, skipped in audio modes); not held-out."
+      "note": "Dense development set (24+ creators, human expectedByToken overrides), not held-out. Word-class rules (tools/mine-word-class-rules.js) with provisional fills; replay from cached Whisper decisions after the timedtext.js change."
     },
     {
       "id": "dense-audio-hybrid",
@@ -179,20 +179,20 @@
       "diagnostic": true,
       "mode": "rules+whisper",
       "scoredSlots": 2449,
-      "attempted": 2199,
-      "correct": 2128,
-      "precision": 0.967712596634834,
-      "coverage": 0.8689260922825643,
+      "attempted": 2225,
+      "correct": 2145,
+      "precision": 0.9640449438202248,
+      "coverage": 0.8758677011024908,
       "source": {
-        "report": "corpus/generated/dense-audio-162-hybrid-scoring.json",
-        "reportFingerprint": "sha256:d856229246816dce690dd60036a9c0bd4062a2b13f394865fb67ae3100c41b57",
+        "report": "corpus/generated/dense-audio-v7-hybrid-scoring.json",
+        "reportFingerprint": "sha256:cd5b13ec8fd1e2b04ca628dcac88936d638fcbe0da1094e0b2143dc69989694e",
         "mode": "rules+whisper",
         "complete": true,
-        "rulesFingerprint": "3795:39:11g0z2u",
+        "rulesFingerprint": "5548:39:jocd34",
         "rulesAuxFingerprint": "8hsabx",
-        "rulesEngineFingerprint": "1xbkz1h"
+        "rulesEngineFingerprint": "1y8z46n"
       },
-      "note": "Dense development set (24+ creators, human expectedByToken overrides); gate and adjacent-blank variant chosen here. Fresh Whisper inference for 1.6.2 (cIrZX2tQAFI audio is private, skipped in audio modes); not held-out."
+      "note": "Dense development set (24+ creators, human expectedByToken overrides), not held-out. Word-class rules (tools/mine-word-class-rules.js) with provisional fills; replay from cached Whisper decisions after the timedtext.js change."
     },
     {
       "id": "dense-audio-rules-first",
@@ -202,20 +202,20 @@
       "diagnostic": true,
       "mode": "rules-first",
       "scoredSlots": 2449,
-      "attempted": 2199,
-      "correct": 2099,
-      "precision": 0.954524783992724,
-      "coverage": 0.8570845242956309,
+      "attempted": 2225,
+      "correct": 2112,
+      "precision": 0.9492134831460675,
+      "coverage": 0.8623928133932217,
       "source": {
-        "report": "corpus/generated/dense-audio-162-rules-first-scoring.json",
-        "reportFingerprint": "sha256:b4d6c76ea070e4a507116727143337e09b7281a71df6d3230acaaf06fa11c3be",
+        "report": "corpus/generated/dense-audio-v7-rules-first-scoring.json",
+        "reportFingerprint": "sha256:9b952b3b84bd62dbc2ba4a07d1362e92d6c6142f312aebfd7d66c5c33c6be830",
         "mode": "rules-first",
         "complete": true,
-        "rulesFingerprint": "3795:39:11g0z2u",
+        "rulesFingerprint": "5548:39:jocd34",
         "rulesAuxFingerprint": "8hsabx",
-        "rulesEngineFingerprint": "1xbkz1h"
+        "rulesEngineFingerprint": "1y8z46n"
       },
-      "note": "Dense development set (24+ creators, human expectedByToken overrides); gate and adjacent-blank variant chosen here. Fresh Whisper inference for 1.6.2 (cIrZX2tQAFI audio is private, skipped in audio modes); not held-out."
+      "note": "Dense development set (24+ creators, human expectedByToken overrides), not held-out. Word-class rules (tools/mine-word-class-rules.js) with provisional fills; replay from cached Whisper decisions after the timedtext.js change."
     }
   ]
 }

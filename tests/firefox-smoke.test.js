@@ -80,7 +80,7 @@ test('timing must be finite', () => {
     assert.throws(() => options(['--initial-only', flag]), /timing/);
   assert.equal(options(['--initial-only']).videoId, 'an5iFYcjWUM');
 });
-test('shared lock refuses competitors and releases ownership', async () => {
+test('shared lock refuses competitors and releases ownership', { skip: spawnSync('flock', ['--version']).status !== 0 && 'flock unavailable' }, async () => {
   const lock = await acquireLock();
   try { await assert.rejects(acquireLock(), /already running/); }
   finally { await releaseLock(lock); }

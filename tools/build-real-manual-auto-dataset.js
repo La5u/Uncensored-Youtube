@@ -4,6 +4,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { creatorKey } = require("./shared");
 const { currentChoice, localRows } = require("./audit-current-rules");
 const { currentFingerprints } = require("./evaluation-metrics");
 const { buildProvenanceIndex, fixturePart, EVIDENCE_POLICY } = require("./audit-caption-corpus");
@@ -20,7 +21,6 @@ const DEFAULT_FOLDS = 5;
 const DATASET_MODES = new Set(["faithful", "faithful-only", "archived", "archived-discovery"]);
 const CREATOR_ID = /^UC[A-Za-z0-9_-]{22}$/u;
 const MARKER = /\[\s*__\s*\]/gu;
-const UNKNOWN = /^(?:anonymous|na|n\/a|none|null|unknown)(?: creator)?$/u;
 const FOLD_METHOD = "sha256(creator-key) modulo fold-count; canonical creatorId, otherwise normalized creator name; unknown creators excluded";
 const SELECTION_POLICY = "whole-fixture; duplicate fixture versions use stable source-path precedence, never label counts";
 const FAITHFUL_POLICY = "raw local auto/manual fixtures; one row per aligned censored slot; archived evaluator contexts excluded";
@@ -30,14 +30,6 @@ const creatorName = (row) => text(row.creator).normalize("NFKC").replace(/\s+/gu
 const normalizedWord = (value) => text(value).toLowerCase().replace(/[.!?,;:]+$/u, "");
 const normalizedContext = (value) => text(value).normalize("NFKC").replace(/\s+/gu, " ")
   .replace(MARKER, "[__]").toLowerCase();
-const isUnknownCreator = (row) => !CREATOR_ID.test(text(row.creatorId)) &&
-  (!creatorName(row) || UNKNOWN.test(creatorName(row)));
-
-function creatorKey(row) {
-  const id = text(row.creatorId);
-  const name = creatorName(row);
-  return CREATOR_ID.test(id) ? `id:${id}` : name && !UNKNOWN.test(name) ? `name:${name}` : "";
-}
 
 function creatorFold(key, foldCount) {
   if (!key) return null;
@@ -188,7 +180,7 @@ function buildDataset({ mode, inputRows, foldCount, loaded, fixturesDir, provena
   const idsByName = new Map();
   inputRows.filter((row) => row.evidenceEligible !== false).forEach((row) => {
     const name = creatorName(row), id = text(row.creatorId);
-    if (!name || isUnknownCreator(row) || !CREATOR_ID.test(id)) return;
+    if (!name || !CREATOR_ID.test(id)) return;
     const ids = idsByName.get(name) || new Set(); ids.add(id); idsByName.set(name, ids);
   });
   const excluded = Object.fromEntries(["incompleteProvenance", "unlabeledExpected", "multiLabelExpected", "unknownCreator",
@@ -201,7 +193,7 @@ function buildDataset({ mode, inputRows, foldCount, loaded, fixturesDir, provena
     if (raw.expected.length !== 1) return fail("multiLabelExpected");
     const expected = normalizedWord(raw.expected[0]);
     if (!expected) return fail("invalidExpected");
-    if (isUnknownCreator(raw)) return fail("unknownCreator");
+    if (!creatorKey(raw)) return fail("unknownCreator");
     const key = resolvedCreatorKey(raw, idsByName);
     if (!key) return fail("ambiguousCreator");
     const context = mode === "faithful" ? raw.originalContext || raw.context : raw.context;

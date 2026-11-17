@@ -451,4 +451,4 @@ if (require.main === module) {
 }
 
 module.exports = { DEFAULT_REPORTS, DEFAULT_PROVENANCE_REPORTS, censoredSlotCount, compareText,
-  labeledExpected, loadArchivedRows, parseArgs };
+  labeledExpected, loadArchivedRows };

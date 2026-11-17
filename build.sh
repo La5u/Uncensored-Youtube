@@ -22,11 +22,13 @@ rm -rf "$dist/chromium"/* "$dist/firefox"/*
 
 for browser in chromium firefox; do
   cp "$root/manifest.$browser.json" "$dist/$browser/manifest.json"
-  sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$version\"/" "$dist/$browser/manifest.json"
+  # Avoid sed -i: GNU and macOS/BSD sed require different arguments.
+  sed "s/\"version\": \"[^\"]*\"/\"version\": \"$version\"/" "$dist/$browser/manifest.json" > "$dist/$browser/manifest.json.tmp"
+  mv "$dist/$browser/manifest.json.tmp" "$dist/$browser/manifest.json"
   # Copy runtime formats only; editor backups and research artifacts stay local.
   (cd "$root/src" && find . -type f \( -name '*.js' -o -name '*.mjs' \
     -o -name '*.html' -o -name '*.css' -o -name '*.json' -o -name '*.png' \
-    -o -name '*.wasm' -o -name '*.onnx' \) -print | while IFS= read -r file; do
+    -o -name '*.wasm' -o -name '*.onnx' -o -name '*.bin' \) -print | while IFS= read -r file; do
     mkdir -p "$dist/$browser/src/$(dirname "$file")"
     cp "$file" "$dist/$browser/src/$file"
   done)

@@ -49,7 +49,8 @@
     rulesEnabled: true,
     whisperEnabled: true,
     whisperFirst: false,
-    audioEnabled: true
+    audioEnabled: true,
+    acousticHead: true
   };
   function debugEnabled() {
     try {
@@ -238,7 +239,7 @@
     bgMessage("preload").then(function modelPreloaded(response) {
       if (response && (response.ready || response.ok)) {
         whisperModelState = "ready";
-        debugLog("whisper model started");
+        debugLog("whisper model started", { acousticHead: response.acousticHead || "unknown" });
       } else {
         whisperModelState = "idle";
         if (root.console && root.console.warn) {
@@ -523,6 +524,7 @@
   }
 
   function resolutionEnabled(resolution) {
+    if (/^acoustic-(head|fusion)$/.test(resolution.evidence) && !options.acousticHead) return false;
     return resolution.source === "media" ? options.whisperEnabled : options.rulesEnabled;
   }
 
@@ -595,6 +597,25 @@
       Boolean(token.deterministicAmbiguous);
   }
 
+  // Automatic mode: "Whisper first" only where a window takes at most 0.74 s + 0.64 s per blank,
+  // the largest cost a lateness replay of a real run fills without late words (docs/DEVELOPMENT.md).
+  // Stores the last windows' cost relative to that budget; content.js applies the choice at the next
+  // video start, never mid-video.
+  var SPEED_WINDOWS = 15;
+  var SPEED_MIN_WINDOWS = 5;
+  function recordWhisperSpeed(seconds, slots) {
+    var storage = runtime && runtime.storage && runtime.storage.local;
+    if (!storage) return;
+    storage.get({ whisperSpeed: [] }).then(function update(values) {
+      var speeds = values.whisperSpeed.concat(seconds / (0.74 + 0.64 * slots)).slice(-SPEED_WINDOWS);
+      var median = speeds.slice().sort(function ascending(a, b) { return a - b; })[Math.floor(speeds.length / 2)];
+      return storage.set({
+        whisperSpeed: speeds,
+        autoMode: speeds.length >= SPEED_MIN_WINDOWS && median <= 1 ? "whisper-first" : "rules-first"
+      });
+    }).catch(function ignoreStorageError() {});
+  }
+
   function markWhisperFailed(token) {
     if (tokenIsCurrent(token)) failedTokens.add(tokenCacheKey(token));
   }
@@ -609,9 +630,11 @@
       time: mediaTimestamp(startTime)
     });
     return whisperTranscribe(pcm, candidatesForToken(), "", {
+      acousticHead: options.acousticHead,
       slots: group.map(function slot(token) {
         return {
           tokenIndex: token.tokenIndex,
+          time: token.timeSeconds - startTime,
           prefix: (token.precedingWords || []).filter(function inWindow(word) { return word.time >= startTime; }),
           nextWord: token.nextWord,
           hybridRuleWord: options.rulesEnabled && (token.deterministicWord || token.contextWord) || "",
@@ -621,10 +644,13 @@
     }, function canRetryGroup() {
       return group.every(tokenIsCurrent) && options.whisperEnabled && options.audioEnabled;
     }).then(function resolvedDecisions(result) {
+      if (result.inferenceMs) recordWhisperSpeed(result.inferenceMs / 1000, group.length);
       return group.map(function resolution(token, index) {
         var decision = result.decisions[index] || {};
 
-        debugLog("whisper decision", { token: token.tokenIndex, word: decision.word || "", evidence: decision.evidence });
+        debugLog("whisper decision", Object.assign({ token: token.tokenIndex, word: decision.word || "",
+          evidence: decision.evidence }, decision.head ? { head: decision.head.word + " " + decision.head.p.toFixed(2) } : {},
+          decision.decoderWord !== undefined ? { decoder: decision.decoderWord } : {}));
         if (!decision.word) {
           markWhisperFailed(token);
           return null;
@@ -1157,6 +1183,7 @@
       var previousRulesEnabled = options.rulesEnabled;
       var previousWhisperEnabled = options.whisperEnabled;
       var previousWhisperFirst = options.whisperFirst;
+      var previousAcousticHead = options.acousticHead;
 
       nextOptions = nextOptions || {};
       if (!syncVideo(nextOptions.videoId)) return;
@@ -1164,8 +1191,9 @@
       options.whisperEnabled = nextOptions.whisperEnabled !== false;
       options.whisperFirst = nextOptions.whisperFirst === true;
       options.audioEnabled = nextOptions.audioEnabled !== false;
+      options.acousticHead = nextOptions.acousticHead !== false;
       if (previousRulesEnabled !== options.rulesEnabled || previousWhisperEnabled !== options.whisperEnabled ||
-          previousWhisperFirst !== options.whisperFirst) {
+          previousWhisperFirst !== options.whisperFirst || previousAcousticHead !== options.acousticHead) {
         captionGeneration += 1;
         pendingTokens.clear();
         failedTokens.clear();

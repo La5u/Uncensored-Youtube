@@ -261,13 +261,12 @@ try {
   assert.ok(!("leadsByTier" in discovered.discovery));
   assert.ok(!("wordSummary" in discovered.discovery));
   assert.ok(discovered.discovery.tiers["manual-auto"].leads.some((lead) => lead.conditions.some((condition) => condition.slotIndex === 1)));
-  assert.strictEqual(discovered.discovery.tiers.synthetic.leads.length, 0);
-  const syntheticRejected = discovered.discovery.tiers.synthetic.leads.summary.rejected["synthetic:-1:alpha,=>fuck"];
-  assert.ok(syntheticRejected);
-  assert.ok(syntheticRejected.reasons.includes("crossTierPrecision"));
-  assert.strictEqual(syntheticRejected.crossTier.status, "observed");
-  assert.deepStrictEqual(syntheticRejected.crossTier.counterexampleIds, ["b"]);
-  assert.deepStrictEqual(syntheticRejected.crossTier.unknownIds.sort(), ["ambiguous", "c"]);
+  // Synthetic is the primary tier: manual-auto contradictions are recorded, not a veto.
+  const syntheticLead = discovered.discovery.tiers.synthetic.leads.find((lead) => lead.id === "synthetic:-1:alpha,=>fuck");
+  assert.ok(syntheticLead);
+  assert.strictEqual(syntheticLead.crossTier.status, "observed");
+  assert.deepStrictEqual(syntheticLead.crossTier.counterexampleIds, ["b"]);
+  assert.deepStrictEqual(syntheticLead.crossTier.unknownIds.sort(), ["ambiguous", "c"]);
   const defaultDiscovery = learner.run(learner.parseArgs(["--dataset", discoveryPath, "--output", path.join(discoveryDirectory, "default-output.json"),
     "--max-depth", "1", "--min-support", "1", "--min-creators", "1", "--min-precision", "0.92", "--min-marginal-support", "1", "--min-marginal-precision", "0.92"]));
   assert.strictEqual(defaultDiscovery.options.before, 4);
@@ -361,11 +360,11 @@ try {
     { maxDepth: 1, phraseWords: 8, minSupport: 1, minCreators: 1, minPrecision: 0.92, minMarginalSupport: 1, minMarginalPrecision: 0, limit: 0 });
   const crossRejected = cross.tiers["manual-auto"].leads.summary.rejected;
   assert.ok(Object.values(crossRejected).some((entry) => entry.reasons.includes("crossTierPrecision")));
-  const crossRejectedEntry = Object.values(cross.tiers.synthetic.leads.summary.rejected).find((entry) => entry.reasons.includes("crossTierPrecision"));
-  assert.strictEqual(crossRejectedEntry.crossTier.status, "observed");
-  assert.strictEqual(crossRejectedEntry.crossTier.support, 2);
-  assert.deepStrictEqual(crossRejectedEntry.crossTier.counterexampleIds, ["manual-a", "manual-b"]);
-  assert.strictEqual("validated" in crossRejectedEntry.crossTier, false);
+  const crossSyntheticLead = cross.tiers.synthetic.leads.find((lead) => lead.crossTier);
+  assert.strictEqual(crossSyntheticLead.crossTier.status, "observed");
+  assert.strictEqual(crossSyntheticLead.crossTier.support, 2);
+  assert.deepStrictEqual(crossSyntheticLead.crossTier.counterexampleIds, ["manual-a", "manual-b"]);
+  assert.strictEqual("validated" in crossSyntheticLead.crossTier, false);
   const solo = learner.discoveryOutput({ rows: crossRows.filter((row) => row.pairClass === "manual-auto"), creators: new Map(), fixtures: new Set(), skipped: {} },
     { maxDepth: 1, phraseWords: 8, minSupport: 1, minCreators: 1, minPrecision: 0.92, minMarginalSupport: 1, minMarginalPrecision: 0, limit: 0 });
   const soloLead = solo.tiers["manual-auto"].leads.find((lead) => lead.target === "fuck");

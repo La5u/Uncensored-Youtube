@@ -16,6 +16,11 @@
   var WILDCARD_TOKEN = "*";
   var WILDCARD_REGEX = "(?:(?!\\[__\\])\\S)+";
   var RULE_WORD_REGEX = /[*]|\[__\]|[\p{L}\p{N}_']+/gu;
+  // `<name>` in a rule template matches one word from data.WORD_CLASSES[name].
+  var WORD_CLASS_REGEX = /<([a-z-]+)>/g;
+  var WORD_CLASSES = new Map(Object.entries(data.WORD_CLASSES || {}).map(function classSet(entry) {
+    return [entry[0], new Set(entry[1].map(function lower(word) { return word.toLowerCase(); }))];
+  }));
   var SENTENCE_END_REGEX = /[.!?]/;
   var QUESTION_PHRASE_REGEX = /(?:whatever|what|how|why|where|who|when)\s+the\s*$/i;
   var PRONOUN_START_REGEX = /^\s*(?:I|you|he|she|they|we|it)\b/;
@@ -178,7 +183,8 @@
     var escaped = (compiler.regexLiteral(template.slice(0, blankAt), true) +
       compiler.regexLiteral(template.slice(blankAt)))
       .replace(/\\\[__\\\]/g, "\\[__\\]")
-      .replace(/\\\*/g, WILDCARD_REGEX);
+      .replace(/\\\*/g, WILDCARD_REGEX)
+      .replace(WORD_CLASS_REGEX, "(" + WILDCARD_REGEX + ")");
     var suffix = endsSentence
       ? "(?=[^\\p{L}\\p{N}_'’]*$)"
       : endsWithSpace ? "(?=\\s|$)" : "(?=$|[^\\p{L}\\p{N}_'’])";
@@ -186,10 +192,29 @@
     return {
       index: index,
       rule: rule,
+      classSlots: wordClassSlots(template),
       regex: new RegExp((startsSentence ? "(^)" : startsWithPunctuation ? "()" : "(^|[^\\p{L}\\p{N}_'’])") +
         "(" + escaped + ")" +
         suffix, "giu")
     };
+  }
+
+  // `<name>` tokens become capture groups 3, 4, ... after the prefix and full-match groups.
+  function wordClassSlots(template) {
+    var slots = (template.match(WORD_CLASS_REGEX) || []).map(function slot(token, index) {
+      var name = token.slice(1, -1);
+      if (!WORD_CLASSES.has(name)) throw new Error("Unknown word class " + token + " in " + template);
+      return { group: index + 3, words: WORD_CLASSES.get(name) };
+    });
+    return slots.length ? slots : null;
+  }
+
+  // A class slot must hold exactly one lexical word; "3-D" or "x-ray" fail closed.
+  function matchesWordClasses(slots, match) {
+    return slots.every(function member(slot) {
+      var words = ruleWords(match[slot.group]);
+      return words.length === 1 && slot.words.has(words[0]);
+    });
   }
 
   var RULE_ENTRIES = DETERMINISTIC_RULES.map(function createRuleEntry(rule, index) {
@@ -205,7 +230,9 @@
 
   function ensureCompiled(entry) {
     if (!entry.regex) {
-      entry.regex = compileRule(entry.rule, entry.index).regex;
+      var compiled = compileRule(entry.rule, entry.index);
+      entry.regex = compiled.regex;
+      entry.classSlots = compiled.classSlots;
     }
     return entry;
   }
@@ -276,7 +303,7 @@
     var rootNode = trieNode();
 
     compiledRules.forEach(function addRule(compiled) {
-      var words = ruleWords(compiled.rule.template);
+      var words = ruleWords(compiled.rule.template.replace(WORD_CLASS_REGEX, WILDCARD_TOKEN));
       var node = rootNode;
 
       words.forEach(function addWord(word) {
@@ -293,7 +320,7 @@
 
   var RULE_TRIE = buildRuleTrie(RULE_ENTRIES);
   var MAX_RULE_WORDS = DETERMINISTIC_RULES.reduce(function longestRule(length, rule) {
-    return Math.max(length, ruleWords(rule.template).length);
+    return Math.max(length, ruleWords(rule.template.replace(WORD_CLASS_REGEX, WILDCARD_TOKEN)).length);
   }, 0);
 
   function candidateRuleData(text) {
@@ -410,14 +437,18 @@
     };
   }
 
-  function findTokenRange(value) {
+  // Blanks listed in `kept` (by order in the match) stay out of the filled range.
+  function findTokenRange(value, kept) {
     CENSORED_TOKEN_REGEX.lastIndex = 0;
     var match;
     var firstMatch = null;
     var end = 0;
     var count = 0;
+    var ordinal = 0;
 
     while ((match = CENSORED_TOKEN_REGEX.exec(value)) !== null) {
+      ordinal += 1;
+      if (kept && kept.indexOf(ordinal - 1) !== -1) continue;
       if (!firstMatch) {
         firstMatch = match;
       }
@@ -595,9 +626,10 @@
           var matchStart = globalMatchIndex + prefix.length;
           var matchEnd = globalMatchIndex + fullMatch.length;
 
-          var tokenRange = findTokenRange(matchedText);
+          var tokenRange = findTokenRange(matchedText, compiled.rule.kept);
 
           if (!tokenRange) continue;
+          if (compiled.classSlots && !matchesWordClasses(compiled.classSlots, match)) continue;
 
           var tokenStart = matchStart + tokenRange.start;
           var tokenEnd = matchStart + tokenRange.end;
@@ -617,7 +649,8 @@
           var overlap = occupiedRanges.find(function overlaps(occupied) {
             return tokenStart < occupied.end && tokenEnd > occupied.start;
           });
-          if (tokenRange.count === 1 && isAdjacentToCensoredToken(normalizedText, tokenStart, tokenEnd)) continue;
+          if (tokenRange.count === 1 && !compiled.rule.kept &&
+              isAdjacentToCensoredToken(normalizedText, tokenStart, tokenEnd)) continue;
 
           if (overlap && !tracing) continue;
           var decision = candidateDecision(compiled.rule, policy);
@@ -671,7 +704,7 @@
 
           var formattedWord = formatReplacement(decision.word,
             normalizedText.slice(0, tokenStart), normalizedText.slice(tokenEnd),
-            normalizedText.slice(matchStart, Math.max(matchEnd, tokenEnd)));
+            normalizedText.slice(matchStart, compiled.rule.kept ? tokenEnd : Math.max(matchEnd, tokenEnd)));
 
           var replacement = {
             rule: compiled.rule,

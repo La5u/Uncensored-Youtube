@@ -37,11 +37,51 @@ assert.ok(injectedScripts.every((script, index) => index === injectedScripts.len
   content.indexOf(`"${script}"`) < content.indexOf(`"${injectedScripts[index + 1]}"`)));
 assert.ok(popup.includes('id="mode" type="range" min="0" max="4"'));
 assert.ok(popup.includes('id="versionLabel"'));
+assert.ok(popup.includes('id="enabled" type="checkbox" role="switch" checked'));
 // The popup's five slider stops and content.js's mode table must stay in step.
 const popupModes = [...popupScript.matchAll(/\{ id: "([a-z-]+)"/gu)].map((match) => match[1]);
-assert.deepStrictEqual(popupModes, ["off", "rules", "rules-first", "whisper-first", "whisper"]);
-assert.ok(popupModes.every((mode) => content.includes(`${mode.includes("-") ? `"${mode}"` : mode}: [`)));
-assert.ok(popupScript.includes('var DEFAULT_MODE = "rules-first";'));
+assert.deepStrictEqual(popupModes, ["rules", "rules-first", "auto", "whisper-first", "whisper"]);
+assert.ok(popupModes.every((mode) => mode === "auto" || content.includes(`${mode.includes("-") ? `"${mode}"` : mode}: [`)));
+assert.ok(popupScript.includes('var DEFAULT_MODE = "auto";'));
+
+// Popup: stored values pick the slider stop; Automatic shows what it currently uses.
+async function popupShows(stored) {
+  const elements = {};
+  const element = (id) => elements[id] || (elements[id] = { setAttribute() {}, addEventListener() {} });
+  require("vm").runInNewContext(popupScript, {
+    document: { getElementById: element },
+    chrome: { runtime: { getManifest: () => ({ version: "1" }) },
+      storage: { local: { get: (defaults) => Promise.resolve(Object.assign({}, defaults, stored)) } } }
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  return { mode: popupModes[elements.mode.value], current: elements.modeCurrent.hidden ? null : elements.modeCurrent.textContent,
+    cpu: elements.modeCpu.textContent, soundCheck: !elements.acousticHead.disabled, enabled: !elements.modeControls.disabled };
+}
+(async () => {
+  assert.deepStrictEqual(await popupShows({}), { mode: "auto", current: "Currently: measuring", cpu: "Moderate", soundCheck: true, enabled: true });
+  assert.deepStrictEqual(await popupShows({ autoMode: "whisper-first", whisperSpeed: [1, 1, 1, 1, 1] }),
+    { mode: "auto", current: "Currently: Whisper first", cpu: "High", soundCheck: true, enabled: true });
+  assert.strictEqual((await popupShows({ rulesEnabled: true, whisperEnabled: true })).mode, "auto");
+  assert.strictEqual((await popupShows({ whisperEnabled: false })).mode, "rules");
+  assert.deepStrictEqual(await popupShows({ mode: "rules" }), { mode: "rules", current: null, cpu: "Minimal", soundCheck: false, enabled: true });
+  // Stored "off" and legacy both-off become the switch off with the slider at Automatic.
+  for (const stored of [{ mode: "off" }, { rulesEnabled: false, whisperEnabled: false }]) {
+    const shown = await popupShows(stored);
+    assert.deepStrictEqual([shown.mode, shown.enabled], ["auto", false]);
+  }
+  assert.deepStrictEqual(await popupShows({ enabled: false, mode: "whisper" }).then((shown) => [shown.mode, shown.enabled]), ["whisper", false]);
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+// The acoustic head: one popup switch, on by default, loaded where Whisper runs (both browsers' worker).
+assert.ok(popup.includes('id="acousticHead" type="checkbox" checked'));
+assert.ok(popupScript.includes("acousticHead: true") && content.includes("acousticHead: true"));
+const worker = read("src/whisper-module-worker.js");
+assert.ok(worker.includes('import "./acoustic-head.js";'));
+assert.ok(worker.includes('UncensoredAcousticHead.load(new URL("./models/acoustic-head-cnn.bin"'));
+assert.ok(worker.includes("acousticHead: options.acousticHead === false ? null : head"));
+assert.ok(worker.includes('acousticHead: head.model ? "loaded" : "unavailable: " + head.error'));
 
 const captionSegment = { textContent: "fucking" };
 let captionSegments = [captionSegment];

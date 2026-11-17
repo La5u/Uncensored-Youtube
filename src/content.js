@@ -3,7 +3,7 @@
 
   var runtime = globalThis.browser || globalThis.chrome;
   var sabrDecoder = globalThis.UncensoredSabrParser && globalThis.UncensoredSabrParser.createStreamDecoder();
-  // Popup modes: [rulesEnabled, whisperEnabled, whisperFirst].
+  // Popup modes (off: the popup switch): [rulesEnabled, whisperEnabled, whisperFirst].
   var MODE_SETTINGS = {
     off: [false, false, false],
     rules: [true, false, false],
@@ -14,8 +14,13 @@
   var settings = {
     rulesEnabled: true,
     whisperEnabled: true,
-    whisperFirst: false
+    whisperFirst: false,
+    acousticHead: true
   };
+  // Automatic: the mode measured on this device (audio-capture.js), applied only at video start
+  // so words never switch mid-video.
+  var storedMode = { mode: null };
+  var autoMode = "rules-first";
   var INJECT_VERSION = String(Date.now());
   var audioEnabled = null;
   var hasCensoredSlots = null;
@@ -90,6 +95,7 @@
     videoId = videoId || currentVideoId();
     if (videoId === activeVideoId) return;
     activeVideoId = videoId;
+    applyMode(storedMode);
     audioEnabled = null;
     hasCensoredSlots = null;
     if (sabrDecoder) sabrDecoder.reset();
@@ -144,17 +150,30 @@
     }
 
     return runtime.storage.local.get({
+      enabled: true,
       mode: null,
       rulesEnabled: true,
-      whisperEnabled: true
-    }).then(applyMode, function keepDefaults() {});
+      whisperEnabled: true,
+      acousticHead: true,
+      autoMode: autoMode
+    }).then(function loaded(values) {
+      storedMode = values;
+      autoMode = values.autoMode;
+      applyMode(values);
+      settings.acousticHead = values.acousticHead !== false;
+    }, function keepDefaults() {});
   }
 
-  // Settings before 1.6 stored two switches; both on maps to the default "rules first".
+  // The on/off switch is `enabled`. Older settings stored mode "off" or (before 1.6) two
+  // switches; both switches off means disabled, both on (or nothing stored) means Automatic.
   function applyMode(values) {
-    var mode = MODE_SETTINGS[values.mode] ? values.mode
-      : values.rulesEnabled === false ? (values.whisperEnabled === false ? "off" : "whisper")
-        : values.whisperEnabled === false ? "rules" : "rules-first";
+    var chosen = MODE_SETTINGS[values.mode] || values.mode === "auto";
+    var mode = values.enabled === false || values.mode === "off" ||
+        !chosen && values.rulesEnabled === false && values.whisperEnabled === false ? "off"
+      : chosen ? values.mode
+        : values.rulesEnabled === false ? "whisper" : values.whisperEnabled === false ? "rules" : "auto";
+
+    if (mode === "auto") mode = MODE_SETTINGS[autoMode] ? autoMode : "rules-first";
 
     settings.rulesEnabled = MODE_SETTINGS[mode][0];
     settings.whisperEnabled = MODE_SETTINGS[mode][1];
@@ -171,11 +190,17 @@
         return;
       }
 
-      if (!changes.mode) {
+      if (changes.autoMode) autoMode = changes.autoMode.newValue;
+      if (!changes.enabled && !changes.mode && !changes.acousticHead) {
         return;
       }
 
-      applyMode({ mode: changes.mode.newValue });
+      if (changes.enabled || changes.mode) {
+        if (changes.enabled) storedMode.enabled = changes.enabled.newValue;
+        if (changes.mode) storedMode.mode = changes.mode.newValue;
+        applyMode(storedMode);
+      }
+      if (changes.acousticHead) settings.acousticHead = changes.acousticHead.newValue !== false;
       updateAudioNeeded();
       window.setTimeout(dispatchSettings, 0);
     });

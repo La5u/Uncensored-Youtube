@@ -23,6 +23,19 @@ assert.throws(() => evaluator.validateTranscriptCacheWindow({ audioWindowKey: "s
   /Regenerate it with --shift 0/u);
 const generationFingerprint = evaluator.transcriptGenerationFingerprint();
 assert.ok(generationFingerprint);
+const originalReadFileSync = fs.readFileSync;
+try {
+  fs.readFileSync = function changedCoverageCode(file, ...options) {
+    const value = originalReadFileSync.call(fs, file, ...options);
+    return String(file) === path.resolve(__dirname, "../tools/audio-coverage.js") ? `${value}\n// changed coverage policy` : value;
+  };
+  assert.notStrictEqual(evaluator.transcriptGenerationFingerprint(), generationFingerprint,
+    "coverage implementation changes must invalidate transcript caches");
+} finally { fs.readFileSync = originalReadFileSync; }
+assert.strictEqual(evaluator.transcriptGenerationFingerprint(), generationFingerprint);
+assert.strictEqual(args.model, "");
+assert.notStrictEqual(evaluator.transcriptGenerationFingerprint("tmp/models/whisper-base.en"), generationFingerprint,
+  "another Whisper model must never reuse tiny.en transcripts");
 const completeTranscriptCache = {
   mode: "whisper-only",
   complete: true,
@@ -54,6 +67,8 @@ assert.strictEqual(args.creatorSplit, "all");
 assert.strictEqual(args.contextEvents, 4);
 assert.strictEqual(args.rulesScoring, "strict");
 assert.strictEqual(args.unpairedMinBlanks, 0);
+// The evaluator runs the shipped acoustic head by default, as the extension does.
+assert.strictEqual(args.acousticHead, "src/models/acoustic-head-cnn.bin");
 assert.strictEqual(evaluator.parseArgs(["--discoverPaired", "true"]).discoverPaired, true);
 assert.strictEqual(evaluator.parseArgs(["--discoverUnpaired", "true"]).discoverUnpaired, true);
 assert.strictEqual(evaluator.parseArgs(["--pairClass", "auto-auto"]).pairClass, "auto-auto");
@@ -248,14 +263,32 @@ const cacheFixture = { name: "fixture", censored: "fixture_auto.json3", uncensor
 fs.writeFileSync(path.join(temporaryFixtureDirectory, cacheFixture.censored), "censored-v1");
 fs.writeFileSync(path.join(temporaryFixtureDirectory, cacheFixture.uncensored), "manual-v1");
 const cachedFixtureFingerprint = evaluator.fixtureFingerprint(temporaryFixtureDirectory, cacheFixture);
+fs.writeFileSync(path.join(temporaryFixtureDirectory, "fixture.webm"), "audio-v1");
+const cachedAudioFingerprint = evaluator.audioFingerprint(temporaryFixtureDirectory, cacheFixture);
 const transcriptCache = { fixtures: [{ ...cacheFixture, contentFingerprint: cachedFixtureFingerprint,
-  results: [{ tokenIndex: 0, transcript: "cached" }] }] };
-assert.strictEqual(evaluator.transcriptCacheResults(transcriptCache.fixtures[0], cachedFixtureFingerprint)
+  audioFingerprint: cachedAudioFingerprint, results: [{ tokenIndex: 0, transcript: "cached" }] }] };
+assert.strictEqual(evaluator.transcriptCacheResults(transcriptCache.fixtures[0], cachedFixtureFingerprint, cachedAudioFingerprint)
   .get(0).transcript, "cached");
+assert.strictEqual(evaluator.transcriptCacheResults(transcriptCache.fixtures[0], cachedFixtureFingerprint), null,
+  "missing audio identity must fail closed");
+assert.strictEqual(evaluator.transcriptCacheResults({ contentFingerprint: cachedFixtureFingerprint, results: [] },
+  cachedFixtureFingerprint, cachedAudioFingerprint), null, "legacy reports must not reuse audio decisions");
+fs.writeFileSync(path.join(temporaryFixtureDirectory, "fixture.webm"), "audio-v2");
+const changedAudioFingerprint = evaluator.audioFingerprint(temporaryFixtureDirectory, cacheFixture);
+assert.notStrictEqual(changedAudioFingerprint, cachedAudioFingerprint, "same-size audio changes invalidate cache");
+assert.strictEqual(evaluator.transcriptCacheResults(transcriptCache.fixtures[0], cachedFixtureFingerprint, changedAudioFingerprint), null);
+fs.writeFileSync(path.join(temporaryFixtureDirectory, "fixture.source.json"), JSON.stringify({ videoId: "fixture", duration: 20 }));
+const metadataFingerprint = evaluator.audioFingerprint(temporaryFixtureDirectory, cacheFixture);
+assert.notStrictEqual(metadataFingerprint, changedAudioFingerprint, "source-end evidence participates in identity");
+fs.writeFileSync(path.join(temporaryFixtureDirectory, "fixture.s10-20.webm"), "new-section");
+assert.notStrictEqual(evaluator.audioFingerprint(temporaryFixtureDirectory, cacheFixture), metadataFingerprint);
+fs.unlinkSync(path.join(temporaryFixtureDirectory, "fixture.webm"));
+fs.unlinkSync(path.join(temporaryFixtureDirectory, "fixture.s10-20.webm"));
+assert.strictEqual(evaluator.audioFingerprint(temporaryFixtureDirectory, cacheFixture), "");
 fs.writeFileSync(path.join(temporaryFixtureDirectory, cacheFixture.censored), "censored-v2");
 const changedFixtureFingerprint = evaluator.fixtureFingerprint(temporaryFixtureDirectory, cacheFixture);
 assert.notStrictEqual(changedFixtureFingerprint, cachedFixtureFingerprint);
-assert.strictEqual(evaluator.transcriptCacheResults(transcriptCache.fixtures[0], changedFixtureFingerprint), null);
+assert.strictEqual(evaluator.transcriptCacheResults(transcriptCache.fixtures[0], changedFixtureFingerprint, cachedAudioFingerprint), null);
 fs.rmSync(temporaryFixtureDirectory, { recursive: true, force: true });
 assert.strictEqual(evaluator.reviewContextForToken([
   { eventIndex: 0, firstTokenIndex: 0, text: "one" },

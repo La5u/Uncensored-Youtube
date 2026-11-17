@@ -10,6 +10,7 @@
     "rules:review": "node tools/review-rules.js"
   },
   "devDependencies": {
-    "@huggingface/transformers": "^4.2.0"
+    "@huggingface/transformers": "^4.2.0",
+    "compromise": "14.14.4"
   }
 }

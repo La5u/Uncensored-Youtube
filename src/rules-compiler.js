@@ -133,11 +133,20 @@
 
   function rule(authoredPattern, priority, groupId) {
     var candidateGroups = [];
+    var kept = [];
+    var blankCount = 0;
+    // A literal [__] matches one blank and leaves it as [__].
     var template = authoredPattern.replace(/\[([^\]]+)\]/gu, function replaceCandidates(match, groupValue) {
       var candidates = groupValue.split("|");
 
+      if (groupValue === "__") {
+        kept.push(blankCount);
+        blankCount += 1;
+        return CENSORED_TOKEN;
+      }
       candidateGroups.push(candidates);
       return candidates[0].split(/\s+/u).map(function tokenPlaceholder() {
+        blankCount += 1;
         return CENSORED_TOKEN;
       }).join(" ");
     });
@@ -157,6 +166,7 @@
       template: template,
       candidates: Object.freeze(candidates)
     };
+    if (kept.length) compiled.kept = Object.freeze(kept);
     if (priority !== null && priority !== undefined) {
       compiled.priority = priority;
       compiled.groupId = groupId;

@@ -35,6 +35,13 @@ const prioritized = compiler.compileGroups([
 ]);
 assert.deepStrictEqual(prioritized.map((rule) => rule.groupId), ["earlier", "later"]);
 assert.ok(prioritized[0].priority < prioritized[1].priority);
+// A literal [__] keeps its blank: it is no candidate group and stays out of the filled blanks.
+assert.deepStrictEqual(
+  compiler.compileGroups([compiler.group("kept", [
+    compiler.pattern`xx [fucking] [__]`, compiler.pattern`[__] [shit] yy`
+  ])]).map((rule) => [rule.template, rule.candidates, rule.kept]),
+  [["xx [__] [__]", ["fucking"], [1]], ["[__] [__] yy", ["shit"], [0]]]
+);
 assert.throws(() => compiler.set("duplicate", ["same", "same"]), /Duplicate value/);
 assert.deepStrictEqual(compiler.expand(compiler.patterns(["oh [shit]", "why [fuck]"])[1]), ["why [fuck]"]);
 assert.throws(() => compiler.patterns([]), /nonempty array/);

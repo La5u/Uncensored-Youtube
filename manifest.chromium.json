@@ -4,7 +4,7 @@
   "message_serialization": "structured_clone",
   "name": "Uncensored YouTube",
   "version": "1.6.2",
-  "description": "Restores words censored in YouTube's automatic captions.",
+  "description": "Replaces the [ __ ] in YouTube's auto-generated captions with the real swear words. Runs locally, using Whisper speech recognition.",
   "icons": {
     "16": "src/icons/icon-16.png",
     "32": "src/icons/icon-32.png",

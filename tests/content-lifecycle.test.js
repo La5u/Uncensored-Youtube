@@ -6,6 +6,7 @@ const listeners = {};
 const messages = [];
 const settingsEvents = [];
 let injected = 0;
+let storageListener = null;
 const context = {
   URL,
   URLSearchParams,
@@ -38,6 +39,11 @@ const context = {
     }
   },
   browser: {
+    storage: {
+      // No explicit mode choice; this device was measured fast enough for Whisper first.
+      local: { get(defaults) { return Promise.resolve(Object.assign({}, defaults, { acousticHead: false, autoMode: "whisper-first" })); } },
+      onChanged: { addListener(listener) { storageListener = listener; } }
+    },
     runtime: {
       getURL(path) { return "chrome-extension://test/" + path; },
       sendMessage(message) {
@@ -92,6 +98,46 @@ assert.strictEqual(decoderResets, resetsWhileActive + 1);
   const last = settingsEvents.at(-1);
   assert.ok(injected > 0 && last.injected === injected, "settings dispatched after the last script loads");
   assert.strictEqual(last.detail.audioEnabled, false);
+  // The stored acoustic-head switch reaches the hook and audio capture, and follows changes.
+  assert.strictEqual(last.detail.acousticHead, false);
+  storageListener({ acousticHead: { newValue: true } }, "local");
+  assert.strictEqual(settingsEvents.at(-1).detail.acousticHead, true);
+
+  // Automatic mode: no explicit choice uses the measured mode, changed only at video start.
+  const mode = () => settingsEvents.at(-1).detail.whisperFirst;
+  const navigate = (videoId) => {
+    context.location.href = "https://www.youtube.com/watch?v=" + videoId;
+    listeners["yt-navigate-finish"]();
+  };
+  assert.strictEqual(mode(), true);
+  storageListener({ autoMode: { newValue: "rules-first" } }, "local");
+  sendTrack("censored", "lang=en");
+  assert.strictEqual(mode(), true, "no switch mid-video");
+  navigate("next");
+  assert.strictEqual(settingsEvents.at(-1).detail.videoId, "next");
+  assert.strictEqual(mode(), false, "applied at the next video start");
+  // An explicit popup choice applies at once and sticks across automatic updates and videos.
+  storageListener({ mode: { newValue: "whisper-first" } }, "local");
+  assert.strictEqual(mode(), true);
+  storageListener({ autoMode: { newValue: "rules-first" } }, "local");
+  navigate("third");
+  assert.strictEqual(settingsEvents.at(-1).detail.videoId, "third");
+  assert.strictEqual(mode(), true);
+  // Choosing Automatic again applies the measured mode at once.
+  storageListener({ mode: { newValue: "auto" } }, "local");
+  assert.strictEqual(mode(), false);
+  // The popup switch turns everything off at once, across videos, keeping the chosen mode.
+  const active = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const detail = settingsEvents.at(-1).detail;
+    return [detail.rulesEnabled, detail.whisperEnabled];
+  };
+  storageListener({ enabled: { newValue: false } }, "local");
+  assert.deepStrictEqual(await active(), [false, false]);
+  navigate("fourth");
+  assert.deepStrictEqual(await active(), [false, false]);
+  storageListener({ enabled: { newValue: true }, mode: { newValue: "rules" } }, "local");
+  assert.deepStrictEqual(await active(), [true, false]);
   console.log("content-lifecycle.test.js passed");
 })().catch((error) => {
   console.error(error);

@@ -21,7 +21,8 @@ try {
   put('README.md');
   const runtime = ['timedtext.js', 'rule-data/exact.js', 'offscreen.html', 'popup.css',
     'icons/icon-16.png', 'vendor/runtime.mjs', 'vendor/runtime.wasm',
-    'models/whisper/config.json', 'models/whisper/onnx/encoder_model_quantized.onnx'];
+    'models/whisper/config.json', 'models/whisper/onnx/encoder_model_quantized.onnx',
+    'models/acoustic-head-cnn.bin'];
   const excluded = ['timedtext.js.pre-bandaid-backup', 'rules.js.bak', 'popup.css~',
     'notes.md', 'scratch.py', '__pycache__/scratch.pyc'];
   for (const file of [...runtime, ...excluded]) put(`src/${file}`);
@@ -36,6 +37,7 @@ try {
     for (const file of runtime) assert.equal(fs.readFileSync(path.join(output, 'src', file), 'utf8'), 'fixture');
     for (const file of [...excluded, 'stale.js']) assert.equal(fs.existsSync(path.join(output, 'src', file)), false, file);
     assert.equal(JSON.parse(fs.readFileSync(path.join(output, 'manifest.json'))).version, '1.2.3');
+    assert.equal(fs.existsSync(path.join(output, 'manifest.json.tmp')), false);
   }
 } finally {
   fs.rmSync(root, { recursive: true, force: true });

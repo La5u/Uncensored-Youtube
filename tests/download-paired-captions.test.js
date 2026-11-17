@@ -20,6 +20,7 @@ const {
   parseArgs,
   prospectiveTargetStatus,
   recordCheckedVideo,
+  resumeBudgetMet,
   runYtDlp,
   saveCheckedVideoLedger,
   summarizePairItems,
@@ -153,6 +154,24 @@ for (const message of [
   assert.strictEqual(transientFailure({ status: 1, stdout: "", stderr: message }), true, message);
 }
 assert.strictEqual(transientFailure({ status: 1, stdout: "", stderr: "invalid subtitle language" }), false);
+{
+  const done = { queueComplete: true, checked: 4, pairedSaved: 1, newSlots: 5 };
+  const run = { pairTarget: 1000, audioTarget: 0, maxCheck: 4, newSlotCap: 0 };
+  assert.strictEqual(resumeBudgetMet(done, run, 0, 0), true);
+  assert.strictEqual(resumeBudgetMet(done, { ...run, maxCheck: 8 }, 0, 0), false);
+  assert.strictEqual(resumeBudgetMet({ ...done, queueComplete: false }, run, 0, 0), false);
+  assert.strictEqual(resumeBudgetMet({ ...done, checked: 1 }, { ...run, newSlotCap: 5 }, 0, 0), true);
+  assert.strictEqual(resumeBudgetMet({ ...done, checked: 1 }, { ...run, newSlotCap: 50 }, 0, 0), false);
+  const listed = { ...done, checked: 1, availableEntries: 2, items: [{ id: "a", status: "no-allowed-words" }] };
+  const wide = { ...run, maxCheck: 60, samplePerChannel: 60 };
+  const failed = { id: "b", status: "transient-failure" };
+  assert.strictEqual(resumeBudgetMet(listed, wide, 0, 0), false);
+  assert.strictEqual(resumeBudgetMet({ ...listed, items: [...listed.items, { id: "b", status: "paired-saved" }] }, wide, 0, 0), true);
+  assert.strictEqual(resumeBudgetMet({ ...listed, items: [...listed.items, failed, failed] }, wide, 0, 0), false);
+  assert.strictEqual(resumeBudgetMet({ ...listed, items: [...listed.items, failed, failed, failed] }, wide, 0, 0), true);
+  assert.strictEqual(resumeBudgetMet({ ...listed, availableEntries: 300 }, { ...wide, samplePerChannel: 1 }, 0, 0), true);
+  assert.strictEqual(resumeBudgetMet({ queueComplete: true, listUnavailable: true, checked: 0 }, wide, 0, 0), true);
+}
 assert.strictEqual(allConfiguredChannelsComplete(
   [{ name: "one" }, { name: "two" }],
   [{ name: "one", queueComplete: true }]

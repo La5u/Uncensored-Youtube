@@ -10,6 +10,7 @@
       : "";
   var DEFAULT_MODEL = "whisper-tiny.en";
   var transcriberPromise = null;
+  var warmedUp = false;
 
   function debugEnabled() {
     try {
@@ -59,8 +60,10 @@
         return transformers.pipeline("automatic-speech-recognition", DEFAULT_MODEL, {
           dtype: "q8",
           device: "wasm",
+          // "basic" halves decoder step time (2026-11-17); "all" fails to load the q8 decoder and
+          // gains the encoder only ~3%.
           session_options: {
-            graphOptimizationLevel: "disabled"
+            graphOptimizationLevel: "basic"
           }
         }).then(function loaded(transcriber) {
           debugLog("whisper model ready");
@@ -101,9 +104,9 @@
   // it outranks the cached rule); if Whisper abstains, the rule fill remains.
   function arbitrateHybridResolution(ruleWord, resolution, ruleSource) {
     if (!resolution || !resolution.word) {
-      return ruleWord ? {
+      return ruleWord ? Object.assign({
         word: ruleWord, words: [ruleWord], source: ruleSource || "deterministic", evidence: "rule"
-      } : resolution;
+      }, resolution && resolution.head ? { head: resolution.head } : {}) : resolution;
     }
     return ruleWord ? Object.assign({}, resolution, { hybridCrossFamily: true }) : resolution;
   }
@@ -148,13 +151,17 @@
     return transformers.cat(Array(count).fill(tensor), 0);
   }
 
-  // Whisper pads every input with silence to 30 s (3000 frames). Compute the log-mel
-  // of the real audio only (a zero tail keeps the last STFT window identical) and fill
-  // the rest with the value silence normalises to: (max(logMax - 8, log10(1e-10)) + 4) / 4.
+  // Whisper pads every input with silence to 30 s (3000 frames), 61-63% of a typical window.
+  // Encode only the real audio plus 2 s of silence (the encoder accepts fewer frames; see
+  // docs/DEVELOPMENT.md): log-mel of the real audio (a zero tail keeps the last STFT window
+  // identical), the rest filled with the value silence normalises to: (max(logMax - 8, log10(1e-10)) + 4) / 4.
+  var SILENCE_TAIL_FRAMES = 200;
   async function extractFeatures(transformers, asr, audio) {
     var extractor = asr.processor.feature_extractor;
-    var frames = extractor.config.nb_max_frames;
-    var waveform = new Float32Array(Math.min(audio.length + extractor.config.n_fft, frames * extractor.config.hop_length));
+    var hop = extractor.config.hop_length;
+    var maxFrames = extractor.config.nb_max_frames;
+    var frames = Math.min(maxFrames, 2 * Math.ceil((audio.length / hop + SILENCE_TAIL_FRAMES) / 2));
+    var waveform = new Float32Array(Math.min(audio.length + extractor.config.n_fft, maxFrames * hop));
     var mel;
     var used;
     var data = new Float32Array(extractor.config.feature_size * frames);
@@ -162,17 +169,17 @@
     var bin;
     var index;
 
-    if (waveform.length === frames * extractor.config.hop_length) {
+    if (waveform.length === maxFrames * hop) {
       return (await asr.processor(audio)).input_features;
     }
     waveform.set(audio.subarray(0, waveform.length));
     mel = await extractor._extract_fbank_features(waveform);
     try {
-      used = mel.dims[1];
+      used = Math.min(mel.dims[1], frames);
       for (index = 0; index < mel.data.length; index += 1) maxValue = Math.max(maxValue, mel.data[index]);
       data.fill((Math.max(4 * maxValue - 4 - 8, -10) + 4) / 4);
       for (bin = 0; bin < mel.dims[0]; bin += 1) {
-        data.set(mel.data.subarray(bin * used, (bin + 1) * used), bin * frames);
+        data.set(mel.data.subarray(bin * mel.dims[1], bin * mel.dims[1] + used), bin * frames);
       }
       return new transformers.Tensor("float32", data, [1, mel.dims[0], frames]);
     } finally {
@@ -180,7 +187,7 @@
     }
   }
 
-  // Whisper always encodes 30 s, so one encoding serves every slot in the window.
+  // One encoding serves every slot in the window.
   async function encodeAudio(transformers, asr, audio) {
     var features = await extractFeatures(transformers, asr, audio);
     try {
@@ -195,6 +202,8 @@
   // Closed-set scoring: teacher-force each candidate (lower-case and capitalised)
   // after the caption words heard since the window start, then the next caption
   // word. Gate on log P(candidate); choose among gated words by log P(candidate + next).
+  // Every decision also carries `scores` (decoded words) and `prunedMax` (best first-token bound of
+  // the variants not decoded; -Infinity when none), which the acoustic head reads.
   async function scoreCandidates(transformers, asr, hidden, candidates, options) {
     var tokenizer = asr.tokenizer;
     var model = asr.model;
@@ -219,6 +228,7 @@
       // A variant's first token bounds its score. Keep variants within 2 of the gate
       // because capitalised and lower-case variants are summed per word.
       var live = [];
+      var prunedMax = -Infinity;
       var start;
       var best = "";
 
@@ -227,6 +237,7 @@
           var ids = encode(" " + form);
           if (index && form === word) return;
           if (first(ids[0]) >= MIN_LOG_PROB - 2) live.push({ word: word, ids: ids.concat(nextIds), length: ids.length });
+          else prunedMax = Math.max(prunedMax, first(ids[0]));
         });
       });
 
@@ -296,9 +307,14 @@
         if (scores[word].word < MIN_LOG_PROB) return;
         if (!best || scores[word].withNext > scores[best].withNext) best = word;
       });
-      return best
+      return Object.assign(best
         ? { word: best, words: [best], transcript: "", evidence: "candidate-score", score: scores[best].word }
-        : emptyDecision();
+        : emptyDecision(), {
+        scores: Object.keys(scores).map(function scoreEntry(word) {
+          return { word: word, logp: scores[word].word, withNext: scores[word].withNext };
+        }),
+        prunedMax: prunedMax
+      });
     } finally {
       if (pre) disposeAll(Object.values(pre), [hidden]);
     }
@@ -312,7 +328,27 @@
   // text or timed caption words, where an earlier blank ({ tokenIndex }) is replaced by the
   // word heard for that slot in this window, else dropped: adjacent blanks would otherwise
   // share one prefix and repeat the same word.
-  async function scoreSlots(transformers, asr, audio, candidates, slots) {
+  // Optional (off unless options.acousticHead is a parsed src/acoustic-head.js model and the slot
+  // has `time`, seconds from the audio start): where the decoder abstained or nearly tied, the
+  // acoustic head may fill the slot ("acoustic-head"). When the file carries fusion parameters, the
+  // head is consulted on every slot and the fused word replaces the decoder's ("acoustic-fusion").
+  // The prefix chain keeps the decoder's word.
+  function applyAcousticHead(head, hidden, decision, seconds, candidates, fusion) {
+    var api = root.UncensoredAcousticHead || require("./acoustic-head");
+    if (!fusion && !api.uncertain(decision, MIN_LOG_PROB, head.margin)) return decision;
+    var crop = api.crop(head, hidden.data, hidden.dims[1], seconds);
+    var probs = api.forward(head, crop.x, crop.mask);
+    var word = fusion ? api.fuse(head, probs, decision, candidates, MIN_LOG_PROB).word : api.choose(head, probs, candidates);
+    // `head` (top word and probability) records that the head was consulted, filled or not.
+    var consulted = Object.assign({}, decision, { head: api.top(head, probs) });
+    return word && !(fusion && word === decision.word) ? Object.assign(consulted, {
+      word: word, words: [word], evidence: fusion ? "acoustic-fusion" : "acoustic-head", decoderWord: decision.word || ""
+    }) : consulted;
+  }
+
+  async function scoreSlots(transformers, asr, audio, candidates, slots, options) {
+    var head = options && options.acousticHead;
+    var fusion = Boolean(head && head.fusion);
     var hidden = await encodeAudio(transformers, asr, audio);
     var heard = Object.create(null);
     var decisions = [];
@@ -328,6 +364,9 @@
           }).filter(Boolean).join(" ") : slot.prefix
         });
         if (slot.tokenIndex !== undefined) heard[slot.tokenIndex] = decision.word;
+        if (head && typeof slot.time === "number") {
+          decision = applyAcousticHead(head, hidden, decision, slot.time, candidates, fusion);
+        }
         decisions.push(slot.hybridRuleWord
           ? arbitrateHybridResolution(slot.hybridRuleWord, decision, slot.hybridRuleSource)
           : decision);
@@ -346,9 +385,15 @@
     }
 
     return getTranscriber().then(function score(asr) {
-      return scoreSlots(root.transformers, asr, audio, candidates, slots);
-    }).then(function wrap(decisions) {
-      return { decisions: decisions };
+      var started = Date.now();
+      return scoreSlots(root.transformers, asr, audio, candidates, slots, { acousticHead: options.acousticHead })
+        .then(function wrap(decisions) {
+          // Inference time (queue wait excluded) for the automatic mode; the first window after
+          // the model loads is warm-up and not reported.
+          var result = warmedUp ? { decisions: decisions, inferenceMs: Date.now() - started } : { decisions: decisions };
+          warmedUp = true;
+          return result;
+        });
     }).catch(function reportInferenceFailure(error) {
       debugLog("whisper scoring failed", error ? {
         name: error.name || "", message: error.message || String(error),

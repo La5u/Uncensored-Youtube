@@ -138,11 +138,6 @@ function runtimeHashes(directory, prefix = '') {
 }
 async function run(args = process.argv.slice(2)) {
   const config = options(args);
-  const supplies = fs.readdirSync('/sys/class/power_supply').map(name => `/sys/class/power_supply/${name}`);
-  const read = (dir, key) => fs.existsSync(`${dir}/${key}`) ? fs.readFileSync(`${dir}/${key}`, 'utf8').trim() : '';
-  if (supplies.some(dir => read(dir, 'type') === 'Battery') &&
-      !supplies.some(dir => read(dir, 'type') !== 'Battery' && read(dir, 'online') === '1'))
-    throw Error('Refusing heavy Firefox inference without confirmed AC power');
   const artifacts = path.resolve(config.artifacts || path.join(root, 'tmp', `firefox-smoke-${Date.now()}-${process.pid}`));
   if (!artifacts.startsWith(path.join(root, 'tmp') + path.sep)) throw Error('Artifacts must be under ignored tmp/');
   if (fs.existsSync(artifacts)) throw Error('Artifacts directory already exists');
@@ -190,7 +185,7 @@ async function run(args = process.argv.slice(2)) {
       `browser.runtime.onMessage.addListener(message => { if (message?.firefoxSmoke?.token === ${JSON.stringify(token)}) return fetch(${JSON.stringify(staged.endpoint)}, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(message.firefoxSmoke)}).then(() => true); });\n` +
       `const reportNetwork = details => { const url = new URL(details.url); if (!url.pathname.includes('timedtext')) return; fetch(${JSON.stringify(staged.endpoint)}, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({token:${JSON.stringify(token)}, type:'network', at:Date.now(), host:url.hostname, path:url.pathname, status:details.statusCode, error:details.error || null})}).catch(() => {}); };\n` +
       `browser.webRequest.onCompleted.addListener(reportNetwork, {urls:['https://www.youtube.com/*','https://*.googlevideo.com/*']}); browser.webRequest.onErrorOccurred.addListener(reportNetwork, {urls:['https://www.youtube.com/*','https://*.googlevideo.com/*']});\n` +
-      `browser.storage.local.set({mode:${JSON.stringify(config.mode)}}).then(() => browser.tabs.create({url:${JSON.stringify(config.url)}}));`);
+      `browser.storage.local.set(${JSON.stringify(config.mode === 'off' ? { enabled: false } : { enabled: true, mode: config.mode })}).then(() => browser.tabs.create({url:${JSON.stringify(config.url)}}));`);
     fs.writeFileSync(path.join(extension, 'firefox-smoke-content.js'), `const SMOKE = ${JSON.stringify(staged)};\n` + fs.readFileSync(path.join(__dirname, 'firefox-smoke-content.js'), 'utf8'));
     fs.copyFileSync(path.join(__dirname, 'firefox-smoke-page.js'), path.join(extension, 'firefox-smoke-page.js'));
     fs.writeFileSync(path.join(profile, 'user.js'), 'user_pref("media.volume_scale", "0");\nuser_pref("media.cubeb.backend", "pulse");\nuser_pref("media.autoplay.default", 0);\n');
@@ -215,9 +210,6 @@ async function run(args = process.argv.slice(2)) {
     const deadline = Date.now() + ((config.until + (config.seek?.[0] || 0)) / config.rate + 180) * 1000;
     let lastError;
     while (Date.now() < deadline) {
-      if (supplies.some(dir => read(dir, 'type') === 'Battery') &&
-          !supplies.some(dir => read(dir, 'type') !== 'Battery' && read(dir, 'online') === '1'))
-        throw Error('AC power lost');
       if (interrupted) throw Error('Firefox smoke interrupted');
       if (launchError) throw launchError;
       if (child.exitCode !== null || child.signalCode !== null) throw Error('Firefox launcher exited prematurely');
