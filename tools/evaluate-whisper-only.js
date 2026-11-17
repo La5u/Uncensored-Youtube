@@ -6,6 +6,7 @@ const rules = require("../src/rules");
 const ruleData = require("../src/rules-data");
 const timedText = require("../src/timedtext");
 const decision = require("../src/whisper-local");
+const acousticHead = require("../src/acoustic-head");
 const { align, manualSwearEvents } = require("./evaluation-alignment");
 const { buildProvenanceIndex, defaultReports } = require("./audit-caption-corpus");
 
@@ -50,7 +51,9 @@ function parseArgs(argv) {
     pairClass: "all",
     creatorManifest: "",
     creatorSplit: "all",
-    provenanceReports: ""
+    provenanceReports: "",
+    model: "",
+    acousticHead: "src/models/acoustic-head-cnn.bin"
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -416,15 +419,22 @@ async function importTransformers() {
     "node_modules/@huggingface/transformers/dist/transformers.node.mjs"));
 }
 
-async function createTranscriber() {
+// The bundled tiny.en by default; --model <dir> loads another local export (evaluation only).
+function whisperModel(dir = "") {
+  return dir ? { name: path.basename(resolvePath(dir)), path: `${path.dirname(resolvePath(dir))}/` }
+    : { name: "whisper-tiny.en", path: "./src/models/" };
+}
+
+async function createTranscriber(dir = "") {
   const transformers = await importTransformers();
   const { pipeline, env } = transformers;
+  const model = whisperModel(dir);
 
   env.allowRemoteModels = false;
   env.allowLocalModels = true;
-  env.localModelPath = "./src/models/";
+  env.localModelPath = model.path;
 
-  const asr = await pipeline("automatic-speech-recognition", "whisper-tiny.en", {
+  const asr = await pipeline("automatic-speech-recognition", model.name, {
     dtype: "q8",
     device: "cpu"
   });
@@ -483,8 +493,9 @@ async function windowedAudioDecisions(args, audio, tokens, getTranscriber) {
     const scored = await decision.scoreSlots(transformers, asr, pcm, rules.ALLOWED_WORDS, group.map((token) => ({
       tokenIndex: token.tokenIndex,
       prefix: (token.precedingWords || []).filter((word) => word.time >= start),
-      nextWord: token.nextWord
-    })));
+      nextWord: token.nextWord,
+      time: token.timeSeconds - start
+    })), { acousticHead: args.acousticHeadModel });
     group.forEach((token, slot) => decisions.set(token.tokenIndex, scored[slot]));
   }
   return decisions;
@@ -761,9 +772,13 @@ function decisionFingerprint() {
   ].map((value) => String(value)).join("\n"));
 }
 
-function transcriptGenerationFingerprint() {
+function transcriptGenerationFingerprint(model = "", head = "") {
   return contentFingerprint([
-    "candidate-scoring-v2-validated-audio",
+    "candidate-scoring-v3",
+    head ? contentFingerprint(fs.readFileSync(resolvePath(head)).toString("base64") +
+      fs.readFileSync(path.join(root, "src", "acoustic-head.js"), "utf8")) : "",
+    JSON.stringify(whisperModel(model)),
+    whisperModel,
     fs.readFileSync(path.join(__dirname, "audio-coverage.js"), "utf8"),
     audioSection,
     audioFingerprint,
@@ -1061,7 +1076,11 @@ async function main(argv = process.argv.slice(2)) {
   const cachedReport = args.transcripts
     ? JSON.parse(fs.readFileSync(resolvePath(args.transcripts), "utf8"))
     : null;
-  const transcriptGenerationFingerprintValue = transcriptGenerationFingerprint();
+  // --acousticHead <file> (default: the shipped head, as the extension runs it; "none" turns it off):
+  // fuses with the decoder (file with fusion parameters) or fills its uncertain slots (without them).
+  if (args.acousticHead === "none") args.acousticHead = "";
+  const transcriptGenerationFingerprintValue = transcriptGenerationFingerprint(args.model, args.acousticHead);
+  args.acousticHeadModel = args.acousticHead ? acousticHead.parse(fs.readFileSync(resolvePath(args.acousticHead))) : null;
   if (cachedReport) validateTranscriptCache(cachedReport, args, transcriptGenerationFingerprintValue);
   const cachedByFixture = new Map((cachedReport?.fixtures || [])
     .map((fixture) => [fixture.name, fixture]));
@@ -1071,7 +1090,7 @@ async function main(argv = process.argv.slice(2)) {
   let transcriberPromise = null;
   const getTranscriber = () => {
     if (args.mode === "rules-only") return Promise.resolve(null);
-    if (!transcriberPromise) transcriberPromise = createTranscriber();
+    if (!transcriberPromise) transcriberPromise = createTranscriber(args.model);
     return transcriberPromise;
   };
   const fixtures = [];
@@ -1127,7 +1146,9 @@ async function main(argv = process.argv.slice(2)) {
     minimumCreators: creatorManifest?.manifest.minimumCreators || 0,
     minimumSlots: creatorManifest?.manifest.minimumSlots || 0,
     provenanceReports: reportPaths.map((file) => path.relative(root, file)),
-    unpairedMinBlanks: args.unpairedMinBlanks
+    unpairedMinBlanks: args.unpairedMinBlanks,
+    whisperModel: whisperModel(args.model).name,
+    acousticHead: args.acousticHead
   };
   const reportFingerprints = {
     rulesFingerprint: fingerprint, rulesAuxFingerprint: auxiliaryFingerprint,

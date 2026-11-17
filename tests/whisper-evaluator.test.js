@@ -33,6 +33,9 @@ try {
     "coverage implementation changes must invalidate transcript caches");
 } finally { fs.readFileSync = originalReadFileSync; }
 assert.strictEqual(evaluator.transcriptGenerationFingerprint(), generationFingerprint);
+assert.strictEqual(args.model, "");
+assert.notStrictEqual(evaluator.transcriptGenerationFingerprint("tmp/models/whisper-base.en"), generationFingerprint,
+  "another Whisper model must never reuse tiny.en transcripts");
 const completeTranscriptCache = {
   mode: "whisper-only",
   complete: true,
@@ -64,6 +67,8 @@ assert.strictEqual(args.creatorSplit, "all");
 assert.strictEqual(args.contextEvents, 4);
 assert.strictEqual(args.rulesScoring, "strict");
 assert.strictEqual(args.unpairedMinBlanks, 0);
+// The evaluator runs the shipped acoustic head by default, as the extension does.
+assert.strictEqual(args.acousticHead, "src/models/acoustic-head-cnn.bin");
 assert.strictEqual(evaluator.parseArgs(["--discoverPaired", "true"]).discoverPaired, true);
 assert.strictEqual(evaluator.parseArgs(["--discoverUnpaired", "true"]).discoverUnpaired, true);
 assert.strictEqual(evaluator.parseArgs(["--pairClass", "auto-auto"]).pairClass, "auto-auto");

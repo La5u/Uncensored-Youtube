@@ -5,17 +5,25 @@ const path = require("path");
 const { spawn, spawnSync } = require("child_process");
 const { once } = require("events");
 const { hasAudio, covers, sourceDuration, probeAudio } = require("../tools/audio-coverage");
-const { runQueue, lockedFetch, sections, config } = require("../tools/fetch-heldout-audio");
+const { runQueue, lockedFetch, sections, config, fetchOne } = require("../tools/fetch-heldout-audio");
 
 (async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fetch-audio-"));
   try {
     const c = { audioDir: dir, fixturesDir: dir, ledger: path.join(dir, "retry.json"), sleep: 0 };
     assert.strictEqual(config({ FETCH_AUDIO_IDS: path.join(dir, "ids") }).ledger, path.join(dir, "ids.audio-retries.json"));
+    assert.deepStrictEqual([config({ FETCH_AUDIO_IDS: path.join(dir, "ids") }).sleep, config({}).sleepRequests], [10000, "4"]);
+    fs.mkdirSync(path.join(dir, "shard"));
+    fs.writeFileSync(path.join(dir, "shard.pacing.json"), JSON.stringify({ sleep: 3, sleepRequests: 1.5 }));
+    const paced = config({ FETCH_AUDIO_IDS: path.join(dir, "shard", "chunk.txt"), HELDOUT_SLEEP: "5" });
+    assert.deepStrictEqual([paced.sleep, paced.sleepRequests], [3000, "1.5"], "per-list pacing file overrides env");
     fs.writeFileSync(path.join(dir, "video_auto.en.json3"), JSON.stringify({ events: [
       { tStartMs: 40000, segs: [{ utf8: "[ __ ]" }, { utf8: "[__]", tOffsetMs: 1000 }] }
     ] }));
     assert.deepStrictEqual(sections("video", dir), [[5, 71]]);
+    fs.writeFileSync(path.join(dir, "windows.json"), JSON.stringify({ video: [[25, 46]] }));
+    assert.deepStrictEqual(config({ FETCH_AUDIO_WINDOWS: path.join(dir, "windows.json") }).windows.video, [[25, 46]]);
+    assert.strictEqual(fetchOne({ ...c, windows: { video: [[25, 46]] } }, "nowindows"), 20, "no windows: never fetched whole");
     const attempts = [], pauses = [];
     const result = await runQueue(c, ["retry", "permanent", "present"], (_, id) => {
       attempts.push(id);
@@ -36,6 +44,18 @@ const { runQueue, lockedFetch, sections, config } = require("../tools/fetch-held
     assert.deepStrictEqual(JSON.parse(fs.readFileSync(c.ledger)).failures, {});
     assert.strictEqual(await runQueue(c, ["busy"], () => 75, async () => {}), 1);
     assert.match(JSON.parse(fs.readFileSync(c.ledger)).failures.busy.reason, /busy/i);
+    // Parallel lanes: at most N videos at once, one ledger, and a bot check pauses every lane.
+    let active = 0, peak = 0, blocked = false;
+    const lanePauses = [];
+    assert.strictEqual(await runQueue({ ...c, parallel: 2 }, ["p1", "p2", "p3", "p4", "p5"], async (_, id) => {
+      peak = Math.max(peak, ++active);
+      await new Promise((r) => setTimeout(r, 5));
+      active -= 1;
+      return id === "p2" && !blocked && (blocked = true) ? { status: 1, reason: "Sign in to confirm you're not a bot" } : 10;
+    }, async (ms) => lanePauses.push(ms)), 0);
+    assert.strictEqual(peak, 2);
+    assert.ok(lanePauses.some((ms) => ms > 100000), "a bot check holds all lanes");
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(c.ledger)).failures, {});
 
     if (spawnSync("flock", ["--version"]).status === 0) {
       fs.mkdirSync(path.join(dir, ".locks"));
@@ -43,7 +63,7 @@ const { runQueue, lockedFetch, sections, config } = require("../tools/fetch-held
       const holder = spawn("flock", ["--no-fork", lock, process.execPath, "-e", 'console.log("locked"); setInterval(()=>{},1000)']);
       try {
         await once(holder.stdout, "data");
-        assert.strictEqual(lockedFetch(c, id).status, 75, "another queue must not write a locked video");
+        assert.strictEqual((await lockedFetch(c, id)).status, 75, "another queue must not write a locked video");
       } finally {
         holder.kill("SIGKILL");
         await once(holder, "exit");
@@ -103,7 +123,7 @@ const { runQueue, lockedFetch, sections, config } = require("../tools/fetch-held
           `else fs.copyFileSync(${JSON.stringify(path.join(dir, "reference.webm"))}, args[args.indexOf('-o')+1].replace('%(section_start)d','0').replace('%(section_end)d','20').replace('%(ext)s','webm'));\n`, { mode: 0o755 });
         const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, FETCH_AUDIO_IDS: ids,
           FETCH_AUDIO_DIR: audio, FETCH_FIXTURES_DIR: dir, FETCH_AUDIO_LEDGER: path.join(dir, "integration-retries.json"),
-          HELDOUT_NETNS: "direct", HELDOUT_SLEEP: "0" };
+          HELDOUT_NETNS: "direct", HELDOUT_SLEEP: "0", FETCH_AUDIO_METHOD: "sections" };
         const cli = () => spawnSync(process.execPath, [path.resolve(__dirname, "../tools/fetch-heldout-audio.js")],
           { env, encoding: "utf8", timeout: 15000 });
         let result = cli();
@@ -136,6 +156,72 @@ const { runQueue, lockedFetch, sections, config } = require("../tools/fetch-held
         result = cli();
         assert.strictEqual(result.status, 1);
         assert.strictEqual(fs.readFileSync(calls, "utf8"), before);
+
+        // Whole-file mode (default): one whole-track download, local cuts in final form, temp removed.
+        const whole = path.join(audio, ".whole"), log = path.join(dir, "whole-calls.txt");
+        const mock = (filesize, wholeBody, duration = 20, sectionRef = path.join(dir, "reference.webm")) => fs.writeFileSync(path.join(bin, "yt-dlp"), `#!${process.execPath}\n` +
+          `const fs=require('fs'); const args=process.argv.slice(2); fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(args)+'\\n');\n` +
+          `const out=args[args.indexOf('-o')+1], ref=${JSON.stringify(path.join(dir, "reference.webm"))};\n` +
+          `if(args.includes('--dump-single-json')) console.log(JSON.stringify({id:'${id}',duration:${duration},filesize:${filesize}}));\n` +
+          `else if(args.includes('--download-sections')) fs.copyFileSync(${JSON.stringify(sectionRef)}, out.replace('%(section_start)d','0').replace('%(section_end)d','20').replace('%(ext)s','webm'));\n` +
+          `else ${wholeBody};\n`, { mode: 0o755 });
+        const wholeRun = (extra = {}) => {
+          for (const name of fs.readdirSync(audio)) if (name.startsWith(`${id}.`)) fs.rmSync(path.join(audio, name));
+          fs.rmSync(log, { force: true });
+          const run = spawnSync(process.execPath, [path.resolve(__dirname, "../tools/fetch-heldout-audio.js"), "--one-id", id],
+            { env: { ...env, FETCH_AUDIO_METHOD: "", ...extra }, encoding: "utf8", timeout: 15000 });
+          return { ...run, calls: fs.readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line)) };
+        };
+        mock(1000, "fs.copyFileSync(ref, out)");
+        result = wholeRun();
+        assert.strictEqual(result.status, 10, result.stdout + result.stderr);
+        assert.strictEqual(result.calls.length, 2);
+        assert.ok(result.calls[1].includes("--max-filesize") && !result.calls[1].includes("--download-sections"));
+        assert.deepStrictEqual(fs.readdirSync(whole), [], "the whole track is deleted after cutting");
+        const clip = path.join(audio, `${id}.s0-35.webm`);
+        assert.strictEqual(hasAudio(audio, id, [[0, 35]]), true);
+        assert.match(spawnSync("ffprobe", ["-v", "error", "-show_entries", "stream=codec_name,channels", "-of", "csv=p=0", clip],
+          { encoding: "utf8" }).stdout.trim(), /^opus,1$/, "clips are cut straight into the compacted form");
+        // Reusing the fetched metadata: no second page extraction for the whole track.
+        result = wholeRun({ FETCH_AUDIO_REUSE_INFO: "1" });
+        assert.strictEqual(result.status, 10, result.stdout + result.stderr);
+        assert.ok(result.calls[1].includes("--load-info-json") && !result.calls[1].some((arg) => arg.includes("watch?v=")));
+        assert.deepStrictEqual(fs.readdirSync(whole), [], "the info file is removed with the whole track");
+        // A track ending 0.4 s before the reported duration proves the real source end.
+        mock(1000, "fs.copyFileSync(ref, out)", 20.4);
+        result = wholeRun();
+        assert.strictEqual(result.status, 10, result.stdout + result.stderr);
+        assert.ok(Math.abs(sourceDuration(audio, id) - 20) < 0.05, "source end clamped to the decoded track");
+        // A broken whole track falls back to per-window sections and leaves nothing behind.
+        mock(1000, "fs.writeFileSync(out, 'broken')");
+        result = wholeRun();
+        assert.strictEqual(result.status, 10, result.stdout + result.stderr);
+        assert.match(result.stderr, /fetching missing windows per window: cuts failed: .*ffmpeg/);
+        assert.ok(result.calls[2].includes("--download-sections"));
+        assert.deepStrictEqual(fs.readdirSync(whole), []);
+        assert.strictEqual(hasAudio(audio, id, [[0, 35]]), true);
+        // HTTP 403 on the whole track: one fresh retry before any per-window fallback.
+        const once = path.join(dir, "403-once");
+        mock(1000, `if(!fs.existsSync(${JSON.stringify(once)})){fs.writeFileSync(${JSON.stringify(once)},'');console.error('ERROR: unable to download video data: HTTP Error 403: Forbidden');process.exit(1)} else fs.copyFileSync(ref, out)`);
+        result = wholeRun();
+        assert.strictEqual(result.status, 10, result.stdout + result.stderr);
+        assert.match(result.stderr, /HTTP 403; retrying once/);
+        assert.deepStrictEqual(result.calls.map((args) => args.includes("--download-sections")), [false, false, false]);
+        // One window that cannot be cut (track ends 10 s early): keep the good cut, fetch only that window.
+        const long = path.join(dir, "reference30.webm"), win = path.join(dir, "two-windows.json");
+        ffmpeg("-f", "lavfi", "-i", "sine=duration=30", "-c:a", "libopus", long);
+        fs.writeFileSync(win, JSON.stringify({ [id]: [[0, 8], [12, 25]] }));
+        mock(1000, "fs.copyFileSync(ref, out)", 30, long);
+        result = wholeRun({ FETCH_AUDIO_WINDOWS: win });
+        assert.strictEqual(result.status, 10, result.stdout + result.stderr);
+        assert.match(result.stderr, /s12-25\.webm: media .* vs window 12-25, source end 30/);
+        assert.deepStrictEqual(result.calls[2].filter((arg) => arg.startsWith("*")), ["*12-25"]);
+        assert.ok(fs.existsSync(path.join(audio, `${id}.s0-8.webm`)), "valid whole-file cuts are kept");
+        // A track known to exceed the size limit is never downloaded whole.
+        mock(2e9, "process.exit(1)");
+        result = wholeRun();
+        assert.strictEqual(result.status, 10, result.stdout + result.stderr);
+        assert.deepStrictEqual(result.calls.map((args) => args.includes("--download-sections")), [false, true]);
       }
     } else console.log("fetch-audio media checks skipped: ffmpeg/ffprobe unavailable");
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }

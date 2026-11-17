@@ -21,7 +21,8 @@ try {
   put('README.md');
   const runtime = ['timedtext.js', 'rule-data/exact.js', 'offscreen.html', 'popup.css',
     'icons/icon-16.png', 'vendor/runtime.mjs', 'vendor/runtime.wasm',
-    'models/whisper/config.json', 'models/whisper/onnx/encoder_model_quantized.onnx'];
+    'models/whisper/config.json', 'models/whisper/onnx/encoder_model_quantized.onnx',
+    'models/acoustic-head-cnn.bin'];
   const excluded = ['timedtext.js.pre-bandaid-backup', 'rules.js.bak', 'popup.css~',
     'notes.md', 'scratch.py', '__pycache__/scratch.pyc'];
   for (const file of [...runtime, ...excluded]) put(`src/${file}`);

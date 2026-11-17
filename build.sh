@@ -28,7 +28,7 @@ for browser in chromium firefox; do
   # Copy runtime formats only; editor backups and research artifacts stay local.
   (cd "$root/src" && find . -type f \( -name '*.js' -o -name '*.mjs' \
     -o -name '*.html' -o -name '*.css' -o -name '*.json' -o -name '*.png' \
-    -o -name '*.wasm' -o -name '*.onnx' \) -print | while IFS= read -r file; do
+    -o -name '*.wasm' -o -name '*.onnx' -o -name '*.bin' \) -print | while IFS= read -r file; do
     mkdir -p "$dist/$browser/src/$(dirname "$file")"
     cp "$file" "$dist/$browser/src/$file"
   done)

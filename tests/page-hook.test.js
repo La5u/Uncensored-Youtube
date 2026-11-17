@@ -116,6 +116,22 @@ const disabledTrack = new FakeXHR();
 disabledTrack.open("GET", captionUrl);
 disabledTrack.finish('{"events":[{"segs":[{"utf8":"[__]"}]}]}');
 assert.strictEqual(patchOverrides.at(-1).length, 0);
+// Acoustic-head and fused fills follow the sound-check switch.
+for (const evidence of ["acoustic-head", "acoustic-fusion"]) {
+  listeners.get("message").call(context, { source: vm.runInContext("globalThis", context), data: {
+    uncensoredWhisperResolution: JSON.stringify({
+    tokenIndex: 0, word: "fuck", source: "media", evidence, videoId: "test", trackId: firstTrack
+  }) } });
+  for (const acousticHead of [false, true]) {
+    context.dispatchEvent(new context.CustomEvent("uncensored-settings", {
+      detail: JSON.stringify({ rulesEnabled: false, whisperEnabled: true, acousticHead, videoId: "test" })
+    }));
+    const headTrack = new FakeXHR();
+    headTrack.open("GET", captionUrl);
+    headTrack.finish('{"events":[{"segs":[{"utf8":"[__]"}]}]}');
+    assert.strictEqual(patchOverrides.at(-1).length, acousticHead ? 1 : 0, evidence);
+  }
+}
 context.dispatchEvent(new context.CustomEvent("uncensored-settings", {
   detail: JSON.stringify({ rulesEnabled: false, whisperEnabled: true, videoId: "test" })
 }));

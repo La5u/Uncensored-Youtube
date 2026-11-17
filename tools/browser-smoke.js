@@ -32,7 +32,8 @@ const expectedWords = (args.find((arg) => arg.startsWith("--expect=")) || "").sp
   ?.split(",").map((word) => word.trim().toLowerCase()).filter(Boolean) || [];
 const validModes = new Set(["off", "rules", "rules-first", "whisper-first", "whisper"]);
 if (mode && !validModes.has(mode)) throw new Error(`Unknown smoke mode: ${requestedMode}`);
-const modeValues = mode && { mode };
+// Smoke mode "off" is the popup's on/off switch turned off.
+const modeValues = mode && (mode === "off" ? { enabled: false } : { enabled: true, mode });
 if (!["search", "direct", "home"].includes(navigationRoute)) {
   throw new Error(`Unknown navigation route: ${navigationRoute}`);
 }

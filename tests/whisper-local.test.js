@@ -105,6 +105,8 @@ function fakeAsr(first, next, options = {}) {
     assert.strictEqual(features.disposals, 0);
     assert.deepStrictEqual(outputs, ["last_hidden_state"]);
     asr.encodes += 1;
+    asr.features = Array.from(features.data);
+    asr.featureDims = features.dims;
     if (options.fail === "encoder") throw new Error(options.fail);
     asr.hidden = new Tensor("float32", [], [1]);
     return { last_hidden_state: asr.hidden.ort_tensor };
@@ -118,13 +120,21 @@ const CANDIDATES = ["fuck", "fucking", "shit", "motherfucker", "motherfucking"];
 
 (async () => {
   // Confident candidate after the caption prefix.
-  let decision = await score({ " fucking": 0.9, " so": 0.1 }, { " fucking": { " up": 0.5 } }, CANDIDATES,
+  let decision = await score({ " fucking": 0.9, " so": 0.1 }, { " fucking": { " up": 0.5, " you": 0.5 } }, CANDIDATES,
     { prefix: "so what the", nextWord: "up" });
   assert.deepStrictEqual([decision.word, decision.evidence], ["fucking", "candidate-score"]);
+  // Evidence: decoded words with and without the next caption word.
+  const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-6, `${actual} != ${expected}`);
+  assert.deepStrictEqual(decision.scores.map((entry) => entry.word), ["fucking"]);
+  near(decision.scores[0].logp, Math.log(0.9));
+  near(decision.scores[0].withNext, Math.log(0.9 * 0.5));
 
   // Every candidate below the gate (log P < -4) abstains.
   decision = await score({ " so": 0.97, " fuck": 0.01, " shit": 0.01 }, {}, CANDIDATES, { prefix: "so" });
   assert.deepStrictEqual([decision.word, decision.evidence], ["", "none"]);
+  // Abstentions keep the sub-gate evidence.
+  assert.deepStrictEqual(decision.scores.map((entry) => entry.word).sort(), ["fuck", "shit"]);
+  near(decision.scores[0].logp, Math.log(0.01 / 0.99));
 
   // Among gated words the next caption word picks the form.
   decision = await score({ " fuck": 0.5, " fucking": 0.45 }, {
@@ -151,6 +161,14 @@ const CANDIDATES = ["fuck", "fucking", "shit", "motherfucker", "motherfucking"];
     [{ prefix: "so" }, { prefix: "so what the", hybridRuleWord: "shit", hybridRuleSource: "deterministic" }]);
   assert.strictEqual(shared.encodes, 1);
   assert.deepStrictEqual(decisions.map((d) => [d.word, Boolean(d.hybridCrossFamily)]), [["fucking", false], ["fucking", true]]);
+
+  // Only the real audio plus 2 s of silence is encoded: 1 s of audio -> 300 frames, the 102 stand-in mel frames then silence.
+  await whisper.scoreSlots(transformers, shared, new Float32Array(16000), CANDIDATES, [{ prefix: "so" }]);
+  assert.deepStrictEqual(shared.featureDims, [1, 80, 300]);
+  assert.deepStrictEqual([shared.features[0], shared.features[101], shared.features[299]], [1, 1, (Math.max(4 - 4 - 8, -10) + 4) / 4]);
+  // Audio filling the 30 s window keeps the processor's full 3000 frames.
+  await whisper.scoreSlots(transformers, shared, new Float32Array(480000), CANDIDATES, [{ prefix: "so" }]);
+  assert.deepStrictEqual(shared.featureDims, [1, 80, 3000]);
 
   // Adjacent blanks hear distinct words when the second is conditioned on the first;
   // blanks scored elsewhere are dropped, including decisions from a previous window.
@@ -188,6 +206,38 @@ const CANDIDATES = ["fuck", "fucking", "shit", "motherfucker", "motherfucking"];
   const fallback = await whisper.scoreSlots(transformers, abstaining, new Float32Array([0.1]), CANDIDATES,
     [{ ...adjacentSlots[0], hybridRuleWord: "shit", hybridRuleSource: "deterministic" }, adjacentSlots[1]]);
   assert.deepStrictEqual(fallback.map((d) => d.word), ["shit", ""]);
+
+  // Optional acoustic head: fills only uncertain slots that carry a time, and the next slot's
+  // prefix keeps the decoder's word. A model-less stub head always proposes its first word.
+  const stubHead = (threshold) => ({ words: ["shit"], threshold, margin: 1, frames: 2, dim: 1, before: 1,
+    framesPerSecond: 50, models: [] });
+  const headed = await whisper.scoreSlots(transformers, abstaining, new Float32Array([0.1]), CANDIDATES,
+    [{ ...adjacentSlots[0], time: 1 }, adjacentSlots[1]], { acousticHead: stubHead(0) });
+  assert.deepStrictEqual(headed.map((d) => [d.word, d.evidence]), [["shit", "acoustic-head"], ["", "none"]]);
+  const belowThreshold = await whisper.scoreSlots(transformers, abstaining, new Float32Array([0.1]), CANDIDATES,
+    [{ ...adjacentSlots[0], time: 1 }], { acousticHead: stubHead(0.5) });
+  assert.strictEqual(belowThreshold[0].word, "");
+  // A consulted slot reports the head's top word and probability, filled or not.
+  assert.deepStrictEqual([headed[0].head, headed[1].head, belowThreshold[0].head],
+    [{ word: "shit", p: 0 }, undefined, { word: "shit", p: 0 }]);
+  const ruleKept = await whisper.scoreSlots(transformers, abstaining, new Float32Array([0.1]), CANDIDATES,
+    [{ ...adjacentSlots[0], time: 1, hybridRuleWord: "fuck" }], { acousticHead: stubHead(0.5) });
+  assert.deepStrictEqual([ruleKept[0].word, ruleKept[0].evidence, ruleKept[0].head], ["fuck", "rule", { word: "shit", p: 0 }]);
+  const confident = await whisper.scoreSlots(transformers, fakeAsr({ " fucking": 0.9, " so": 0.1 }, {}),
+    new Float32Array([0.1]), CANDIDATES, [{ prefix: "so", time: 1 }], { acousticHead: stubHead(0) });
+  assert.strictEqual(confident[0].word, "fucking");
+  assert.strictEqual(confident[0].head, undefined, "confident slots never consult the head");
+  // A head file with fusion parameters is consulted on confident slots too and labels a changed
+  // word "acoustic-fusion" (the stub heads above have none, so they stay on uncertain slots).
+  const fusionHead = (weights) => Object.assign(stubHead(0), { words: ["shit", "fucking"],
+    fusion: { weights, threshold: 0, unscored: [3, -40], family: ["shit", "fuck"] } });
+  const fusedSlots = (weights) => whisper.scoreSlots(transformers, fakeAsr({ " fucking": 0.9, " so": 0.1 }, {}),
+    new Float32Array([0.1]), CANDIDATES, [{ prefix: "so", time: 1 }], { acousticHead: fusionHead(weights) });
+  const kept = await fusedSlots([0, 0, 1]);
+  assert.deepStrictEqual([kept[0].word, kept[0].evidence, Boolean(kept[0].head)], ["fucking", "candidate-score", true]);
+  assert.ok(Number.isFinite(kept[0].prunedMax) || kept[0].prunedMax === -Infinity);
+  const replaced = await fusedSlots([0, 0, -1]);
+  assert.deepStrictEqual([replaced[0].word, replaced[0].evidence, replaced[0].decoderWord], ["shit", "acoustic-fusion", "fucking"]);
 
   assertDisposed(tensors);
 
@@ -241,10 +291,15 @@ const CANDIDATES = ["fuck", "fucking", "shit", "motherfucker", "motherfucking"];
     env: { backends: { onnx: { wasm: {} } } },
     pipeline: async () => fakeAsr({ " fucking": 0.9, " so": 0.1 }, {})
   }, transformers);
-  decision = (await whisper.transcribeDetailed(new Float32Array([0.1]), CANDIDATES, "", {
+  const firstWindow = await whisper.transcribeDetailed(new Float32Array([0.1]), CANDIDATES, "", {
     slots: [{ prefix: "what the", hybridRuleWord: "shit", hybridRuleSource: "deterministic" }]
-  })).decisions[0];
+  });
+  decision = firstWindow.decisions[0];
   assert.deepStrictEqual([decision.word, decision.hybridCrossFamily], ["fucking", true]);
+  // Window timing feeds the automatic mode; the first window after the model loads is warm-up.
+  assert.strictEqual(firstWindow.inferenceMs, undefined);
+  const secondWindow = await whisper.transcribeDetailed(new Float32Array([0.1]), CANDIDATES, "", { slots: [{ prefix: "so" }] });
+  assert.ok(secondWindow.inferenceMs >= 0);
   assert.ok(require("fs").readFileSync("src/whisper-module-worker.js", "utf8").includes('import "./whisper-local.js";'));
 
   // Hybrid contract: audio replaces any rule fill; when Whisper abstains the rule fill remains.

@@ -16,7 +16,8 @@ Local Whisper requires checked-in third-party and model artifacts:
 
 - `src/vendor/transformers.min.js`
 - `src/vendor/ort-wasm-simd-threaded.asyncify.{mjs,wasm}`
-- `src/models/whisper-tiny.en/**`
+- `src/models/whisper-tiny.en/**` (the encoder is patched to accept inputs shorter than 30 s:
+  `tools/make-truncatable-encoder.py`)
 
 No remote code is loaded. `whisper-module-worker.js` imports the local
 Transformers.js bundle, and `whisper-local.js` restricts model loading to the

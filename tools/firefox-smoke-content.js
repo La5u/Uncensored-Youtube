@@ -20,7 +20,7 @@
       send(eventData);
     } catch (_) {}
   });
-  browser.storage.local.get('mode').then(values => send({ type: 'mode', mode: values.mode }));
+  browser.storage.local.get(['enabled', 'mode']).then(values => send({ type: 'mode', mode: values.enabled === false ? 'off' : values.mode }));
   const inject = () => {
     if (!document.documentElement) return setTimeout(inject, 0);
     const script = document.createElement('script');

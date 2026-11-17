@@ -6,6 +6,7 @@
   var settings = {
     rulesEnabled: false,
     whisperEnabled: true,
+    acousticHead: true,
     audioEnabled: null
   };
   var audioReplacements = new Map();
@@ -63,6 +64,7 @@
       syncVideo(detail.videoId || currentVideoId());
       settings.rulesEnabled = detail.rulesEnabled !== false;
       settings.whisperEnabled = detail.whisperEnabled !== false;
+      settings.acousticHead = detail.acousticHead !== false;
       settings.audioEnabled = detail.audioEnabled;
       if (settings.audioEnabled !== null) {
         audioDecisionWaiters.splice(0).forEach(function resolveAudioDecision(resolve) {
@@ -329,8 +331,8 @@
     var replacements = [];
 
     audioReplacements.forEach(function collectReplacement(replacement, key) {
-      if (key.indexOf(keyPrefix) === 0 && (replacement.source === "media"
-        ? settings.whisperEnabled : settings.rulesEnabled)) {
+      if (key.indexOf(keyPrefix) === 0 && (!/^acoustic-(head|fusion)$/.test(replacement.evidence) || settings.acousticHead) &&
+        (replacement.source === "media" ? settings.whisperEnabled : settings.rulesEnabled)) {
         replacements.push(replacement);
       }
     });

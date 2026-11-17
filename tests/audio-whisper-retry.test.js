@@ -46,7 +46,7 @@ function makeHarness(responses, browser = false) {
     sendMessage(message, callback) {
       messages.push(message);
       if (message.type === "preload") {
-        callback({ ok: true, ready: true });
+        callback({ ok: true, ready: true, acousticHead: "loaded" });
         return;
       }
       const response = responses.shift();
@@ -130,6 +130,21 @@ async function hybridUsesFullWhisperPath() {
   assert.strictEqual(JSON.parse(h.posted.at(-1).uncensoredWhisperResolution).word, 'shit');
 }
 
+// Window timings (warm-up already excluded by the worker) pick the automatic mode once 5 are stored.
+async function windowSpeedPicksAutoMode(seeded, inferenceMs, expected) {
+  const h = makeHarness([(callback) => callback({ decision: { inferenceMs, decisions: [{ word: "fuck", evidence: "transcript" }] } })]);
+  let stored = { whisperSpeed: seeded };
+  h.context.chrome.storage = { local: {
+    get: (defaults) => Promise.resolve(Object.assign({}, defaults, stored)),
+    set: (values) => { stored = Object.assign({}, stored, values); return Promise.resolve(); }
+  } };
+  h.start([h.token(0)]);
+  await h.advance(0);
+  assert.strictEqual(stored.whisperSpeed.length, seeded.length + 1);
+  assert.ok(Math.abs(stored.whisperSpeed.at(-1) - inferenceMs / 1000 / 1.38) < 1e-9, "relative to 0.74 s + 0.64 s per blank");
+  assert.strictEqual(stored.autoMode, expected);
+}
+
 async function successAfterTransient() {
   const h = makeHarness([
     (callback) => callback({ error: "temporary" }),
@@ -188,8 +203,37 @@ async function nearbyTokensShareWindow() {
   assert.strictEqual(JSON.stringify(requests[0].data.options.slots.map((slot) =>
     [slot.tokenIndex, slot.prefix.map((word) => word.word).join(" "), slot.nextWord || ""])),
   JSON.stringify([[0, "oh", "no"], [1, "oh no", ""]]));
+  // The acoustic head needs each slot's time from the window start; it is on by default.
+  assert.strictEqual(JSON.stringify(requests[0].data.options.slots.map((slot) => slot.time)), "[1,1.2]");
+  assert.strictEqual(requests[0].data.options.acousticHead, true);
   assert.strictEqual(h.audio.pendingTokenValues().length, 0);
   assert.strictEqual(h.posted.length, 2);
+}
+
+// Switching the head off drops its fills (head-on-uncertain or fused) and rescores those slots without it.
+async function acousticHeadSwitch(evidence = "acoustic-head") {
+  const fused = evidence === "acoustic-fusion" ? { decoderWord: "fuck" } : {};
+  const h = makeHarness([(callback) => callback({ decision: { decisions: [Object.assign({ word: "shit", evidence,
+    head: { word: "shit", p: 0.987 } }, fused)] } }),
+    (callback) => callback({ decision: { decisions: [{ word: "", evidence: "none" }] } })]);
+  const debug = [];
+  h.context.localStorage = { getItem: (key) => key === "uncensoredDebug" ? "1" : null };
+  h.context.console = { debug: (line) => debug.push(line), warn() {} };
+  h.start([h.token(0)]);
+  await h.advance(0);
+  // Debug log: head status at model start, and the head's top word when it was consulted.
+  assert.ok(debug.includes('[uncensored] whisper model started {"acousticHead":"loaded"}'), debug.join("\n"));
+  // A fused decision also names the decoder's word.
+  assert.ok(debug.includes(`[uncensored] whisper decision {"token":0,"word":"shit","evidence":"${evidence}","head":"shit 0.99"` +
+    (fused.decoderWord ? ',"decoder":"fuck"}' : "}")), debug.join("\n"));
+  assert.strictEqual(JSON.parse(h.posted[0].uncensoredWhisperResolution).evidence, evidence);
+  h.audio.setOptions({ rulesEnabled: false, whisperEnabled: true, audioEnabled: true, videoId: "video-a",
+    acousticHead: false });
+  h.addAudio();
+  await h.advance(0);
+  const requests = h.messages.filter((message) => message.type === "transcribe");
+  assert.strictEqual(requests.length, 2);
+  assert.strictEqual(requests[1].data.options.acousticHead, false);
 }
 
 // A same-track refresh that rewrites a slot drops the old slot's in-flight result.
@@ -336,11 +380,16 @@ async function hostFailuresAreRetryable() {
 
 (async function main() {
   await hybridUsesFullWhisperPath();
+  await windowSpeedPicksAutoMode([0.5, 0.5, 0.5], 690, "rules-first"); // not yet measured
+  await windowSpeedPicksAutoMode([0.5, 0.5, 2, 2], 690, "whisper-first");
+  await windowSpeedPicksAutoMode([0.5, 2, 2, 2], 690, "rules-first");
   await successAfterTransient();
   await exhaustedCap();
   await emptyDoesNotRetry();
   await nearbyTokensShareWindow();
   await rulesFirstSkipsRuleFills();
+  await acousticHeadSwitch();
+  await acousticHeadSwitch("acoustic-fusion");
   await passedSlotsNotScored();
   await endOfVideoSlotScored();
   await sameTrackRefreshDropsStaleResult();

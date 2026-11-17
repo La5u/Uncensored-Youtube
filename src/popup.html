@@ -9,20 +9,26 @@
   <body>
     <main>
       <h1>Uncensored YouTube</h1>
-      <p class="description">Choose how hidden words are restored.</p>
-      <input id="mode" type="range" min="0" max="4" step="1" aria-describedby="modeDetails">
-      <ol class="stops" aria-hidden="true">
-        <li>Off</li><li>Rules</li><li>Rules first</li><li>Whisper first</li><li>Whisper</li>
-      </ol>
-      <section id="modeDetails" aria-live="polite">
-        <strong id="modeTitle"></strong>
-        <small id="modeDescription"></small>
-        <dl>
-          <dt>Precision</dt><dd id="modePrecision"></dd>
-          <dt>Coverage</dt><dd id="modeCoverage"></dd>
-          <dt>CPU load</dt><dd id="modeCpu"></dd>
-        </dl>
-      </section>
+      <label class="switch"><input id="enabled" type="checkbox" role="switch" checked> Uncensor captions</label>
+      <fieldset id="modeControls">
+        <p class="description">Choose how hidden words are restored.</p>
+        <input id="mode" type="range" min="0" max="4" step="1" aria-label="Mode" aria-describedby="modeDetails">
+        <ol class="stops" aria-hidden="true">
+          <li>Rules</li><li>Rules first</li><li>Automatic</li><li>Whisper first</li><li>Whisper</li>
+        </ol>
+        <section id="modeDetails" aria-live="polite">
+          <strong id="modeTitle"></strong>
+          <small id="modeDescription"></small>
+          <small id="modeCurrent" hidden></small>
+          <dl>
+            <dt>Precision</dt><dd id="modePrecision"></dd>
+            <dt>Coverage</dt><dd id="modeCoverage"></dd>
+            <dt>CPU load</dt><dd id="modeCpu"></dd>
+          </dl>
+        </section>
+        <label class="option"><input id="acousticHead" type="checkbox" checked> Sound check
+          <small>Whisper modes: a small audio model double-checks each word Whisper picks.</small></label>
+      </fieldset>
       <p class="note">Measured on 154 English videos from creators the rules were not tuned on; results vary by video.</p>
       <footer>
         <small id="versionLabel" class="version"></small>

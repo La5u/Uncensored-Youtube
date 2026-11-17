@@ -28,7 +28,16 @@ must not poison the new queue's failed-token cache. The host timeout bounds wait
 execution: there is no inference cancellation or real-time latency guarantee.
 
 `build.sh` stages only runtime formats (`js`, `mjs`, `html`, `css`, `json`, `png`, `wasm`,
-`onnx`). Keep scratch code out of `src/`; update the filter and its test for a new asset type.
+`onnx`, `bin`). Keep scratch code out of `src/`; update the filter and its test for a new asset type.
+
+Whisper cost: the q8 encoder accepts fewer than 3000 mel frames
+(`tools/make-truncatable-encoder.py`), so `whisper-local.js` encodes only the real audio plus 2 s
+of silence; both sessions load with graph optimisation `basic` (`all` fails to load the q8
+decoder). The Automatic mode's budget in `audio-capture.js` (0.74 s per window + 0.64 s per blank)
+is the largest scaling of a per-window + per-blank cost, at the current code's measured ratio of
+the two, for which a replay of a Whisper-first browser run's queue (`debug` telemetry: token
+times, decoded-audio progress) has no late word. Re-derive it when the queue policy or that cost
+ratio changes.
 
 ## macOS compatibility checks
 
@@ -59,7 +68,7 @@ npm run test:firefox -- --mode=whisper --rate=1 --seek=20:45 --until=90 \
   --expect=fucking 'https://www.youtube.com/watch?v=an5iFYcjWUM'
 ```
 
-Modes: `off`, `rules`, `rules-first`, `whisper-first`, `whisper` (aliases `both-off`,
+Modes: `off` (the popup switch off), `rules`, `rules-first`, `whisper-first`, `whisper` (aliases `both-off`,
 `rules-only`, `hybrid`, `whisper-only`). `--expect=word[,word...]` is required for `rules`
 (`--expect=shit` for the default video).
 
@@ -86,6 +95,11 @@ node tools/evaluate-whisper-only.js --mode rules+whisper \
 `--reuse` require the same audio window, scorer, audio-processing code and per-fixture SHA-256
 audio identity, so replaced or added audio invalidates reuse. Rules-only reuse is caption/rules
 based. Audio files must pass timestamp/decode coverage validation.
+
+The extension and the evaluator both run the shipped acoustic head (`--acousticHead`, default
+`src/models/acoustic-head-cnn.bin`, part of the transcript fingerprint; `none` turns it off). A
+head file with fusion parameters fuses with the decoder on every slot; one without them only
+fills the decoder's uncertain slots.
 
 By default the evaluator uses `tools/whisper-audio-fixtures.json`; `--discoverPaired true`
 includes every pair in the ignored `test-fixtures/`. Reports go to `corpus/generated/`. Results

@@ -5,17 +5,25 @@ deaf and hard-of-hearing viewers. Audio, captions, and inference stay local.
 
 ## Modes
 
-The popup slider has five stops (default: **Rules first**):
+A switch at the top of the popup turns the extension on or off (off leaves captions unchanged
+and does no work). The slider below it has five stops (default: **Automatic**, the middle):
 
 | Mode | Behavior | CPU load |
 | --- | --- | --- |
-| Off | Leave captions unchanged. | None |
 | Rules only | Fill from caption context; uncertain slots abstain. | Minimal |
 | Rules first | Rules fill what they can; Whisper scores only unfilled or ambiguous slots. | Moderate |
+| Automatic | Whisper first on devices fast enough for it, otherwise Rules first. | Moderate or high |
 | Whisper first | Rules fill instantly; Whisper checks every slot and replaces the fill. | High |
 | Whisper only | Local Whisper only. | High |
 
-Settings from versions with two switches map to the matching mode (both on → Rules first).
+Automatic uses **Whisper first** on devices measured fast enough to fill without late words,
+otherwise (and until measured) **Rules first**. Each Whisper window's inference time (the
+first after model load excluded) is stored per device; once 5 windows are stored, Whisper first
+applies when the median of the last 15 is within 0.74 s per window + 0.64 s per blank (from a
+lateness replay of a real browser run). The measured choice changes only at the next video start,
+never mid-video; the popup's Automatic card shows what it currently uses ("measuring" before 5
+windows). Settings from older versions map to the matching mode (two switches both on → Automatic); a
+stored Off mode or both switches off becomes the switch off with the slider at Automatic.
 The evaluator's `rules+whisper` mode is "Whisper first".
 
 <!-- evaluation-metrics:start -->
@@ -95,12 +103,28 @@ inference already running in the worker.
 
 The local quantized `whisper-tiny.en` model runs through vendored
 Transformers.js and ONNX Runtime Web. No remote code is loaded. Whisper does not
-transcribe freely. It encodes one 30 s window starting 3 s before the next
-upcoming slot and scores every slot inside it: each allowed word is scored as the
+transcribe freely. It encodes one window of up to 30 s starting 3 s before the next
+upcoming slot (only the real audio plus 2 s of silence, not Whisper's usual 30 s
+of padding) and scores every slot inside it: each allowed word is scored as the
 continuation of the caption words spoken since the window start. It fills only
 when the best word's log probability is at least -4, and uses the next caption
 word to choose among forms such as `fuck`/`fucking`. Upcoming slots are scored
 first so words are usually ready before their captions appear.
+A small classifier (`acoustic-head.js`, `models/acoustic-head-cnn.bin`) reads
+the encoder states around every slot, and its word probabilities are fused with
+Whisper's scores. The fused word is used when it clears a threshold, else
+Whisper's word; where Whisper is confident, a fused word of the same family
+keeps Whisper's form (`fuck`/`fucking`). Fused changes are labelled
+`acoustic-fusion`. It is on by default; the popup's "Sound check for unclear
+words" switches it off. If its weights fail to load, Whisper runs without it;
+a weight file without fusion parameters only fills slots where Whisper abstains
+or nearly ties. Measured Whisper-only precision / coverage (2026-11-15, JS
+evaluator, Whisper alone → with fusion):
+manual-auto tier: frozen post-freeze set (the evaluator reports its pair class as
+unknown) 97.15/90.48% → 97.20/94.83%, dense set 97.13/80.16% → 96.82/85.91%; synthetic tier (videos and test creators outside
+training): 216 unseen videos 97.50/87.83% → 97.74/94.43%, 32-creator test split
+96.21/80.79% → 96.47/89.80%. With fusion, Whisper first measures 96.98/95.22%
+(frozen) and 96.49/90.94% (dense); Rules first 88.97/87.38% and 95.15/89.67%.
 
 ### Word vocabularies
 
