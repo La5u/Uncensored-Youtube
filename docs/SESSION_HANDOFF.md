@@ -13,7 +13,7 @@ do not cover every window) via one netns, `NL-FREE-211`. **Relaunch it with
 `AUDIO_REFETCH=tmp/migration-setup/dev-refetch-ids.txt`; without it the runner exits at once
 (dev cap of 1,000 reached).** Throughput 10-21: ~1 video/h, so ETA unknown (days).
 
-- **1.6.3 is tagged (`v1.6.3`), release tests pass, not yet submitted** (1.6.2 was never submitted). Zips: `dist/uncensored-youtube-{firefox,chromium,source}-1.6.3.zip`. Deferred to 1.6.4: Astra findings in `tmp/astra-r6-1.6.3.md` (rare same-track caption edits) and live replacement of rule words already on screen.
+- **1.6.3 is tagged (`v1.6.3`), submitted to AMO and the Chrome Web Store 2026-11-18** (1.6.2 was never submitted). Zips: `dist/uncensored-youtube-{firefox,chromium,source}-1.6.3.zip`. Deferred to 1.6.4: Astra findings in `tmp/astra-r6-1.6.3.md` (rare same-track caption edits) and live replacement of rule words already on screen.
   of this file, commit `d50c2f0`). Release 1.6.3 includes the acoustic fusion head, the faster
   encoder and automatic mode.
   Release 1.6.3 disables the generated word-class group and retains the diagnostic miner.
