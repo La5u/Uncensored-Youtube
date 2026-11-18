@@ -8,8 +8,10 @@
   </head>
   <body>
     <main>
-      <h1>Uncensored YouTube</h1>
-      <label class="switch"><input id="enabled" type="checkbox" role="switch" checked> Uncensor captions</label>
+      <header>
+        <h1>Uncensored YouTube</h1>
+        <input id="enabled" class="switch" type="checkbox" role="switch" aria-label="Uncensor captions" title="Uncensor captions" checked>
+      </header>
       <fieldset id="modeControls">
         <p class="description">Choose how hidden words are restored.</p>
         <input id="mode" type="range" min="0" max="4" step="1" aria-label="Mode" aria-describedby="modeDetails">
