@@ -127,7 +127,7 @@ function timedCue(text, startTime, endTime, firstTokenIndex = 0) {
   return { text, startTime, endTime, firstTokenIndex };
 }
 
-async function startContentTrack(h, mode, captions) {
+async function startContentTrack(h, mode, captions, acousticHead = true) {
   const { context, listeners } = h;
   let changeStorage;
   Object.assign(context.UncensoredRules, require("../src/rules"));
@@ -140,18 +140,122 @@ async function startContentTrack(h, mode, captions) {
   context.browser = {
     runtime: { getURL: (path) => path, sendMessage: () => Promise.resolve() },
     storage: {
-      local: { get: (defaults) => Promise.resolve({ ...defaults, mode }) },
+      local: { get: (defaults) => Promise.resolve({ ...defaults, mode, acousticHead }) },
       onChanged: { addListener: (listener) => { changeStorage = listener; } }
     }
   };
   vm.runInContext(fs.readFileSync(require.resolve("../src/content"), "utf8"), context);
   await new Promise((resolve) => setImmediate(resolve));
+  if (captions) sendContentTrack(h, captions);
+  return (newValue) => changeStorage({ mode: { newValue } }, "local");
+}
+
+function sendContentTrack(h, captions, captionRevision) {
   const body = JSON.stringify({ events: captions.map((utf8, index) => ({
     tStartMs: index * 2000, dDurationMs: 2000, segs: [{ utf8 }]
   })) });
-  listeners["uncensored-timedtext"]({ detail: JSON.stringify({ body, trackId: "track-a", videoId: "video-a" }) });
-  return (newValue) => changeStorage({ mode: { newValue } }, "local");
+  h.listeners["uncensored-timedtext"]({
+    detail: JSON.stringify({ body, trackId: "track-a", videoId: "video-a", captionRevision })
+  });
 }
+
+test("Rules first with Sound check off keeps audio arriving before the first track", async () => {
+  const h = makeHarness([(callback) => callback({ decision: { decisions: [
+    { word: "shitting", evidence: "candidate-score" }
+  ] } })]);
+  h.context.AudioContext = class AudioContext {
+    decodeAudioData() {
+      return Promise.resolve({ sampleRate: 16000, length: 48000, numberOfChannels: 1, duration: 3,
+        getChannelData() { return new Float32Array(48000); } });
+    }
+  };
+  await startContentTrack(h, "rules-first", null, false);
+  await h.audio.setSabrAudioData({ buffer: new ArrayBuffer(1), startMs: 0, durationMs: 3000 });
+  h.listeners["uncensored-timedtext"]({
+    detail: JSON.stringify({ body: "", trackId: "track-a", videoId: "video-a" })
+  });
+  const raw = "are you [__]";
+  sendContentTrack(h, [raw]);
+  await h.advance(0);
+  assert.strictEqual(h.renderCaption(raw), "are you shitting");
+  assert.strictEqual(h.messages.find((message) => message.type === "transcribe").data.options.acousticHead, false);
+});
+
+for (const [name, original, revised] of [
+  ["following word", { nextWord: "now" }, { nextWord: "later" }],
+  ["timed prefix", { precedingWords: [{ word: "say", time: 0.99 }] },
+    { precedingWords: [{ word: "say", time: 1.01 }] }],
+  ["slot time", { timeSeconds: 4 }, { timeSeconds: 4.02 }]
+]) {
+  test(`Whisper only rescores a completed abstention after a change to the ${name}`, async () => {
+    const h = makeHarness([
+      (callback) => callback({ decision: { decisions: [{ word: "", evidence: "none" }] } }),
+      (callback) => callback({ decision: { decisions: [{ word: "fuck", evidence: "candidate-score" }] } })
+    ]);
+    const mode = { rulesEnabled: false, acousticHead: false };
+    const raw = h.token(0).context;
+    const timeline = [timedCue(raw, 0, 8)];
+    h.audio.setOptions(mode);
+    h.addAudio(8);
+    h.audio.rememberTimedTextData({ tokens: [{ ...h.token(0, 0, 4), ...original }], timeline }, "track-a");
+    await h.advance(0);
+    assert.strictEqual(h.renderCaption(raw), raw);
+    h.audio.setOptions({ ...mode, whisperEnabled: false });
+    h.audio.rememberTimedTextData({ tokens: [{ ...h.token(0, 0, 4), ...revised }], timeline }, "track-a");
+    h.audio.setOptions(mode);
+    h.addAudio(8);
+    await h.advance(0);
+    assert.strictEqual(h.messages.filter((message) => message.type === "transcribe").length, 2);
+    assert.strictEqual(h.renderCaption(raw), "say fuck now");
+  });
+}
+
+test("A same-track refresh with no blanks retires a slot's in-flight result", async () => {
+  let reply;
+  const h = makeHarness([(callback) => { reply = callback; }]);
+  h.start([h.token(0)]);
+  await h.advance(0);
+  assert.ok(reply);
+  h.audio.rememberTimedTextData({ tokens: [], timeline: [timedCue("say this now", 0, 3)] }, "track-a");
+  reply({ decision: { decisions: [{ word: "fuck", evidence: "candidate-score" }] } });
+  await h.advance(0);
+  assert.strictEqual(h.posted.length, 0);
+  assert.strictEqual(h.audio.pendingTokenValues().length, 0);
+});
+
+test("An unchanged in-flight score uses the refreshed rule fallback", async () => {
+  let reply;
+  const h = makeHarness([(callback) => { reply = callback; }]);
+  const token = { ...h.token(0), deterministicWord: "shit", deterministicAmbiguous: true };
+  const timeline = [timedCue(token.context, 0, 3)];
+  h.audio.setOptions({ whisperFirst: true });
+  h.addAudio();
+  h.audio.rememberTimedTextData({ tokens: [token], timeline }, "track-a");
+  await h.advance(0);
+  assert.ok(reply);
+  h.audio.rememberTimedTextData({ tokens: [{ ...token, deterministicWord: "fuck" }], timeline }, "track-a");
+  reply({ decision: { decisions: [{ word: "shit", evidence: "rule" }] } });
+  await h.advance(0);
+  assert.strictEqual(h.renderCaption(token.context), "say fuck now");
+});
+
+test("A new raw body republishes an unchanged decision under the new caption revision", async () => {
+  const h = makeHarness([(callback) => callback({ decision: { decisions: [
+    { word: "shitting", evidence: "candidate-score" }
+  ] } })]);
+  const raw = "are you [__]";
+  await startContentTrack(h, "whisper", null, false);
+  h.addAudio();
+  sendContentTrack(h, [raw, "me", "old"], 1);
+  await h.advance(0);
+  sendContentTrack(h, [raw, "me", "revised"], 2);
+  await h.advance(0);
+  assert.deepStrictEqual(h.posted.map(({ uncensoredWhisperResolution }) => {
+    const { word, captionRevision } = JSON.parse(uncensoredWhisperResolution);
+    return [word, captionRevision];
+  }), [["shitting", 1], ["shitting", 2]]);
+  assert.strictEqual(h.messages.filter((message) => message.type === "transcribe").length, 1);
+});
 
 test("Mode cycling queues Whisper with the freshly analyzed split-cue rule", async () => {
   const h = makeHarness([(callback) => callback({ decision: { decisions: [{ word: "", evidence: "none" }] } })]);

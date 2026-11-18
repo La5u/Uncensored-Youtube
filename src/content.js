@@ -234,9 +234,10 @@
 
     var data = timedText.collectTimedTextData(rawTrack.body, settings.rulesEnabled);
     rawTrack.rulesEnabled = settings.rulesEnabled;
+    if (!data.parsed) return;
+    data.captionRevision = rawTrack.captionRevision;
     debugLog("captions analyzed", { trackId: rawTrack.trackId, count: data.tokens.length });
-    if (data.tokens.length) hasCensoredSlots = true;
-    else if (data.parsed) hasCensoredSlots = false;
+    hasCensoredSlots = data.tokens.length > 0;
     return data;
   }
 
@@ -248,7 +249,7 @@
       detail = JSON.parse(detail);
       if (detail.videoId && detail.videoId !== currentVideoId()) return;
       syncVideo(detail.videoId || currentVideoId());
-      track = { body: detail.body, trackId: detail.trackId || "" };
+      track = { body: detail.body, trackId: detail.trackId || "", captionRevision: detail.captionRevision };
     } catch (error) {}
 
     if (typeof track.body !== "string") return;

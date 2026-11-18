@@ -107,7 +107,8 @@ listeners.get("message").call(context, {
       word: "fuck",
       source: "media",
       videoId: "test",
-      trackId: firstTrack
+      trackId: firstTrack,
+      captionRevision: firstCaption.captionRevision
     })
   }
 });
@@ -122,7 +123,8 @@ assert.strictEqual(patchOverrides.at(-1).length, 0);
 for (const evidence of ["acoustic-head", "acoustic-fusion"]) {
   listeners.get("message").call(context, { source: vm.runInContext("globalThis", context), data: {
     uncensoredWhisperResolution: JSON.stringify({
-    tokenIndex: 0, word: "fuck", source: "media", evidence, videoId: "test", trackId: firstTrack
+    tokenIndex: 0, word: "fuck", source: "media", evidence, videoId: "test", trackId: firstTrack,
+    captionRevision: firstCaption.captionRevision
   }) } });
   for (const acousticHead of [false, true]) {
     context.dispatchEvent(new context.CustomEvent("uncensored-settings", {
@@ -135,7 +137,8 @@ for (const evidence of ["acoustic-head", "acoustic-fusion"]) {
   }
 }
 const clearMediaFill = {
-  tokenIndex: 0, word: "", source: "media", evidence: "none", videoId: "test", trackId: firstTrack
+  tokenIndex: 0, word: "", source: "media", evidence: "none", videoId: "test", trackId: firstTrack,
+  captionRevision: firstCaption.captionRevision
 };
 for (const trackId of ["another-track", firstTrack]) {
   listeners.get("message").call(context, {
@@ -150,7 +153,8 @@ for (const trackId of ["another-track", firstTrack]) {
 listeners.get("message").call(context, {
   source: vm.runInContext("globalThis", context),
   data: { uncensoredWhisperResolution: JSON.stringify({
-    tokenIndex: 0, word: "fuck", source: "deterministic", evidence: "rule", videoId: "test", trackId: firstTrack
+    tokenIndex: 0, word: "fuck", source: "deterministic", evidence: "rule", videoId: "test", trackId: firstTrack,
+    captionRevision: firstCaption.captionRevision
   }) }
 });
 for (const rulesEnabled of [true, false]) {
@@ -195,15 +199,17 @@ function setCaptionMode(rulesEnabled, whisperEnabled, whisperFirst, acousticHead
     detail: JSON.stringify({ rulesEnabled, whisperEnabled, whisperFirst, acousticHead, videoId: "test" })
   }));
 }
-function reloadCaption(name, utf8) {
+function reloadCaption(name, captions) {
   const request = new FakeXHR();
   request.open("GET", captionUrl + "&name=" + name);
-  request.finish(JSON.stringify({ events: [{ segs: [{ utf8 }] }] }));
-  return JSON.parse(request.responseText).events[0].segs[0].utf8;
+  request.finish(JSON.stringify({ events: [captions].flat().map((utf8, index) => ({
+    tStartMs: index * 2000, dDurationMs: 2000, segs: [{ utf8 }]
+  })) }));
+  return JSON.parse(request.responseText).events.map(({ segs }) => segs[0].utf8).join(" ");
 }
-function publishCaptionWord(word, source, evidence) {
-  const { trackId, videoId } = timedTextDetails.at(-1);
-  const detail = { tokenIndex: 0, word, source, evidence, trackId, videoId };
+function publishCaptionWord(word, source, evidence, caption = timedTextDetails.at(-1)) {
+  const { trackId, videoId, captionRevision } = caption;
+  const detail = { tokenIndex: 0, word, source, evidence, trackId, videoId, captionRevision };
   listeners.get("message").call(context, {
     source: vm.runInContext("globalThis", context),
     data: { uncensoredWhisperResolution: JSON.stringify(detail) }
@@ -238,6 +244,41 @@ assert.strictEqual(reloadCaption("ambiguous", ambiguous), ambiguous);
 publishCaptionWord("fucking", "media", "candidate-score");
 setCaptionMode(true, true, false);
 assert.strictEqual(reloadCaption("ambiguous", ambiguous), "are you fucking me");
+
+const split = "are you [__]";
+setCaptionMode(true, true, true);
+reloadCaption("rule-refresh", [split, "me"]);
+publishCaptionWord("shitting", "deterministic", "rule");
+setCaptionMode(true, false, false);
+const refreshedRule = [reloadCaption("rule-refresh", [split, "kidding"]),
+  reloadCaption("rule-refresh", [split, "kidding"])];
+
+setCaptionMode(false, true, false);
+reloadCaption("media-refresh", [split, "me"]);
+const oldCaption = timedTextDetails.at(-1);
+publishCaptionWord("shitting", "media", "candidate-score");
+assert.strictEqual(reloadCaption("media-refresh", [split, "me"]), "are you shitting me");
+const refreshedMedia = [reloadCaption("media-refresh", [split, "kidding"])];
+publishCaptionWord("shitting", "media", "candidate-score", oldCaption);
+refreshedMedia.push(reloadCaption("media-refresh", [split, "kidding"]));
+publishCaptionWord("fucking", "media", "candidate-score");
+refreshedMedia.push(reloadCaption("media-refresh", [split, "kidding"]));
+assert.deepStrictEqual({ refreshedRule, refreshedMedia }, {
+  refreshedRule: ["are you fucking kidding", "are you fucking kidding"],
+  refreshedMedia: ["are you [__] kidding", "are you [__] kidding", "are you fucking kidding"]
+});
+
+const emitImmediately = context.setTimeout;
+const pendingCaptions = [];
+const captionCount = timedTextDetails.length;
+context.setTimeout = (callback) => pendingCaptions.push(callback);
+reloadCaption("pending-refresh", "there were no blanks");
+reloadCaption("pending-refresh", split);
+context.setTimeout = emitImmediately;
+pendingCaptions.forEach((callback) => callback());
+assert.deepStrictEqual(timedTextDetails.slice(captionCount).map(({ body }) =>
+  JSON.parse(body).events[0].segs[0].utf8), [split]);
+
 context.UncensoredTimedText = mockTimedText;
 
 // Reopening a patched XHR restores native responses for the next request.

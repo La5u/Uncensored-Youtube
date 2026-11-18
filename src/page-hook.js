@@ -16,6 +16,8 @@
   var pendingAudioMessages = new Map();
   var audioDecisionWaiters = [];
   var currentCaptionTrackId = "";
+  var currentCaptionBody;
+  var captionRevision = 0;
   var activeVideoId = currentVideoId();
   var navigationPending = false;
   // Counts navigation starts so a response from a superseded navigation is not relabeled.
@@ -57,6 +59,8 @@
     });
     audioReplacements.clear();
     currentCaptionTrackId = "";
+    currentCaptionBody = undefined;
+    captionRevision += 1;
   }
 
   globalThis.addEventListener("uncensored-settings", function updateSettings(event) {
@@ -82,7 +86,8 @@
 
     var videoId = detail.videoId || currentVideoId();
     var trackId = detail.trackId || "";
-    if (videoId !== currentVideoId() || trackId !== currentCaptionTrackId) return;
+    if (videoId !== currentVideoId() || trackId !== currentCaptionTrackId ||
+        detail.captionRevision !== captionRevision) return;
 
     var key = videoId + ":" + trackId + ":" + detail.tokenIndex;
     if (detail.word === "" && detail.source === "media") {
@@ -129,17 +134,22 @@
     var trackId = captionTrackId(input);
 
     syncVideo(videoId);
-    if (trackId !== currentCaptionTrackId) {
+    if (trackId !== currentCaptionTrackId || body !== currentCaptionBody) {
       currentCaptionTrackId = trackId;
+      currentCaptionBody = body;
+      captionRevision += 1;
       audioReplacements.clear();
     }
+    var revision = captionRevision;
     globalThis.setTimeout(function dispatchTimedText() {
+      if (revision !== captionRevision || videoId !== currentVideoId()) return;
       try {
         globalThis.dispatchEvent(new CustomEvent("uncensored-timedtext", {
           detail: JSON.stringify({
             body: body,
             trackId: trackId,
-            videoId: videoId
+            videoId: videoId,
+            captionRevision: revision
           })
         }));
       } catch (error) {}
