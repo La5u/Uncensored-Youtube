@@ -6,14 +6,14 @@
   // Measured on 154 English videos from creators the rules were not tuned on (frozen 2026-09-20
   // set, with 345 human audio labels; approximate percentages).
   var MODES = [
-    { id: "rules", title: "Rules only", precision: "Up to 81%", coverage: "Up to 37%", cpu: "Minimal",
+    { id: "rules", title: "Rules only", precision: "Up to 82%", coverage: "Up to 39%", cpu: "Minimal",
       description: "Fill words from caption context instantly. Uncertain slots stay hidden." },
     { id: "rules-first", title: "Rules first", precision: "Up to 89%", coverage: "Up to 87%", cpu: "Moderate",
       description: "Rules fill what they can; local Whisper listens only to the rest." },
     { id: "auto", title: "Automatic",
       description: "Whisper first on devices fast enough for it, Rules first otherwise." },
     { id: "whisper-first", title: "Whisper first", precision: "Up to 97%", coverage: "Up to 95%", cpu: "High",
-      description: "Rules fill instantly, then Whisper checks every slot and corrects them." },
+      description: "Whisper checks every slot; rules fill instantly until it has answered." },
     { id: "whisper", title: "Whisper only", precision: "Up to 97%", coverage: "Up to 95%", cpu: "High",
       decoderOnly: { precision: "Up to 97%", coverage: "Up to 90%" },
       description: "Only local Whisper audio recognition; no context rules." }

@@ -22,13 +22,13 @@ const manual = data.rows.find((row) => row.id === "manual-auto");
 assert.ok(Math.abs(manual.correct / manual.attempted - 0.89598) < 0.00001);
 assert.strictEqual(data.rows.find((row) => row.id === "held-out-test").available, false);
 assert.strictEqual(data.rows.find((row) => row.id === "dense-audio-whisper").diagnostic, true);
-assert.strictEqual(data.rows.find((row) => row.id === "dense-audio-hybrid").correct, 2145);
+assert.strictEqual(data.rows.find((row) => row.id === "dense-audio-hybrid").correct, 2211);
 const staleRow = data.rows.find((row) => row.id === "manual-filmot-wave-20260905");
 assert.ok(staleRow.stale && staleRow.superseded);
-// These dense reports predate the removal of the generated word-class rules.
+// Dense reports re-measured on the 1.6.3 code (generated word-class rules off).
 assert.ok(["dense-audio-rules", "dense-audio-whisper", "dense-audio-hybrid", "dense-audio-rules-first"].every((id) => {
   const row = data.rows.find((candidate) => candidate.id === id);
-  return row.stale && row.diagnostic && row.status === "diagnostic";
+  return !row.stale && row.diagnostic && row.status === "diagnostic";
 }));
 assert.deepStrictEqual(currentFingerprints(), {
   rulesFingerprint: require("../tools/evaluate-whisper-only").rulesFingerprint(),

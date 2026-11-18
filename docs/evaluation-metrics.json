@@ -131,47 +131,45 @@
       "tier": "manual-auto",
       "status": "diagnostic",
       "diagnostic": true,
-      "stale": true,
       "mode": "rules-only",
       "scoredSlots": 2493,
-      "attempted": 1407,
-      "correct": 1314,
-      "precision": 0.9339019189765458,
-      "coverage": 0.5270758122743683,
+      "attempted": 1305,
+      "correct": 1238,
+      "precision": 0.9486590038314177,
+      "coverage": 0.49659045326915363,
       "source": {
-        "report": "corpus/generated/dense-audio-v7-rules-only.json",
-        "reportFingerprint": "sha256:02e3d3e72e5c1c2e46039af464a342ffe1d918a3f145b7312cbf8da69f543429",
+        "report": "tmp/popup-figures-1.6.3/js/dense-rules-only.json",
+        "reportFingerprint": "sha256:973377dc195dd2a5c61d42abc516b81bfe37884869be9bb8ebe5afef49845323",
         "mode": "rules-only",
         "complete": true,
-        "rulesFingerprint": "5548:39:jocd34",
-        "rulesAuxFingerprint": "8hsabx",
-        "rulesEngineFingerprint": "1y8z46n"
+        "rulesFingerprint": "4356:39:d9bx96",
+        "rulesAuxFingerprint": "7bu55f",
+        "rulesEngineFingerprint": "vtg6vh"
       },
-      "note": "Dense development set (24+ creators, human expectedByToken overrides), not held-out. Word-class rules (tools/mine-word-class-rules.js) with provisional fills; replay from cached Whisper decisions after the timedtext.js change."
+      "note": "Completed source report; diagnostic only and not a held-out estimate."
     },
     {
       "id": "dense-audio-whisper",
-      "label": "Dense audio set, Whisper",
+      "label": "Dense audio set, Whisper only",
       "tier": "manual-auto",
       "status": "diagnostic",
       "diagnostic": true,
-      "stale": true,
       "mode": "whisper-only",
       "scoredSlots": 2449,
-      "attempted": 2021,
-      "correct": 1963,
-      "precision": 0.971301335972291,
-      "coverage": 0.8015516537362188,
+      "attempted": 2182,
+      "correct": 2106,
+      "precision": 0.9651695692025665,
+      "coverage": 0.8599428338097183,
       "source": {
-        "report": "corpus/generated/dense-audio-v7-whisper-scoring.json",
-        "reportFingerprint": "sha256:679856bd013a2a85c661df4028ea850c3bcd3f7dbf45e7877360c0a96bbfe88c",
+        "report": "tmp/popup-figures-1.6.3/js/dense-whisper.json",
+        "reportFingerprint": "sha256:4ce1ea2d0bea5f632cd45ca15f3c67bd8449691865a963cee2580eaeade7c365",
         "mode": "whisper-only",
         "complete": true,
-        "rulesFingerprint": "5548:39:jocd34",
-        "rulesAuxFingerprint": "8hsabx",
-        "rulesEngineFingerprint": "1y8z46n"
+        "rulesFingerprint": "4356:39:d9bx96",
+        "rulesAuxFingerprint": "7bu55f",
+        "rulesEngineFingerprint": "vtg6vh"
       },
-      "note": "Dense development set (24+ creators, human expectedByToken overrides), not held-out. Word-class rules (tools/mine-word-class-rules.js) with provisional fills; replay from cached Whisper decisions after the timedtext.js change."
+      "note": "Completed source report; diagnostic only and not a held-out estimate."
     },
     {
       "id": "dense-audio-hybrid",
@@ -179,47 +177,45 @@
       "tier": "manual-auto",
       "status": "diagnostic",
       "diagnostic": true,
-      "stale": true,
       "mode": "rules+whisper",
       "scoredSlots": 2449,
-      "attempted": 2225,
-      "correct": 2145,
-      "precision": 0.9640449438202248,
-      "coverage": 0.8758677011024908,
+      "attempted": 2295,
+      "correct": 2211,
+      "precision": 0.9633986928104575,
+      "coverage": 0.902817476521029,
       "source": {
-        "report": "corpus/generated/dense-audio-v7-hybrid-scoring.json",
-        "reportFingerprint": "sha256:cd5b13ec8fd1e2b04ca628dcac88936d638fcbe0da1094e0b2143dc69989694e",
+        "report": "tmp/popup-figures-1.6.3/js/dense-whisper-first.json",
+        "reportFingerprint": "sha256:766cddb695a960c394881661b16dd5e001dfde9066e54c7ddaefbe6c0e36fc43",
         "mode": "rules+whisper",
         "complete": true,
-        "rulesFingerprint": "5548:39:jocd34",
-        "rulesAuxFingerprint": "8hsabx",
-        "rulesEngineFingerprint": "1y8z46n"
+        "rulesFingerprint": "4356:39:d9bx96",
+        "rulesAuxFingerprint": "7bu55f",
+        "rulesEngineFingerprint": "vtg6vh"
       },
-      "note": "Dense development set (24+ creators, human expectedByToken overrides), not held-out. Word-class rules (tools/mine-word-class-rules.js) with provisional fills; replay from cached Whisper decisions after the timedtext.js change."
+      "note": "Completed source report; diagnostic only and not a held-out estimate."
     },
     {
       "id": "dense-audio-rules-first",
-      "label": "Dense audio set, rules first (default)",
+      "label": "Dense audio set, rules first",
       "tier": "manual-auto",
       "status": "diagnostic",
       "diagnostic": true,
-      "stale": true,
       "mode": "rules-first",
       "scoredSlots": 2449,
-      "attempted": 2225,
-      "correct": 2112,
-      "precision": 0.9492134831460675,
-      "coverage": 0.8623928133932217,
+      "attempted": 2295,
+      "correct": 2182,
+      "precision": 0.9507625272331155,
+      "coverage": 0.8909759085340956,
       "source": {
-        "report": "corpus/generated/dense-audio-v7-rules-first-scoring.json",
-        "reportFingerprint": "sha256:9b952b3b84bd62dbc2ba4a07d1362e92d6c6142f312aebfd7d66c5c33c6be830",
+        "report": "tmp/popup-figures-1.6.3/js/dense-rules-first.json",
+        "reportFingerprint": "sha256:eaa922be34edee27ef78c6774a389baf91fb2c387b0de93023a50c3d0d92b183",
         "mode": "rules-first",
         "complete": true,
-        "rulesFingerprint": "5548:39:jocd34",
-        "rulesAuxFingerprint": "8hsabx",
-        "rulesEngineFingerprint": "1y8z46n"
+        "rulesFingerprint": "4356:39:d9bx96",
+        "rulesAuxFingerprint": "7bu55f",
+        "rulesEngineFingerprint": "vtg6vh"
       },
-      "note": "Dense development set (24+ creators, human expectedByToken overrides), not held-out. Word-class rules (tools/mine-word-class-rules.js) with provisional fills; replay from cached Whisper decisions after the timedtext.js change."
+      "note": "Completed source report; diagnostic only and not a held-out estimate."
     }
   ]
 }

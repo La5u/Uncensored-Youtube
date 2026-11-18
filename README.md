@@ -41,10 +41,10 @@ The canonical snapshot is [`docs/evaluation-metrics.json`](docs/evaluation-metri
 | Any-candidate oracle | diagnostic | — | 90.81% | 49.83% |
 | Synthetic Filmot gap sample, rules-only | diagnostic (stale/superseded) | 110 | 85.37% | 31.82% |
 | Manual Filmot wave, rules-only | diagnostic (stale/superseded) | 275 | 69.72% | 27.64% |
-| Dense audio set, rules only | diagnostic (stale/superseded) | 2,493 | 93.39% | 52.71% |
-| Dense audio set, Whisper | diagnostic (stale/superseded) | 2,449 | 97.13% | 80.16% |
-| Dense audio set, Whisper first | diagnostic (stale/superseded) | 2,449 | 96.40% | 87.59% |
-| Dense audio set, rules first (default) | diagnostic (stale/superseded) | 2,449 | 94.92% | 86.24% |
+| Dense audio set, rules only | diagnostic | 2,493 | 94.87% | 49.66% |
+| Dense audio set, Whisper only | diagnostic | 2,449 | 96.52% | 85.99% |
+| Dense audio set, Whisper first | diagnostic | 2,449 | 96.34% | 90.28% |
+| Dense audio set, rules first | diagnostic | 2,449 | 95.08% | 89.10% |
 
 Development rows are in-sample.
 No held-out test score is available.
@@ -118,13 +118,13 @@ keeps Whisper's form (`fuck`/`fucking`). Fused changes are labelled
 `acoustic-fusion`. It is on by default; the popup's "Sound check for unclear
 words" switches it off. If its weights fail to load, Whisper runs without it;
 a weight file without fusion parameters only fills slots where Whisper abstains
-or nearly ties. Measured Whisper-only precision / coverage (2026-11-15, JS
-evaluator, decoder → fusion):
+or nearly ties. Measured precision / coverage (Whisper only 2026-11-15 synthetic rows; frozen and dense rows
+re-measured 2026-11-18 on the 1.6.3 code, word-class rules off; JS evaluator, decoder → fusion):
 
 | Pair class and set | Whisper only, decoder → fusion | Whisper first, fusion | Rules first, fusion |
 | --- | --- | --- | --- |
-| Unknown, frozen set | 97.15/90.48% → 97.20/94.83% | 96.98/95.22% | 88.97/87.38% |
-| Manual-auto, dense set | 97.13/80.16% → 96.82/85.91% | 96.49/90.94% | 95.15/89.67% |
+| Unknown, frozen set | 97.15/90.48% → 97.16/94.72% | 96.94/95.06% | 89.02/87.33% |
+| Manual-auto, dense set | 97.13/80.16% → 96.52/85.99% | 96.34/90.28% | 95.08/89.10% |
 | Synthetic, 216 unseen videos | 97.50/87.83% → 97.74/94.43% | | |
 | Synthetic, 32-creator test split | 96.21/80.79% → 96.47/89.80% | | |
 

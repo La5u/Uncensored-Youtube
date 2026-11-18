@@ -70,7 +70,7 @@ async function popupShows(stored, toggleHead = false) {
     { precision: "Up to 97%", coverage: "Up to 95%", mode: "auto", current: "Next video: Whisper first", cpu: "High", soundCheck: true, enabled: true });
   assert.strictEqual((await popupShows({ rulesEnabled: true, whisperEnabled: true })).mode, "auto");
   assert.strictEqual((await popupShows({ whisperEnabled: false })).mode, "rules");
-  assert.deepStrictEqual(await popupShows({ mode: "rules" }), { precision: "Up to 81%", coverage: "Up to 37%", mode: "rules", current: null, cpu: "Minimal", soundCheck: false, enabled: true });
+  assert.deepStrictEqual(await popupShows({ mode: "rules" }), { precision: "Up to 82%", coverage: "Up to 39%", mode: "rules", current: null, cpu: "Minimal", soundCheck: false, enabled: true });
   assert.strictEqual((await popupShows({ mode: "whisper", acousticHead: false })).coverage, "Up to 90%");
   assert.strictEqual((await popupShows({ mode: "whisper" }, true)).coverage, "Up to 90%");
   // Stored "off" and legacy both-off become the switch off with the slider at Automatic.
