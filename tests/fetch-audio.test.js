@@ -201,14 +201,14 @@ const { runQueue, lockedFetch, sections, config, fetchOne } = require("../tools/
           for (const name of fs.readdirSync(audio)) if (name.startsWith(`${id}.`)) fs.rmSync(path.join(audio, name));
           fs.rmSync(log, { force: true });
           const run = spawnSync(process.execPath, [path.resolve(__dirname, "../tools/fetch-heldout-audio.js"), "--one-id", id],
-            { env: { ...env, FETCH_AUDIO_METHOD: "", ...extra }, encoding: "utf8", timeout: 15000 });
+            { env: { ...env, FETCH_AUDIO_METHOD: "", FETCH_AUDIO_WHOLE_MAX_MB: "1", ...extra }, encoding: "utf8", timeout: 15000 }); // small cap: free-space check needs cap + 5 GB
           return { ...run, calls: fs.readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line)) };
         };
         mock(1000, "fs.copyFileSync(ref, out)");
         result = wholeRun();
         assert.strictEqual(result.status, 10, result.stdout + result.stderr);
         assert.strictEqual(result.calls.length, 2);
-        assert.ok(result.calls[1].includes("--max-filesize") && !result.calls[1].includes("--download-sections"));
+        assert.ok(result.calls[1].includes("--max-filesize") && !result.calls[1].includes("--download-sections"), JSON.stringify(result.calls));
         assert.deepStrictEqual(fs.readdirSync(whole), [], "the whole track is deleted after cutting");
         const clip = path.join(audio, `${id}.s0-35.webm`);
         assert.strictEqual(hasAudio(audio, id, [[0, 35]]), true);
