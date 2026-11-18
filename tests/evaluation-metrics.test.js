@@ -25,10 +25,10 @@ assert.strictEqual(data.rows.find((row) => row.id === "dense-audio-whisper").dia
 assert.strictEqual(data.rows.find((row) => row.id === "dense-audio-hybrid").correct, 2145);
 const staleRow = data.rows.find((row) => row.id === "manual-filmot-wave-20260905");
 assert.ok(staleRow.stale && staleRow.superseded);
-// Dense reports for all four modes are current-fingerprint diagnostics.
+// These dense reports predate the removal of the generated word-class rules.
 assert.ok(["dense-audio-rules", "dense-audio-whisper", "dense-audio-hybrid", "dense-audio-rules-first"].every((id) => {
   const row = data.rows.find((candidate) => candidate.id === id);
-  return !row.stale && !row.superseded;
+  return row.stale && row.diagnostic && row.status === "diagnostic";
 }));
 assert.deepStrictEqual(currentFingerprints(), {
   rulesFingerprint: require("../tools/evaluate-whisper-only").rulesFingerprint(),

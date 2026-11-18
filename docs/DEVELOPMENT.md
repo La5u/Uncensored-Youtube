@@ -33,7 +33,7 @@ execution: there is no inference cancellation or real-time latency guarantee.
 Whisper cost: the q8 encoder accepts fewer than 3000 mel frames
 (`tools/make-truncatable-encoder.py`), so `whisper-local.js` encodes only the real audio plus 2 s
 of silence; both sessions load with graph optimisation `basic` (`all` fails to load the q8
-decoder). The Automatic mode's budget in `audio-capture.js` (0.74 s per window + 0.64 s per blank)
+decoder). The Automatic mode's budget in `background.js` (0.74 s per window + 0.64 s per blank)
 is the largest scaling of a per-window + per-blank cost, at the current code's measured ratio of
 the two, for which a replay of a Whisper-first browser run's queue (`debug` telemetry: token
 times, decoded-audio progress) has no late word. Re-derive it when the queue policy or that cost
@@ -73,7 +73,7 @@ Modes: `off` (the popup switch off), `rules`, `rules-first`, `whisper-first`, `w
 (`--expect=shit` for the default video).
 
 Requires Linux, Firefox, `web-ext`, `pactl` with a working audio server, `flock` and network.
-Build first (`./build.sh <version>`); the runner pins runtime hashes and refuses stale builds.
+Build first (`./build.sh 1.6.3`); the runner pins runtime hashes and refuses stale builds.
 Firefox runs native headless on the hidden `special:uncensored-smoke` workspace (`--workspace`);
 never fall back to a visible browser. A muted, zero-volume null sink isolates playback, a shared
 lock prevents overlapping runs, and cleanup targets only owned processes. Checks correlate

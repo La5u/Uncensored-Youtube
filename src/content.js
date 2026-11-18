@@ -24,6 +24,7 @@
   var INJECT_VERSION = String(Date.now());
   var audioEnabled = null;
   var hasCensoredSlots = null;
+  var rawTrack = null;
   var activeVideoId = currentVideoId();
   var scripts = [
     "src/page-hook.js",
@@ -95,6 +96,7 @@
     videoId = videoId || currentVideoId();
     if (videoId === activeVideoId) return;
     activeVideoId = videoId;
+    rawTrack = null;
     applyMode(storedMode);
     audioEnabled = null;
     hasCensoredSlots = null;
@@ -202,7 +204,8 @@
       }
       if (changes.acousticHead) settings.acousticHead = changes.acousticHead.newValue !== false;
       updateAudioNeeded();
-      window.setTimeout(dispatchSettings, 0);
+      dispatchSettings();
+      analyzeTrack();
     });
   }
 
@@ -218,36 +221,42 @@
     // updateAudioNeeded() can return early; always hand the hook the current settings.
     updateAudioNeeded();
     dispatchSettings();
+    analyzeTrack();
   }, dispatchSettings);
 
-  window.addEventListener("uncensored-timedtext", function rememberTimedText(event) {
-    var detail = event && event.detail;
-    var body = detail;
-    var trackId = "";
+  function analyzeTrack() {
     var timedText = globalThis.UncensoredTimedText;
     var audioInference = globalThis.UncensoredAudioInference;
-    var data;
 
-    try {
-      detail = JSON.parse(detail);
-      body = detail.body;
-      trackId = detail.trackId || "";
-      if (detail.videoId && detail.videoId !== currentVideoId()) return;
-      syncVideo(detail.videoId || currentVideoId());
-    } catch (error) {}
+    if (!rawTrack || rawTrack.rulesEnabled === settings.rulesEnabled ||
+        !settings.rulesEnabled && !settings.whisperEnabled ||
+        !audioInference || !timedText || !timedText.collectTimedTextData) return;
 
-    if (typeof body !== "string" || !audioInference || !timedText.collectTimedTextData) {
-      return;
-    }
-
-    data = timedText.collectTimedTextData(body, settings.rulesEnabled);
-    debugLog("captions analyzed", { trackId: trackId, count: data.tokens.length });
+    var data = timedText.collectTimedTextData(rawTrack.body, settings.rulesEnabled);
+    rawTrack.rulesEnabled = settings.rulesEnabled;
+    debugLog("captions analyzed", { trackId: rawTrack.trackId, count: data.tokens.length });
     if (data.tokens.length) hasCensoredSlots = true;
     else if (data.parsed) hasCensoredSlots = false;
     updateAudioNeeded();
     if (audioInference.rememberTimedTextData) {
-      audioInference.rememberTimedTextData(data, trackId, activeVideoId);
+      audioInference.rememberTimedTextData(data, rawTrack.trackId, activeVideoId);
     }
+  }
+
+  window.addEventListener("uncensored-timedtext", function rememberTimedText(event) {
+    var detail = event && event.detail;
+    var track = { body: detail, trackId: "" };
+
+    try {
+      detail = JSON.parse(detail);
+      if (detail.videoId && detail.videoId !== currentVideoId()) return;
+      syncVideo(detail.videoId || currentVideoId());
+      track = { body: detail.body, trackId: detail.trackId || "" };
+    } catch (error) {}
+
+    if (typeof track.body !== "string") return;
+    rawTrack = track;
+    analyzeTrack();
   });
 
   window.addEventListener("uncensored-no-captions", function stopNoCaptionAudio(event) {

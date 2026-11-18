@@ -80,6 +80,8 @@ function validate(events, config) {
   if (!['off', 'rules'].includes(config.mode)) {
     assert(events.some(e => e.type === 'log' && e.videoId === config.videoId &&
       /whisper model (started|ready)/.test(e.text)), 'Worker not ready');
+    assert(events.some(e => e.type === 'log' && e.videoId === config.videoId &&
+      /whisper model started .*"acousticHead":"loaded"/.test(e.text)), 'Sound check head not loaded');
     const resolved = events.filter(e => e.type === 'log' && /whisper resolved "(.+?)"/.test(e.text));
     const correlate = epoch => resolved.some(e => {
       const lead = e.text.match(/lead (-?[\d.]+)s/);
@@ -133,7 +135,7 @@ function runtimeHashes(directory, prefix = '') {
   return Object.fromEntries(fs.readdirSync(directory).sort().flatMap(name => {
     const file = path.join(directory, name), key = prefix + name;
     return fs.statSync(file).isDirectory() ? Object.entries(runtimeHashes(file, key + '/')) :
-      /\.(js|mjs|json|html|css|png|wasm|onnx)$/.test(name) ? [[key, crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')]] : [];
+      /\.(js|mjs|json|html|css|png|wasm|onnx|bin)$/.test(name) ? [[key, crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')]] : [];
   }));
 }
 async function run(args = process.argv.slice(2)) {
@@ -185,7 +187,7 @@ async function run(args = process.argv.slice(2)) {
       `browser.runtime.onMessage.addListener(message => { if (message?.firefoxSmoke?.token === ${JSON.stringify(token)}) return fetch(${JSON.stringify(staged.endpoint)}, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(message.firefoxSmoke)}).then(() => true); });\n` +
       `const reportNetwork = details => { const url = new URL(details.url); if (!url.pathname.includes('timedtext')) return; fetch(${JSON.stringify(staged.endpoint)}, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({token:${JSON.stringify(token)}, type:'network', at:Date.now(), host:url.hostname, path:url.pathname, status:details.statusCode, error:details.error || null})}).catch(() => {}); };\n` +
       `browser.webRequest.onCompleted.addListener(reportNetwork, {urls:['https://www.youtube.com/*','https://*.googlevideo.com/*']}); browser.webRequest.onErrorOccurred.addListener(reportNetwork, {urls:['https://www.youtube.com/*','https://*.googlevideo.com/*']});\n` +
-      `browser.storage.local.set(${JSON.stringify(config.mode === 'off' ? { enabled: false } : { enabled: true, mode: config.mode })}).then(() => browser.tabs.create({url:${JSON.stringify(config.url)}}));`);
+      `browser.storage.local.set(${JSON.stringify(config.mode === 'off' ? { enabled: false } : { enabled: true, mode: config.mode, acousticHead: true })}).then(() => browser.tabs.create({url:${JSON.stringify(config.url)}}));`);
     fs.writeFileSync(path.join(extension, 'firefox-smoke-content.js'), `const SMOKE = ${JSON.stringify(staged)};\n` + fs.readFileSync(path.join(__dirname, 'firefox-smoke-content.js'), 'utf8'));
     fs.copyFileSync(path.join(__dirname, 'firefox-smoke-page.js'), path.join(extension, 'firefox-smoke-page.js'));
     fs.writeFileSync(path.join(profile, 'user.js'), 'user_pref("media.volume_scale", "0");\nuser_pref("media.cubeb.backend", "pulse");\nuser_pref("media.autoplay.default", 0);\n');

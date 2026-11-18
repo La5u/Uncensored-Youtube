@@ -85,9 +85,16 @@ for (const file of fs.readdirSync(path.join(root, "tests")).filter((name) => nam
 for (const file of fs.readdirSync(path.join(root, "tests")).filter((name) => name.endsWith(".test.py")).sort()) {
   run("python3", [path.join("tests", file)]);
 }
-run("./build.sh", ["1.6.2"]);
-run("unzip", ["-tq", "dist/uncensored-youtube-firefox-1.6.2.zip"]);
-run("unzip", ["-tq", "dist/uncensored-youtube-chromium-1.6.2.zip"]);
+const browsers = ["firefox", "chromium"];
+const manifests = browsers.map((browser) => JSON.parse(fs.readFileSync(path.join(root, `manifest.${browser}.json`))));
+const version = manifests[0].version;
+if (manifests.some((manifest) => manifest.version !== version)) throw new Error("Manifest versions differ");
+run("./build.sh", []);
+for (const browser of browsers) {
+  const staged = JSON.parse(fs.readFileSync(path.join(root, "dist", browser, "manifest.json")));
+  if (staged.version !== version) throw new Error(`Wrong staged ${browser} version: ${staged.version}`);
+  run("unzip", ["-tq", `dist/uncensored-youtube-${browser}-${version}.zip`]);
+}
 if (release) {
   run("npx", ["--yes", "web-ext@10.6.0", "lint",
     "--source-dir", "dist/firefox", "--warnings-as-errors"]);

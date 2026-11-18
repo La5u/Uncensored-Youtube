@@ -12,6 +12,7 @@
   var offscreenReady = null;
   var offscreenClosing = null;
   var activeTabs = new Set();
+  var speedUpdates = Promise.resolve();
 
   function senderTabId(sender) {
     return sender && sender.tab && sender.tab.id;
@@ -141,6 +142,28 @@
     });
   }
 
+  // Serialize measurements from all tabs. Content applies the recommendation at video start.
+  function recordWhisperSpeed(data) {
+    var storage = runtime.storage && runtime.storage.local;
+    if (!storage || !data || !Number.isFinite(data.seconds) || data.seconds <= 0 ||
+        !Number.isInteger(data.slots) || data.slots < 1) return Promise.resolve();
+
+    // The budget is 0.74 s per window plus 0.64 s per blank (docs/DEVELOPMENT.md).
+    var sample = data.seconds / (0.74 + 0.64 * data.slots);
+    var update = speedUpdates.then(function readSpeeds() {
+      return storage.get({ whisperSpeed: [] });
+    }).then(function storeSpeed(values) {
+      var speeds = values.whisperSpeed.concat(sample).slice(-15);
+      var median = speeds.slice().sort(function ascending(a, b) { return a - b; })[Math.floor(speeds.length / 2)];
+      return storage.set({
+        whisperSpeed: speeds,
+        autoMode: speeds.length >= 5 && median <= 1 ? "whisper-first" : "rules-first"
+      });
+    });
+    speedUpdates = update.catch(function keepQueueAlive() {});
+    return update;
+  }
+
   runtime.runtime.onMessage.addListener(function onWhisperMessage(message, sender, sendResponse) {
       if (!message) return;
 
@@ -160,6 +183,14 @@
       }
 
       if (!message.uncensoredWhisper) return;
+      if (message.type === "recordSpeed") {
+        recordWhisperSpeed(message.data).then(function recorded() {
+          sendResponse({ ok: true });
+        }, function failed(error) {
+          sendResponse({ error: error && (error.message || String(error)) });
+        });
+        return true;
+      }
       var whisperTabId = senderTabId(sender);
       if (typeof whisperTabId === "number") activeTabs.add(whisperTabId);
 

@@ -1,5 +1,6 @@
 const assert = require("assert");
 const fs = require("fs");
+const test = require("node:test");
 const vm = require("vm");
 
 const source = fs.readFileSync(require.resolve("../src/audio-capture"), "utf8");
@@ -13,14 +14,18 @@ function makeHarness(responses, browser = false) {
   const listeners = {};
   const video = { currentTime: 1, paused: false,
     addEventListener(type, listener) { listeners[type] = listener; }, removeEventListener() {} };
+  const segments = [];
+  const player = {};
+  let captionMutation;
   const context = {
     location: { href: "https://www.youtube.com/watch?v=video-a" },
-    document: { querySelector(selector) { return selector === "video" ? video : null; }, querySelectorAll() { return []; } },
+    document: { querySelector(selector) { return selector === "video" ? video : player; }, querySelectorAll() { return segments; } },
     addEventListener(type, listener) { listeners[type] = listener; },
     requestAnimationFrame(callback) { callback(); },
     MutationObserver: class MutationObserver {
-      disconnect() {}
-      observe() {}
+      constructor(callback) { this.callback = callback; }
+      disconnect() { captionMutation = null; }
+      observe() { captionMutation = this.callback; }
     },
     URL,
     Float32Array,
@@ -45,6 +50,7 @@ function makeHarness(responses, browser = false) {
   context.chrome = { runtime: {
     sendMessage(message, callback) {
       messages.push(message);
+      if (message.type === "recordSpeed") { callback({ ok: true }); return; }
       if (message.type === "preload") {
         callback({ ok: true, ready: true, acousticHead: "loaded" });
         return;
@@ -108,9 +114,213 @@ function makeHarness(responses, browser = false) {
       { tokens, timeline: [] }, trackId, videoId
     );
   }
-  return { context, messages, posted, listeners, advance, start, token, addAudio, video,
-    audio: context.UncensoredAudioInference };
+  function renderCaption(textContent) {
+    segments.splice(0, segments.length, { textContent });
+    if (captionMutation) captionMutation([{ target: { nodeType: 1, closest: () => true } }]);
+    return segments[0].textContent;
+  }
+  return { context, messages, posted, listeners, advance, start, token, addAudio, video, segments,
+    renderCaption, audio: context.UncensoredAudioInference };
 }
+
+function timedCue(text, startTime, endTime, firstTokenIndex = 0) {
+  return { text, startTime, endTime, firstTokenIndex };
+}
+
+test("1. Rules only preserves a scored multi-candidate fill", () => {
+  const timedText = require("../src/timedtext");
+  const raw = JSON.stringify({ events: [
+    { tStartMs: 0, dDurationMs: 3000, segs: [{ utf8: "are you [__] me" }] }
+  ] });
+  const patched = JSON.parse(timedText.patchTimedTextBodyWithOverrides(raw, [], true, true));
+  const data = timedText.collectTimedTextData(raw, true);
+  assert.strictEqual(data.tokens[0].deterministicAmbiguous, true);
+  const segment = { textContent: patched.events[0].segs[0].utf8 };
+  assert.strictEqual(segment.textContent, "are you shitting me");
+  const h = makeHarness([]);
+  h.segments.push(segment);
+  h.audio.setOptions({ rulesEnabled: true, whisperEnabled: false });
+  h.audio.rememberTimedTextData(data, "track-a", "video-a");
+  assert.strictEqual(segment.textContent, "are you shitting me");
+});
+
+test("2. Repeated cues leave an ambiguous visible blank alone", async () => {
+  const h = makeHarness([(callback) => callback({ decision: { decisions: [
+    { word: "shit", evidence: "candidate-score" }
+  ] } })]);
+  const raw = "what the [__]";
+  const segment = { textContent: raw };
+  h.segments.push(segment);
+  h.audio.setOptions({ whisperFirst: true });
+  h.addAudio();
+  h.audio.rememberTimedTextData({
+    tokens: [h.token(0), h.token(1, 1, 8)].map((token) =>
+      ({ ...token, context: raw, deterministicWord: "fuck" })),
+    timeline: [timedCue(raw, 1, 2, 0), timedCue(raw, 8, 9, 1)]
+  }, "track-a", "video-a");
+  await h.advance(0);
+  assert.strictEqual(JSON.parse(h.posted.at(-1).uncensoredWhisperResolution).word, "shit");
+  assert.strictEqual(segment.textContent, raw);
+});
+
+test("3. Whisper posts a decision for a slot with a suffix", async () => {
+  for (const suffix of ["'s", "’S", "ing"]) {
+    const h = makeHarness([(callback) => callback({ decision: { decisions: [
+      { word: "shit", evidence: "candidate-score" }
+    ] } })]);
+    const raw = `For [__]${suffix} sake`;
+    const segment = { textContent: `For fuck${suffix} sake` };
+    h.segments.push(segment);
+    h.audio.setOptions({ whisperFirst: true });
+    h.addAudio();
+    h.audio.rememberTimedTextData({
+      tokens: [{ ...h.token(0), context: raw, deterministicWord: "fuck" }],
+      timeline: [timedCue(raw, 0, 3)]
+    }, "track-a", "video-a");
+    await h.advance(0);
+    assert.strictEqual(JSON.parse(h.posted.at(-1).uncensoredWhisperResolution).word, "shit");
+    assert.strictEqual(segment.textContent, `For fuck${suffix} sake`);
+  }
+});
+
+test("4. Whisper first keeps a cached word heard in Whisper only", async () => {
+  const h = makeHarness([(callback) => callback({ decision: { decisions: [
+    { word: "shit", evidence: "candidate-score", head: { word: "shit", p: 0.98 } }
+  ] } })]);
+  const raw = "what the [__]";
+  const segment = { textContent: raw };
+  h.segments.push(segment);
+  h.audio.setOptions({ rulesEnabled: false });
+  h.addAudio();
+  const cue = { tokens: [{ ...h.token(0), context: raw }], timeline: [timedCue(raw, 0, 3)] };
+  h.audio.rememberTimedTextData(cue, "track-a", "video-a");
+  await h.advance(0);
+  assert.strictEqual(segment.textContent, "what the shit");
+  h.audio.setOptions({ whisperFirst: true });
+  cue.tokens[0].deterministicWord = "fuck";
+  h.audio.rememberTimedTextData(cue, "track-a", "video-a");
+  assert.strictEqual(segment.textContent, "what the shit");
+
+  h.audio.setOptions({ rulesEnabled: false, whisperEnabled: false });
+  h.audio.setOptions({ rulesEnabled: false, whisperEnabled: true });
+  h.audio.rememberTimedTextData({ tokens: [{ ...h.token(0), context: raw }], timeline: cue.timeline },
+    "track-a", "video-a");
+  assert.strictEqual(h.renderCaption(raw), "what the shit");
+  assert.strictEqual(h.audio.pendingTokenValues().length, 0);
+  assert.strictEqual(h.messages.filter((message) => message.type === "transcribe").length, 1);
+});
+
+test("5. Off leaves an already filled on-screen cue as displayed", () => {
+  const h = makeHarness([]);
+  const segment = { textContent: "say fuck now" };
+  h.segments.push(segment);
+  h.audio.setOptions({ rulesEnabled: true, whisperEnabled: false });
+  h.audio.rememberTimedTextData({
+    tokens: [{ ...h.token(0), deterministicWord: "fuck" }],
+    timeline: [timedCue("say [__] now", 0, 3)]
+  }, "track-a", "video-a");
+  h.audio.setOptions({ rulesEnabled: false, whisperEnabled: false });
+  assert.strictEqual(segment.textContent, "say fuck now");
+  assert.strictEqual(h.renderCaption("say [__] now"), "say [__] now");
+});
+
+test("6. Enabling Sound check requeues a decoder-only abstention", async () => {
+  const h = makeHarness([
+    (callback) => callback({ decision: { decisions: [{ word: "", evidence: "none" }] } }),
+    (callback) => callback({ decision: { decisions: [
+      { word: "shit", evidence: "acoustic-head", decoderWord: "", head: { word: "shit", p: 0.98 } }
+    ] } })
+  ]);
+  h.start([h.token(0)], "track-a", "video-a", false, 3, { acousticHead: false });
+  await h.advance(0);
+  assert.strictEqual(h.audio.pendingTokenValues().length, 0);
+  h.audio.setOptions({ rulesEnabled: false, acousticHead: true });
+  h.listeners.seeking();
+  h.addAudio();
+  await h.advance(0);
+  assert.deepStrictEqual(h.messages.filter((message) => message.type === "transcribe")
+    .map((message) => message.data.options.acousticHead), [false, true]);
+  assert.strictEqual(JSON.parse(h.posted.at(-1).uncensoredWhisperResolution).word, "shit");
+  assert.strictEqual(h.audio.pendingTokenValues().length, 0);
+});
+
+test("#5. A Sound check retry that abstains clears the earlier decoder fill", async () => {
+  const h = makeHarness([
+    (callback) => callback({ decision: { decisions: [
+      { word: "shit", evidence: "candidate-score" },
+      { word: "fuck", evidence: "candidate-score" }
+    ] } }),
+    (callback) => callback({ decision: { decisions: [
+      { word: "", evidence: "none", head: { word: "fuck", p: 0.4 } }
+    ] } })
+  ]);
+  const tokens = [h.token(0), h.token(1, 1, 1.2)];
+  tokens[0].context = "oh [__] well";
+  const timeline = tokens.map((token) => timedCue(token.context, 0, 3, token.tokenIndex));
+  h.audio.setOptions({ rulesEnabled: false, acousticHead: false });
+  h.addAudio();
+  h.audio.rememberTimedTextData({ tokens, timeline }, "track-a", "video-a");
+  await h.advance(0);
+  assert.strictEqual(h.renderCaption(tokens[1].context), "say fuck now");
+
+  h.video.currentTime = 2.1;
+  h.audio.setOptions({ rulesEnabled: false, acousticHead: true });
+  h.listeners.seeking();
+  h.addAudio();
+  await h.advance(0);
+  const requests = h.messages.filter((message) => message.type === "transcribe");
+  assert.deepStrictEqual(Array.from(requests[0].data.options.slots, (slot) => slot.tokenIndex), [0, 1]);
+  assert.deepStrictEqual(Array.from(requests[1].data.options.slots, (slot) => slot.tokenIndex), [1]);
+  assert.strictEqual(h.renderCaption(tokens[1].context), tokens[1].context);
+  const latest = JSON.parse(h.posted.at(-1).uncensoredWhisperResolution);
+  assert.strictEqual(latest.tokenIndex, 1);
+  assert.strictEqual(latest.word, "");
+});
+
+test("#8. A skipped head attempt retries once after reactivation", async () => {
+  const skipped = (callback) => callback({ decision: { decisions: [{ word: "", evidence: "none" }] } });
+  const h = makeHarness([skipped, skipped]);
+  h.start([h.token(0)]);
+  await h.advance(0);
+  assert.strictEqual(h.audio.pendingTokenValues().length, 0);
+
+  h.audio.setOptions({ rulesEnabled: false, whisperEnabled: false });
+  h.audio.setOptions({ rulesEnabled: false, whisperEnabled: true });
+  h.listeners.seeking();
+  h.addAudio();
+  await h.advance(0);
+  assert.strictEqual(h.messages.filter((message) => message.type === "transcribe").length, 2);
+  assert.strictEqual(h.audio.pendingTokenValues().length, 0);
+
+  h.audio.rememberTimedTextData({ tokens: [h.token(0)], timeline: [] }, "track-a", "video-a");
+  h.addAudio();
+  await h.advance(0);
+  assert.strictEqual(h.messages.filter((message) => message.type === "transcribe").length, 2);
+});
+
+test("#8. Scoring on a restarted worker requeues earlier skipped slots", async () => {
+  const h = makeHarness([
+    (callback) => callback({ decision: { workerId: "first", decisions: [{ word: "", evidence: "none" }] } }),
+    (callback) => callback({ decision: { workerId: "second", decisions: [
+      { word: "fuck", evidence: "candidate-score", head: { word: "fuck", p: 0.98 } }
+    ] } }),
+    (callback) => callback({ decision: { workerId: "second", decisions: [
+      { word: "shit", evidence: "acoustic-head", head: { word: "shit", p: 0.98 } }
+    ] } })
+  ]);
+  const first = h.token(0);
+  h.start([first]);
+  await h.advance(0);
+  assert.strictEqual(h.audio.pendingTokenValues().length, 0);
+
+  const second = h.token(1, 1, 8);
+  h.addAudio(10);
+  h.audio.rememberTimedTextData({ tokens: [first, second], timeline: [] }, "track-a", "video-a");
+  await h.advance(0);
+  assert.deepStrictEqual(h.messages.filter((message) => message.type === "transcribe")
+    .map((message) => Array.from(message.data.options.slots, (slot) => slot.tokenIndex)), [[0], [1], [0]]);
+  assert.strictEqual(h.audio.pendingTokenValues().length, 0);
+});
 
 async function hybridUsesFullWhisperPath() {
   const h = makeHarness([(callback) => callback({ decision: { decisions: [{
@@ -130,19 +340,56 @@ async function hybridUsesFullWhisperPath() {
   assert.strictEqual(JSON.parse(h.posted.at(-1).uncensoredWhisperResolution).word, 'shit');
 }
 
-// Window timings (warm-up already excluded by the worker) pick the automatic mode once 5 are stored.
-async function windowSpeedPicksAutoMode(seeded, inferenceMs, expected) {
-  const h = makeHarness([(callback) => callback({ decision: { inferenceMs, decisions: [{ word: "fuck", evidence: "transcript" }] } })]);
-  let stored = { whisperSpeed: seeded };
-  h.context.chrome.storage = { local: {
-    get: (defaults) => Promise.resolve(Object.assign({}, defaults, stored)),
-    set: (values) => { stored = Object.assign({}, stored, values); return Promise.resolve(); }
-  } };
+async function replacesOnlyTheVisibleBlank() {
+  const h = makeHarness([(callback) => callback({ decision: { decisions: [{
+    word: "shit", evidence: "candidate-score", hybridCrossFamily: true
+  }] } })]);
+  const segment = { textContent: "fuck, say fuck now" };
+  h.segments.push(segment);
+  h.audio.setOptions({ whisperFirst: true });
+  h.addAudio();
+  h.audio.rememberTimedTextData({
+    tokens: [Object.assign(h.token(0), { deterministicWord: "fuck" })],
+    timeline: [{ text: "fuck, say [__] now", startTime: 0, endTime: 3, firstTokenIndex: 0 }]
+  }, "track-a", "video-a");
+  assert.strictEqual(segment.textContent, "fuck, say fuck now");
+  await h.advance(0);
+  assert.strictEqual(segment.textContent, "fuck, say fuck now");
+  assert.strictEqual(h.renderCaption("fuck, say [__] now"), "fuck, say shit now");
+}
+
+async function ruleFallbackStaysRuleEvidence() {
+  for (const source of ["context", "deterministic"]) {
+    const h = makeHarness([(callback) => callback({ decision: { decisions: [{
+      word: "fuck", source, evidence: "rule"
+    }] } })]);
+    const token = h.token(0);
+    if (source === "deterministic") Object.assign(token, { deterministicWord: "fuck", deterministicAmbiguous: true });
+    else h.context.UncensoredRules.applyDeterministicRules = () => ({ replacements: [{ word: "fuck" }] });
+    const segment = { textContent: token.context };
+    h.segments.push(segment);
+    h.audio.setOptions({ whisperFirst: true });
+    h.addAudio();
+    h.audio.rememberTimedTextData({ tokens: [token],
+      timeline: [{ text: token.context, startTime: 0, endTime: 3, firstTokenIndex: 0 }]
+    }, "track-a", "video-a");
+    await h.advance(0);
+    assert.strictEqual(segment.textContent, "say fuck now");
+    assert.strictEqual(JSON.parse(h.posted.at(-1).uncensoredWhisperResolution).source, source);
+    h.audio.setOptions({ rulesEnabled: false, whisperEnabled: true });
+    assert.strictEqual(h.renderCaption(token.context), token.context);
+    assert.strictEqual(h.audio.pendingTokenValues().length, 0, "the decoder already abstained");
+  }
+}
+
+async function reportsWindowTimingToBackground() {
+  const h = makeHarness([(callback) => callback({ decision: { inferenceMs: 690, decisions: [{ word: "fuck" }] } })]);
   h.start([h.token(0)]);
   await h.advance(0);
-  assert.strictEqual(stored.whisperSpeed.length, seeded.length + 1);
-  assert.ok(Math.abs(stored.whisperSpeed.at(-1) - inferenceMs / 1000 / 1.38) < 1e-9, "relative to 0.74 s + 0.64 s per blank");
-  assert.strictEqual(stored.autoMode, expected);
+  const timing = h.messages.find((message) => message.type === "recordSpeed");
+  assert.ok(timing, "the shared host receives the measurement");
+  assert.strictEqual(timing.data.seconds, 0.69);
+  assert.strictEqual(timing.data.slots, 1);
 }
 
 async function successAfterTransient() {
@@ -210,30 +457,56 @@ async function nearbyTokensShareWindow() {
   assert.strictEqual(h.posted.length, 2);
 }
 
-// Switching the head off drops its fills (head-on-uncertain or fused) and rescores those slots without it.
+// Changing Sound check uses the decoder decision already computed in the same window.
 async function acousticHeadSwitch(evidence = "acoustic-head") {
-  const fused = evidence === "acoustic-fusion" ? { decoderWord: "fuck" } : {};
-  const h = makeHarness([(callback) => callback({ decision: { decisions: [Object.assign({ word: "shit", evidence,
-    head: { word: "shit", p: 0.987 } }, fused)] } }),
-    (callback) => callback({ decision: { decisions: [{ word: "", evidence: "none" }] } })]);
+  const decoderWord = evidence === "acoustic-fusion" ? "fuck" : "";
+  const h = makeHarness([(callback) => callback({ decision: { decisions: [{ word: "shit", evidence,
+    decoderWord, head: { word: "shit", p: 0.987 } }] } })]);
   const debug = [];
   h.context.localStorage = { getItem: (key) => key === "uncensoredDebug" ? "1" : null };
   h.context.console = { debug: (line) => debug.push(line), warn() {} };
+  const segment = { textContent: "say [__] now" };
+  h.segments.push(segment);
   h.start([h.token(0)]);
+  h.audio.rememberTimedTextData({ tokens: [h.token(0)],
+    timeline: [{ text: "say [__] now", startTime: 0, endTime: 3, firstTokenIndex: 0 }] }, "track-a", "video-a");
   await h.advance(0);
   // Debug log: head status at model start, and the head's top word when it was consulted.
   assert.ok(debug.includes('[uncensored] whisper model started {"acousticHead":"loaded"}'), debug.join("\n"));
   // A fused decision also names the decoder's word.
   assert.ok(debug.includes(`[uncensored] whisper decision {"token":0,"word":"shit","evidence":"${evidence}","head":"shit 0.99"` +
-    (fused.decoderWord ? ',"decoder":"fuck"}' : "}")), debug.join("\n"));
+    `,"decoder":"${decoderWord}"}`), debug.join("\n"));
   assert.strictEqual(JSON.parse(h.posted[0].uncensoredWhisperResolution).evidence, evidence);
   h.audio.setOptions({ rulesEnabled: false, whisperEnabled: true, audioEnabled: true, videoId: "video-a",
     acousticHead: false });
-  h.addAudio();
+  assert.strictEqual(h.audio.mediaAudio.segments.length, 0);
   await h.advance(0);
   const requests = h.messages.filter((message) => message.type === "transcribe");
-  assert.strictEqual(requests.length, 2);
-  assert.strictEqual(requests[1].data.options.acousticHead, false);
+  assert.strictEqual(requests.length, 1);
+  assert.strictEqual(h.audio.pendingTokenValues().length, 0);
+  assert.strictEqual(h.renderCaption("say [__] now"), `say ${decoderWord || "[__]"} now`);
+  if (decoderWord) assert.strictEqual(JSON.parse(h.posted.at(-1).uncensoredWhisperResolution).word, decoderWord);
+  h.audio.setOptions({ rulesEnabled: false, whisperEnabled: true, acousticHead: true });
+  assert.strictEqual(h.renderCaption("say [__] now"), "say shit now");
+}
+
+async function disabledHeadStillAllowsRuleFallback() {
+  const h = makeHarness([(callback) => callback({ decision: { decisions: [{
+    word: "shit", decoderWord: "", evidence: "acoustic-head", hybridCrossFamily: true
+  }] } })]);
+  const token = Object.assign(h.token(0), { deterministicWord: "fuck", deterministicAmbiguous: true });
+  const segment = { textContent: token.context };
+  h.segments.push(segment);
+  h.audio.setOptions({ whisperFirst: true });
+  h.addAudio();
+  h.audio.rememberTimedTextData({ tokens: [token],
+    timeline: [{ text: token.context, startTime: 0, endTime: 3, firstTokenIndex: 0 }]
+  }, "track-a", "video-a");
+  await h.advance(0);
+  assert.strictEqual(segment.textContent, "say shit now");
+  h.audio.setOptions({ whisperFirst: true, acousticHead: false });
+  assert.strictEqual(h.renderCaption(token.context), "say fuck now");
+  assert.strictEqual(JSON.parse(h.posted.at(-1).uncensoredWhisperResolution).source, "deterministic");
 }
 
 // A same-track refresh that rewrites a slot drops the old slot's in-flight result.
@@ -380,9 +653,9 @@ async function hostFailuresAreRetryable() {
 
 (async function main() {
   await hybridUsesFullWhisperPath();
-  await windowSpeedPicksAutoMode([0.5, 0.5, 0.5], 690, "rules-first"); // not yet measured
-  await windowSpeedPicksAutoMode([0.5, 0.5, 2, 2], 690, "whisper-first");
-  await windowSpeedPicksAutoMode([0.5, 2, 2, 2], 690, "rules-first");
+  await replacesOnlyTheVisibleBlank();
+  await ruleFallbackStaysRuleEvidence();
+  await reportsWindowTimingToBackground();
   await successAfterTransient();
   await exhaustedCap();
   await emptyDoesNotRetry();
@@ -390,6 +663,7 @@ async function hostFailuresAreRetryable() {
   await rulesFirstSkipsRuleFills();
   await acousticHeadSwitch();
   await acousticHeadSwitch("acoustic-fusion");
+  await disabledHeadStillAllowsRuleFallback();
   await passedSlotsNotScored();
   await endOfVideoSlotScored();
   await sameTrackRefreshDropsStaleResult();

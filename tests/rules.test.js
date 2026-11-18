@@ -643,8 +643,8 @@ assert.strictEqual(rules.applyDeterministicRules("I got that [__]").text, "I got
 assert.strictEqual(rules.applyDeterministicRules("holy [__] it's huge").text, "holy shit it's huge");
 assert.strictEqual(rules.applyDeterministicRules("holy [__] it was huge").replacements.length, 0);
 assert.strictEqual(rules.applyDeterministicRules("I'll [__] it up").text, "I'll fuck it up");
-// The broad `that [__] up` stays retired; only the narrower word-class `<wc-past> that [shit] up` fills.
-assert.strictEqual(rules.applyDeterministicRules("they dug that [__] up yeah").text, "they dug that shit up yeah");
+// The broad and generated word-class versions of `that [__] up` stay retired.
+assert.strictEqual(rules.applyDeterministicRules("they dug that [__] up yeah").replacements.length, 0);
 assert.strictEqual(rules.applyDeterministicRules("well that [__] up yeah").replacements.length, 0);
 assert.ok(!rules.DETERMINISTIC_RULES.some((rule) => rule.template === "that [__] up"));
 assert.strictEqual(rules.applyDeterministicRules("Oh, son of a [__]").text, "Oh, son of a bitch");
@@ -709,8 +709,7 @@ assert.strictEqual(rules.applyDeterministicRules("he laughs oh [__]").replacemen
 assert.strictEqual(rules.applyDeterministicRules("Petty but I'm also a little [__]").replacements.length, 0);
 assert.strictEqual(rules.applyDeterministicRules("I put a trash bag on my [__]").replacements.length, 0);
 assert.strictEqual(rules.applyDeterministicRules("I didn't feel [__] now").replacements.length, 0);
-// Under the synthetic-primary gate the measured word-class rule fills this (synthetic 15/16, 4 creators).
-assert.strictEqual(rules.applyDeterministicRules("speaking of [__] in the mouth").text, "speaking of shit in the mouth");
+assert.strictEqual(rules.applyDeterministicRules("speaking of [__] in the mouth").replacements.length, 0);
 for (const ambiguous of [
   "You fucking [__].",
   "I want a [__].",
@@ -870,20 +869,15 @@ for (const [input, expected] of [
   ["don't [__] care", "don't fucking care"], ["talking [__] about it", "talking shit about it"],
   ["some crazy [__]", "some crazy shit"], ["up in this [__]", "up in this bitch"]
 ]) assert.strictEqual(rules.applyDeterministicRules(input).text, expected);
-// The broad auxiliary frame stays off; the measured word-class `<wc-modal> [__] <wc-verb>`
-// (synthetic 196/210, 11 creators) now fills modal + verb.
-for (const [input, expected] of [["we might [__] believe", "we might fucking believe"], ["we could [__] eat", "we could fucking eat"]]) {
-  assert.strictEqual(rules.applyDeterministicRules(input).text, expected);
+// Generated word-class rules and their vocabulary are excluded from the runtime.
+assert.deepStrictEqual(data.WORD_CLASSES, {});
+assert.ok(!rules.DETERMINISTIC_RULES.some((rule) => rule.groupId === "fallback/word-class"));
+for (const input of ["we might [__] believe", "we could [__] eat", "we could [__] xqzzv", "we could [__] eat-xqzzv"]) {
+  assert.strictEqual(rules.applyDeterministicRules(input).replacements.length, 0);
 }
-// `<name>` tokens match only words in data.WORD_CLASSES[name].
-assert.ok(data.WORD_CLASSES["wc-verb"].includes("eat"));
-assert.strictEqual(rules.applyDeterministicRules("we could [__] xqzzv").replacements.length, 0);
 // Cache invalidation sees text the way runtime preprocesses it.
 assert.strictEqual(rules.applyDeterministicRules("piece [Music] of [__]").text, "piece   of shit");
 assert.ok(rules.templatesMatch(["piece of [__]"], "piece [Music] of [__]"));
-// A class slot holds one lexical word; a hyphenated chunk fails closed.
-assert.ok(!rules.applyDeterministicRules("we could [__] eat-xqzzv").replacements
-  .some((replacement) => replacement.rule.template.includes("<wc-")));
 // `*` takes a whole non-space chunk, so hyphenated words and decimals reach the regex.
 for (const input of ["to build a [__]", "to build 3-D [__]", "to build 2.5 [__]"]) {
   assert.strictEqual(rules.applyDeterministicRules(input).text, input.replace("[__]", "fucking"));
@@ -933,8 +927,7 @@ assert.deepStrictEqual(
 );
 assert.ok(rules.DETERMINISTIC_RULES.every((rule) => rule.candidates.length));
 
-// Closed word classes: new class members fire, near-misses outside the class do not, and the
-// literal member keeps its template, punctuation handling and priority.
+// Literal templates keep their punctuation handling and priority.
 [
   ["what the [__] they want", "fuck", "what the [__] they"],
   ["so [__] are we doing", "fuck", "[__] are we"],

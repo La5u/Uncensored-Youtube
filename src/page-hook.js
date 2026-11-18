@@ -78,15 +78,21 @@
     detail = safeJson(detail);
     if (!detail || !Number.isInteger(detail.tokenIndex) || detail.tokenIndex < 0) return;
 
-    var allowed = globalThis.UncensoredRules && globalThis.UncensoredRules.ALLOWED_WORDS;
-    if (!Array.isArray(allowed) || typeof detail.word !== "string" ||
-        allowed.indexOf(detail.word.toLowerCase()) === -1) return;
-
     var videoId = detail.videoId || currentVideoId();
     var trackId = detail.trackId || "";
     if (videoId !== currentVideoId() || trackId !== currentCaptionTrackId) return;
 
-    audioReplacements.set(videoId + ":" + trackId + ":" + detail.tokenIndex, {
+    var key = videoId + ":" + trackId + ":" + detail.tokenIndex;
+    if (detail.word === "" && detail.source === "media") {
+      audioReplacements.delete(key);
+      return;
+    }
+
+    var allowed = globalThis.UncensoredRules && globalThis.UncensoredRules.ALLOWED_WORDS;
+    if (!Array.isArray(allowed) || typeof detail.word !== "string" ||
+        allowed.indexOf(detail.word.toLowerCase()) === -1) return;
+
+    audioReplacements.set(key, {
       videoId: videoId,
       trackId: trackId,
       tokenIndex: detail.tokenIndex,

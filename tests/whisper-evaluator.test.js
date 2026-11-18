@@ -2,6 +2,7 @@ const assert = require("assert");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const test = require("node:test");
 const evaluator = require("../tools/evaluate-whisper-only");
 
 const args = evaluator.parseArgs(["--names", "one,two", "--limit", "3"]);
@@ -34,14 +35,78 @@ try {
 } finally { fs.readFileSync = originalReadFileSync; }
 assert.strictEqual(evaluator.transcriptGenerationFingerprint(), generationFingerprint);
 assert.strictEqual(args.model, "");
-assert.notStrictEqual(evaluator.transcriptGenerationFingerprint("tmp/models/whisper-base.en"), generationFingerprint,
-  "another Whisper model must never reuse tiny.en transcripts");
+const modelDir = fs.mkdtempSync(path.join(os.tmpdir(), "uncensored-model-"));
+try {
+  fs.mkdirSync(path.join(modelDir, "onnx"));
+  const model = path.join(modelDir, "onnx", "encoder_model_quantized.onnx");
+  fs.writeFileSync(model, "encoder-v1");
+  const original = evaluator.transcriptGenerationFingerprint(modelDir);
+  assert.notStrictEqual(original, generationFingerprint);
+  fs.writeFileSync(model, "encoder-v2");
+  assert.notStrictEqual(evaluator.transcriptGenerationFingerprint(modelDir), original,
+    "replacing ONNX bytes at the same path invalidates transcripts");
+} finally { fs.rmSync(modelDir, { recursive: true, force: true }); }
+
+const evaluatorPath = require.resolve("../tools/evaluate-whisper-only");
+const evaluatorSource = fs.readFileSync(evaluatorPath, "utf8");
+function evaluatorWithRuleData(vocabulary, kept, allowedWords, source = evaluatorSource) {
+  const load = require("module").createRequire(evaluatorPath);
+  const env = { __dirname: path.dirname(evaluatorPath), Buffer, module: { exports: {} }, require(id) {
+    const value = load(id);
+    if (id === "../src/rules-data") return { ...value, WORD_CLASSES: { "test-class": vocabulary } };
+    if (id === "../src/rules") return { ...value, ALLOWED_WORDS: allowedWords || value.ALLOWED_WORDS, DETERMINISTIC_RULES: [
+      { template: "<test-class> [__] [__]", candidates: ["shit"], kept }
+    ] };
+    return value;
+  } };
+  require("vm").runInNewContext(source, env);
+  return env.module.exports;
+}
+const originalRules = evaluatorWithRuleData(["owl"], [0]);
+const newVocabulary = evaluatorWithRuleData(["bear"], [0]);
+assert.notStrictEqual(originalRules.rulesFingerprint(), newVocabulary.rulesFingerprint());
+assert.notStrictEqual(originalRules.auxiliaryRulesFingerprint(), newVocabulary.auxiliaryRulesFingerprint(),
+  "class edits must also disable partial rules reuse");
+assert.notStrictEqual(originalRules.rulesFingerprint(), evaluatorWithRuleData(["owl"], [1]).rulesFingerprint());
+
+test("8. Transcript fingerprints survive model relocation", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "uncensored-model-move-"));
+  try {
+    const first = path.join(dir, "first", "model");
+    const second = path.join(dir, "second", "model");
+    fs.mkdirSync(path.join(first, "onnx"), { recursive: true });
+    fs.mkdirSync(path.dirname(second));
+    fs.writeFileSync(path.join(first, "onnx", "encoder_model_quantized.onnx"), "encoder");
+    const fingerprint = evaluator.transcriptGenerationFingerprint(first);
+    fs.renameSync(first, second);
+    assert.strictEqual(evaluator.transcriptGenerationFingerprint(second), fingerprint);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("8. Transcript fingerprints depend on ordered scorer candidates", () => {
+  const words = require("../src/rules").ALLOWED_WORDS;
+  const reversed = evaluatorWithRuleData(["owl"], [0], words.slice().reverse());
+  assert.notStrictEqual(reversed.transcriptGenerationFingerprint(), generationFingerprint);
+});
+
+test("#9. Transcript fingerprints depend on windowed scorer inputs and window length", () => {
+  for (const [original, changed] of [
+    ["      nextWord: token.nextWord,\n", ""],
+    ["const WINDOW_SECONDS = 30;", "const WINDOW_SECONDS = 29;"]
+  ]) {
+    const source = evaluatorSource.replace(original, changed);
+    assert.notStrictEqual(source, evaluatorSource);
+    const modified = evaluatorWithRuleData(["owl"], [0], undefined, source);
+    assert.notStrictEqual(modified.transcriptGenerationFingerprint(), generationFingerprint, original.trim());
+  }
+});
+
 const completeTranscriptCache = {
   mode: "whisper-only",
   complete: true,
   audioWindowKey: args.audioWindowKey,
   transcriptGenerationFingerprint: generationFingerprint,
-  fixtures: [{ results: [{ audioWord: "fuck", audioScore: -0.5 }] }]
+  fixtures: [{ results: [{ audioWord: "fuck", audioEvidence: "candidate-score", audioScore: -0.5 }] }]
 };
 assert.doesNotThrow(() => evaluator.validateTranscriptCache(
   completeTranscriptCache, args, generationFingerprint
@@ -421,4 +486,59 @@ const multiTokenSummary = evaluator.summarize([
 assert.strictEqual(multiTokenSummary.candidateCount, 1);
 assert.strictEqual(multiTokenSummary.qualityGate.minimumSupport, 4);
 
-console.log("whisper-evaluator.test.js passed");
+async function checkTranscriptReplay() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "uncensored-replay-"));
+  try {
+    const fixture = { name: "replay", censored: "replay.json3" };
+    const manifest = path.join(dir, "manifest.json");
+    const provenance = path.join(dir, "provenance.json");
+    const cache = path.join(dir, "cache.json");
+    fs.writeFileSync(manifest, JSON.stringify([fixture]));
+    fs.writeFileSync(provenance, JSON.stringify({ provenance: [] }));
+    fs.writeFileSync(path.join(dir, "replay.webm"), "cache media identity");
+    fs.writeFileSync(path.join(dir, fixture.censored), JSON.stringify({ events: [
+      { tStartMs: 1000, segs: [{ utf8: "This [__] is weird. Oh [__] now." }] }
+    ] }));
+    const decisions = [
+      { tokenIndex: 0, audioWord: "fuck", audioEvidence: "acoustic-fusion", audioScore: null,
+        audioDecoderWord: "shit", audioDecoderScore: -1.5 },
+      { tokenIndex: 1, audioWord: "shit", audioEvidence: "acoustic-head", audioScore: null,
+        audioDecoderWord: "", audioDecoderScore: null }
+    ];
+    fs.writeFileSync(cache, JSON.stringify({ ...completeTranscriptCache, fixtures: [{
+      ...fixture, contentFingerprint: evaluator.fixtureFingerprint(dir, fixture),
+      audioFingerprint: evaluator.audioFingerprint(dir, fixture), results: decisions
+    }] }));
+    const report = await evaluator.main(["--fixtures", dir, "--audioDir", dir, "--manifest", manifest,
+      "--allowUnscored", "true", "--provenanceReports", provenance, "--transcripts", cache,
+      "--acousticHead", "none", "--mode", "rules+whisper", "--output", path.join(dir, "out.json")]);
+    const results = report.fixtures[0].results;
+    assert.deepStrictEqual(results.map(result => result.source), ["acoustic-fusion", "acoustic-head"]);
+    assert.deepStrictEqual(results.map(result => Object.fromEntries(Object.keys(decisions[0]).map(key => [key, result[key]]))),
+      decisions, "replay preserves evidence and attributes the score to the decoder word");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+
+test("10. Rules-only evaluation ignores the transcript cache", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "uncensored-rules-replay-"));
+  try {
+    const manifest = path.join(dir, "manifest.json");
+    const provenance = path.join(dir, "provenance.json");
+    const cache = path.join(dir, "cache.json");
+    fs.writeFileSync(manifest, JSON.stringify([{ name: "rules", censored: "rules.json3" }]));
+    fs.writeFileSync(provenance, JSON.stringify({ provenance: [] }));
+    fs.writeFileSync(cache, JSON.stringify(completeTranscriptCache));
+    fs.writeFileSync(path.join(dir, "rules.json3"), JSON.stringify({ events: [
+      { tStartMs: 1000, segs: [{ utf8: "what the [__]" }] }
+    ] }));
+    const report = await evaluator.main(["--fixtures", dir, "--manifest", manifest, "--mode", "rules-only",
+      "--allowUnscored", "true", "--provenanceReports", provenance, "--transcripts", cache,
+      "--output", path.join(dir, "out.json")]);
+    assert.strictEqual(report.fixtures[0].results[0].word, "fuck");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+checkTranscriptReplay().then(() => console.log("whisper-evaluator.test.js passed")).catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

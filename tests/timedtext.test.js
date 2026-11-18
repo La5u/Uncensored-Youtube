@@ -380,9 +380,30 @@ const overrideResult = JSON.parse(overrideBody);
 assert.strictEqual(overrideResult.events[0].segs.map((seg) => seg.utf8).join(""), "what the fuck did you just fucking call me");
 
 
-// Word-class fills are provisional: with Whisper on (resolveAmbiguous false) the body keeps the blank.
+// The generated group stays out of runtime captions in both rule modes.
 const wordClassBody = JSON.stringify({ events: [{ tStartMs: 0, segs: [{ utf8: "we might [ __ ] believe" }] }] });
-assert.ok(!timedText.patchTimedTextBodyWithOverrides(wordClassBody, [], true, false).includes("fucking"));
-assert.ok(timedText.patchTimedTextBodyWithOverrides(wordClassBody, [], true, true).includes("fucking"));
+for (const resolveAmbiguous of [true, false]) {
+  assert.strictEqual(timedText.patchTimedTextBodyWithOverrides(wordClassBody, [], true, resolveAmbiguous), wordClassBody);
+}
+
+const spanning = JSON.stringify({ events: [{ segs: [{ utf8: "bull [__] [__]" }] }] });
+for (const [index, expected] of [[0, ["fuck", "shit"]], [1, ["fucking", "fuck"]]]) {
+  const body = timedText.patchTimedTextBodyWithOverrides(spanning, [{ tokenIndex: index, word: "fuck" }], true, false);
+  assert.strictEqual(JSON.parse(body).events[0].segs[0].utf8, "bull " + expected.join(" "),
+    "an override targets just one slot in a spanning rule");
+}
+
+let matcherCalls = 0;
+const realm = { UncensoredRules: { ...rules, applyDeterministicRules(text) {
+  matcherCalls += 1;
+  return rules.applyDeterministicRules(text);
+} } };
+require("vm").runInNewContext(require("fs").readFileSync(require.resolve("../src/timedtext"), "utf8"), realm);
+const raw = realm.UncensoredTimedText.collectTimedTextData(JSON.stringify(overridePayload), false);
+assert.strictEqual(raw.tokens.length, 2);
+assert.strictEqual(matcherCalls, 0, "Whisper only collects timing without running rules");
+const analyzed = realm.UncensoredTimedText.collectTimedTextData(JSON.stringify(overridePayload), true);
+assert.strictEqual(matcherCalls, 1);
+assert.deepStrictEqual(analyzed.tokens.map(token => token.rawContext), raw.tokens.map(token => token.context));
 
 console.log("timedtext.test.js passed");

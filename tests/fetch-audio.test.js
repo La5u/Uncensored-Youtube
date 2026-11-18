@@ -44,18 +44,41 @@ const { runQueue, lockedFetch, sections, config, fetchOne } = require("../tools/
     assert.deepStrictEqual(JSON.parse(fs.readFileSync(c.ledger)).failures, {});
     assert.strictEqual(await runQueue(c, ["busy"], () => 75, async () => {}), 1);
     assert.match(JSON.parse(fs.readFileSync(c.ledger)).failures.busy.reason, /busy/i);
-    // Parallel lanes: at most N videos at once, one ledger, and a bot check pauses every lane.
-    let active = 0, peak = 0, blocked = false;
-    const lanePauses = [];
-    assert.strictEqual(await runQueue({ ...c, parallel: 2 }, ["p1", "p2", "p3", "p4", "p5"], async (_, id) => {
-      peak = Math.max(peak, ++active);
-      await new Promise((r) => setTimeout(r, 5));
-      active -= 1;
-      return id === "p2" && !blocked && (blocked = true) ? { status: 1, reason: "Sign in to confirm you're not a bot" } : 10;
-    }, async (ms) => lanePauses.push(ms)), 0);
-    assert.strictEqual(peak, 2);
-    assert.ok(lanePauses.some((ms) => ms > 100000), "a bot check holds all lanes");
-    assert.deepStrictEqual(JSON.parse(fs.readFileSync(c.ledger)).failures, {});
+    // Two lanes wait with one item left. A later rate limit extends the shared deadline.
+    const realNow = Date.now;
+    let now = 0;
+    Date.now = () => now;
+    try {
+      const started = [], requests = new Map(), waits = [];
+      const tick = () => new Promise(resolve => setImmediate(resolve));
+      const running = runQueue({ ...c, parallel: 2 }, ["first", "second", "last"], (_, id) => {
+        started.push([id, now]);
+        if (id === "first" || id === "second") return new Promise(resolve => requests.set(id, resolve));
+        return 10;
+      }, ms => ms === 0 ? Promise.resolve() : new Promise(resolve => waits.push(resolve)));
+      const limited = { status: 20, reason: "HTTP Error 429" };
+      assert.deepStrictEqual(started, [["first", 0], ["second", 0]]);
+      requests.get("first")(limited);
+      await tick();
+      now = 1000;
+      requests.get("second")(limited);
+      await tick();
+      now = 120000;
+      waits.shift()();
+      await tick();
+      assert.strictEqual(started.length, 2, "the extended pause still applies");
+      now = 121000;
+      waits.splice(0).forEach(resolve => resolve());
+      assert.strictEqual(await running, 1);
+      assert.deepStrictEqual(started, [["first", 0], ["second", 0], ["last", 121000]]);
+    } finally { Date.now = realNow; }
+
+    const geo = "The uploader has not made this video available in your country";
+    fs.writeFileSync(c.ledger, JSON.stringify({ failures: { video: { permanent: true, reason: geo } } }));
+    assert.strictEqual(await runQueue({ ...c, netns: "allowed" }, ["video"], (_, id) => {
+      assert.strictEqual(id, "video");
+      return 0;
+    }, async () => {}), 0, "an old geographic failure must be reevaluated");
 
     if (spawnSync("flock", ["--version"]).status === 0) {
       fs.mkdirSync(path.join(dir, ".locks"));
@@ -144,6 +167,15 @@ const { runQueue, lockedFetch, sections, config, fetchOne } = require("../tools/
           { env, encoding: "utf8", timeout: 15000 });
         assert.strictEqual(result.status, 1, result.stdout + result.stderr);
         assert.match(result.stderr, /does not cover all required windows/);
+        fs.writeFileSync(path.join(bin, "yt-dlp"), `#!${process.execPath}\nconsole.error(${JSON.stringify(geo)}); process.exit(1);\n`,
+          { mode: 0o755 });
+        result = cli();
+        assert.strictEqual(result.status, 1, result.stdout + result.stderr);
+        const restricted = JSON.parse(fs.readFileSync(env.FETCH_AUDIO_LEDGER)).failures[id];
+        assert.strictEqual(restricted.permanent, false);
+        assert.strictEqual(restricted.route, "direct");
+        assert.strictEqual(restricted.attempts, 1, "a country block is not retried on the same run");
+
         // Confirmed unavailable sources are persisted, fail the queue, and are not retried forever.
         fs.writeFileSync(path.join(bin, "yt-dlp"), `#!${process.execPath}\n` +
           `require('fs').appendFileSync(${JSON.stringify(calls)},'call\\n'); console.error('Private video'); process.exit(1);\n`, { mode: 0o755 });

@@ -629,7 +629,6 @@
           var tokenRange = findTokenRange(matchedText, compiled.rule.kept);
 
           if (!tokenRange) continue;
-          if (compiled.classSlots && !matchesWordClasses(compiled.classSlots, match)) continue;
 
           var tokenStart = matchStart + tokenRange.start;
           var tokenEnd = matchStart + tokenRange.end;
@@ -645,6 +644,8 @@
           if (seenMatches.has(matchKey)) continue;
           seenMatches.add(matchKey);
           matchCount += 1;
+          // The range was found even when the captured word is outside the class.
+          if (compiled.classSlots && !matchesWordClasses(compiled.classSlots, match)) continue;
 
           var overlap = occupiedRanges.find(function overlaps(occupied) {
             return tokenStart < occupied.end && tokenEnd > occupied.start;

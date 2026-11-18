@@ -5,6 +5,7 @@ const path = require("path");
 const { execFileSync, spawn, spawnSync } = require("child_process");
 const { hasAudio, audioFiles, covers, probeAudio, sourceDuration } = require("./audio-coverage");
 const root = path.join(__dirname, "..");
+const geographicRestriction = /not made this video available in your country/i;
 
 function config(env = process.env) {
   const idsPath = path.resolve(env.FETCH_AUDIO_IDS || path.join(root, "tmp/heldout/post-freeze-manual-auto-ids.txt"));
@@ -161,9 +162,9 @@ function fetchOne(c, id) {
   } catch (error) {
     const reason = String(error.stderr || error.message);
     console.error(`${id}: ${reason.slice(-500).replace(/[\r\n]+/g, " ")}`);
-    // Generic "unavailable" and network errors may recover on a later route; uploader geo-blocks,
-    // closed accounts and copyright blocks do not.
-    return /Private video|This video has been removed|account.*terminated|closed their YouTube account|blocked due to the claimed content|copyright claim|not made this video available in your country|members.only|Join this channel to get access/i.test(reason) ? 20 : 1;
+    // A country restriction ends this run's attempts for the ID. A later route can try again.
+    if (geographicRestriction.test(reason)) return 21;
+    return /Private video|This video has been removed|account.*terminated|closed their YouTube account|blocked due to the claimed content|copyright claim|members.only|Join this channel to get access/i.test(reason) ? 20 : 1;
   }
 }
 
@@ -194,14 +195,19 @@ async function runQueue(c, ids, execute = lockedFetch, pause = (ms) => new Promi
     if (error.code !== "ENOENT") throw error;
   }
   const failures = Object.fromEntries(ids.filter((id) => previous[id]).map((id) => [id, previous[id]]));
-  let done = 0, skipped = 0, pending = ids.filter((id) => !failures[id]?.permanent);
+  let done = 0, skipped = 0;
+  let pending = ids.filter((id) => !failures[id]?.permanent || geographicRestriction.test(failures[id].reason));
   const recent = [];
   let holdUntil = 0; // shared by all lanes: one lane's bot check or 429 pauses them all
   for (let pass = 0; pass < 3 && pending.length; pass += 1) {
     const retry = [], queue = [...pending];
     const lane = async () => {
       while (queue.length) {
-        if (Date.now() < holdUntil) await pause(holdUntil - Date.now());
+        const delay = holdUntil - Date.now();
+        if (delay > 0) {
+          await pause(delay);
+          continue;
+        }
         const id = queue.shift(), started = Date.now();
         console.log(`[${new Date().toISOString()}] checking/fetching ${id}; item ETA unknown until validation/download completes.`);
         const outcome = await execute(c, id);
@@ -213,7 +219,8 @@ async function runQueue(c, ids, execute = lockedFetch, pause = (ms) => new Promi
           failures[id] = { attempts: (failures[id]?.attempts || 0) + 1, permanent: status === 20,
             reason: status === 75 ? "Video busy; deferred" : reason || (status === 20 ? "Source unavailable; see log" : "Acquisition or coverage validation failed; see log"),
             updatedAt: new Date().toISOString() };
-          if (status !== 20) retry.push(id);
+          if (status === 21) failures[id].route = c.netns;
+          else if (status !== 20) retry.push(id);
         }
         if (c.parallel > 1 && /Sign in to confirm|not a bot|HTTP Error 429|Too Many Requests/i.test(reason || "")) {
           holdUntil = Date.now() + 120000;

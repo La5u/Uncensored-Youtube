@@ -33,27 +33,15 @@
   function patchEventSegments(segs, replacements, tokenOffset) {
     var tokenIndex = tokenOffset;
 
-    function replacementForToken(index) {
-      var replacement = replacements.find(function findReplacement(candidate) {
-        return index >= candidate.tokenIndex && index < candidate.tokenIndex + (candidate.tokenSpan || 1);
-      });
-
-      if (!replacement) {
-        return null;
-      }
-
-      return replacement.word.split(/\s+/)[index - replacement.tokenIndex] || "";
-    }
-
     segs.forEach(function patchSegment(seg) {
       if (!seg || typeof seg.utf8 !== "string") {
         return;
       }
 
       var patchedText = seg.utf8.replace(CENSORED_TOKEN_REGEX, function replaceToken(token) {
-        var replacement = replacementForToken(tokenIndex);
+        var replacement = replacements.get(tokenIndex);
         tokenIndex += 1;
-        return replacement === null ? token : replacement;
+        return replacement === undefined ? token : replacement;
       });
 
       if (patchedText !== seg.utf8) {
@@ -128,9 +116,8 @@
     return Array.from(new Set(candidates.concat(pieces[pieceIndex] || replacement.word))).filter(Boolean);
   }
 
-  // Word-class fills are provisional: rules-first still asks Whisper for them.
   function isAmbiguousRule(rule) {
-    return rule.candidates.length > 1 || rule.groupId === "fallback/word-class";
+    return rule.candidates.length > 1;
   }
 
   function deterministicTokenMap(replacements) {
@@ -192,6 +179,7 @@
     var spoken = [];
     var visibleEvents = [];
     var positionByEventIndex = new Map();
+    var noRules = new Map();
 
     payload.events.forEach(function collectVisibleEvent(event, eventIndex) {
       if (!event || !Array.isArray(event.segs)) {
@@ -211,6 +199,7 @@
       }
 
       var eventText = eventTexts[eventIndex];
+      var hasSiblingTokens = deterministicByTokenIndex.size && countCensoredTokens(eventText) > 1;
       var firstEventTokenIndex = tokenIndex;
       var eventTokenIndex = 0;
       var contextBefore = options && options.contextBefore != null ? options.contextBefore : 1;
@@ -239,6 +228,9 @@
             eventIndex: eventIndex,
             timeSeconds: tokenTimeSeconds(payload, event, eventIndex, seg, segIndex, offset, eventText, nextEventStarts),
             context: contextForToken(visibleEvents, position, tokenIndex, firstEventTokenIndex, deterministicByTokenIndex, contextBefore, contextAfter),
+            rawContext: hasSiblingTokens
+              ? contextForToken(visibleEvents, position, tokenIndex, firstEventTokenIndex, noRules, contextBefore, contextAfter)
+              : undefined,
             deterministicWord: deterministic ? deterministic.word : "",
             deterministicCandidates: deterministic ? deterministic.candidates : [],
             deterministicAmbiguous: deterministic ? deterministic.ambiguous : false,
@@ -366,23 +358,22 @@
     var replacementByTokenIndex = new Map();
     var tokenOffset = 0;
 
-    result.replacements.forEach(function mapDeterministicReplacement(replacement) {
-      if (resolveAmbiguous !== false || !isAmbiguousRule(replacement.rule)) {
-        replacementByTokenIndex.set(replacement.tokenIndex, replacement);
+    function mapReplacement(replacement) {
+      var words = replacement.word.split(/\s+/);
+      for (var index = 0; index < (replacement.tokenSpan || 1); index += 1) {
+        replacementByTokenIndex.set(replacement.tokenIndex + index, words[index] || "");
       }
+    }
+
+    result.replacements.forEach(function mapDeterministicReplacement(replacement) {
+      if (resolveAmbiguous !== false || !isAmbiguousRule(replacement.rule)) mapReplacement(replacement);
     });
 
     (overrides || []).forEach(function mapOverride(override) {
-      if (!override || typeof override.tokenIndex !== "number" || !override.word) {
-        return;
-      }
-
-      replacementByTokenIndex.set(override.tokenIndex, {
-        tokenIndex: override.tokenIndex,
-        tokenSpan: override.tokenSpan || 1,
-        word: override.word
-      });
+      if (override && typeof override.tokenIndex === "number" && override.word) mapReplacement(override);
     });
+
+    if (!replacementByTokenIndex.size) return { payload: payload, patchCount: 0 };
 
     payload.events.forEach(function patchEvent(event, eventIndex) {
       if (!event || !Array.isArray(event.segs)) {
@@ -396,19 +387,7 @@
         return;
       }
 
-      var eventTokenEnd = tokenOffset + eventTokenCount;
-      var eventReplacements = Array.from(replacementByTokenIndex.values()).filter(function filterEventReplacement(replacement) {
-        var replacementEnd = replacement.tokenIndex + (replacement.tokenSpan || 1);
-
-        return replacement.tokenIndex < eventTokenEnd && replacementEnd > tokenOffset;
-      });
-
-      if (!eventReplacements.length) {
-        tokenOffset += eventTokenCount;
-        return;
-      }
-
-      patchEventSegments(event.segs, eventReplacements, tokenOffset);
+      patchEventSegments(event.segs, replacementByTokenIndex, tokenOffset);
       tokenOffset += eventTokenCount;
     });
 
@@ -419,6 +398,7 @@
   }
 
   function patchTimedTextBodyWithOverrides(body, overrides, useDeterministic, resolveAmbiguous) {
+    if (useDeterministic === false && !(overrides && overrides.length)) return body;
     try {
       var result = patchTimedTextJsonWithOverrides(JSON.parse(body), overrides, useDeterministic !== false, body, resolveAmbiguous);
       return result.patchCount > 0 ? JSON.stringify(result.payload) : body;
@@ -431,10 +411,9 @@
     try {
       var payload = JSON.parse(body);
       var parsed = Array.isArray(payload.events) && payload.events.length > 0;
-      var analysis = deterministicAnalysis(payload, body, true);
+      var analysis = deterministicAnalysis(payload, body, useDeterministic !== false);
       var eventTexts = analysis.eventTexts;
-      var ruleResult = analysis.result;
-      var result = useDeterministic === false ? { decisions: [] } : ruleResult;
+      var result = analysis.result;
       var nextEventStarts = [];
       var nextStartMs;
       var eventIndex;

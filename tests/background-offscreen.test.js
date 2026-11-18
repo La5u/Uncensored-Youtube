@@ -50,6 +50,25 @@ function preload() {
   assert.strictEqual((await preload()).ok, true);
   assert.strictEqual(contextsCalls, 2);
   assert.strictEqual(createCalls, 1);
+  // Two tabs may finish inference before either gets a storage response.
+  let stored = { whisperSpeed: [0.5, 0.5, 2] };
+  const recommendations = [];
+  context.chrome.storage = { local: {
+    get: (defaults) => Promise.resolve(Object.assign({}, defaults, stored)),
+    set: async (values) => {
+      await Promise.resolve();
+      stored = Object.assign({}, stored, values);
+      recommendations.push(values.autoMode);
+    }
+  } };
+  const timing = (id, seconds) => new Promise((resolve, reject) => {
+    if (onMessage({ uncensoredWhisper: true, type: "recordSpeed", data: { seconds, slots: 1 } },
+      { tab: { id } }, resolve) !== true) reject(new Error("Expected asynchronous timing response"));
+  });
+  await Promise.all([timing(1, 0.69), timing(2, 2.76)]);
+  assert.deepStrictEqual(stored.whisperSpeed, [0.5, 0.5, 2, 0.5, 2]);
+  assert.deepStrictEqual(recommendations, ["rules-first", "whisper-first"]);
+  assert.strictEqual(deliveryCalls, 2, "timings only use the shared background host");
   console.log("background-offscreen.test.js passed");
 })().catch(function reportFailure(error) {
   console.error(error);

@@ -13,7 +13,10 @@ do not cover every window) via one netns, `NL-FREE-211`. **Relaunch it with
 `AUDIO_REFETCH=tmp/migration-setup/dev-refetch-ids.txt`; without it the runner exits at once
 (dev cap of 1,000 reached).** Throughput 10-21: ~1 video/h, so ETA unknown (days).
 
-- **1.6.2 is tagged (`v1.6.2`) and on `main`, not submitted** (release checks in git history of this file, commit `d50c2f0`). Word-class rules, the acoustic fusion head, the faster encoder and automatic mode are merged for 1.6.3.
+- **1.6.2 is tagged (`v1.6.2`) and on `main`, not submitted** (release checks in git history
+  of this file, commit `d50c2f0`). Release 1.6.3 includes the acoustic fusion head, the faster
+  encoder and automatic mode.
+  Release 1.6.3 disables the generated word-class group and retains the diagnostic miner.
 - **Direct downloads are network-dependent: wifi `Livebox-D760` is VPN only** (captions and audio).
   Dev captions ran direct 10-12/13 (approved on another network), via
   `python3 tmp/acquisition-20261004/manage.py status|direct|stop|vpn` (allowed in
@@ -55,7 +58,7 @@ sha256 files), isolated `workspace/` root, separate manual-auto/synthetic-auto l
 open its captions or errors; score aggregates once per release with the current
 `tools/evaluate-whisper-only.js`.
 
-## Rules work (uncommitted tooling; runtime unchanged)
+## Rules work (generated word-class group disabled for 1.6.3)
 
 - Committed word-class rules (`880c303`) score only ~80% synthetic / ~65% manual-auto on
   unseen creators; wider windows (`tmp/rules-20261010-wider-context/`) were not adopted.

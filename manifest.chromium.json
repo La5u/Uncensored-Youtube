@@ -3,7 +3,7 @@
   "minimum_chrome_version": "148",
   "message_serialization": "structured_clone",
   "name": "Uncensored YouTube – Restore Swear Words",
-  "version": "1.6.2",
+  "version": "1.6.3",
   "description": "Replaces the [ __ ] in YouTube's auto-generated captions with the real swear words. Runs locally, using Whisper speech recognition.",
   "icons": {
     "16": "src/icons/icon-16.png",

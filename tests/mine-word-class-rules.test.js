@@ -138,7 +138,21 @@ assert.throws(() => parseArgs(["--report"]), /incomplete/);
 for (const file of ["report.json", "src/rules.js", "src/rule-data/language.js", "tmp/../package.json"]) {
   assert.throws(() => parseArgs(["--report", file]), /under tmp/);
 }
-const dir = fs.mkdtempSync(path.join(__dirname, "../tmp/miner-test-"));
+// A rejected class membership still accounts for a successful structural window search.
+const classScan = loadRuntime({
+  language: '  var WORD_CLASSES = { "test-class": ["owl"] };' +
+    '  var exec = RegExp.prototype.exec; RegExp.prototype.exec = function (text) {' +
+    '    if (this.source.includes("zxqmarker") && text.length > 2000) throw new Error("unnecessary full scan");' +
+    '    return exec.call(this, text); };',
+  grammar: '    group("fallback/word-class", 5020, [pattern`zxqmarker [shit] <test-class>`]),'
+});
+const longCaption = "ordinary ".repeat(300) + "zxqmarker [__] robin. zxqmarker [__] owl.";
+assert.deepStrictEqual(Array.from(classScan.engine.applyDeterministicRules(longCaption).replacements,
+  (replacement) => [replacement.tokenIndex, replacement.word]), [[1, "shit"]]);
+
+const tmp = path.join(__dirname, "../tmp");
+fs.mkdirSync(tmp, { recursive: true });
+const dir = fs.mkdtempSync(path.join(tmp, "miner-test-"));
 try {
   const report = path.join(dir, "report.json");
   assert.deepStrictEqual(parseArgs(["--audit", "--report", report]), { write: false, report });

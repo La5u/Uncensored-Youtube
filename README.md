@@ -13,16 +13,16 @@ and does no work). The slider below it has five stops (default: **Automatic**, t
 | Rules only | Fill from caption context; uncertain slots abstain. | Minimal |
 | Rules first | Rules fill what they can; Whisper scores only unfilled or ambiguous slots. | Moderate |
 | Automatic | Whisper first on devices fast enough for it, otherwise Rules first. | Moderate or high |
-| Whisper first | Rules fill instantly; Whisper checks every slot and replaces the fill. | High |
+| Whisper first | Rules fill instantly and Whisper checks every slot. | High |
 | Whisper only | Local Whisper only. | High |
 
 Automatic uses **Whisper first** on devices measured fast enough to fill without late words,
 otherwise (and until measured) **Rules first**. Each Whisper window's inference time (the
 first after model load excluded) is stored per device; once 5 windows are stored, Whisper first
 applies when the median of the last 15 is within 0.74 s per window + 0.64 s per blank (from a
-lateness replay of a real browser run). The measured choice changes only at the next video start,
-never mid-video; the popup's Automatic card shows what it currently uses ("measuring" before 5
-windows). Settings from older versions map to the matching mode (two switches both on → Automatic); a
+lateness replay of a real browser run). The popup’s Automatic card shows the next video’s choice
+("measuring" before 5 windows). Settings from older versions map to the matching mode
+(two switches both on → Automatic); a
 stored Off mode or both switches off becomes the switch off with the slider at Automatic.
 The evaluator's `rules+whisper` mode is "Whisper first".
 
@@ -41,14 +41,14 @@ The canonical snapshot is [`docs/evaluation-metrics.json`](docs/evaluation-metri
 | Any-candidate oracle | diagnostic | — | 90.81% | 49.83% |
 | Synthetic Filmot gap sample, rules-only | diagnostic (stale/superseded) | 110 | 85.37% | 31.82% |
 | Manual Filmot wave, rules-only | diagnostic (stale/superseded) | 275 | 69.72% | 27.64% |
-| Dense audio set, rules only | diagnostic | 2,493 | 93.39% | 52.71% |
-| Dense audio set, Whisper | diagnostic | 2,449 | 97.13% | 80.16% |
-| Dense audio set, Whisper first | diagnostic | 2,449 | 96.40% | 87.59% |
-| Dense audio set, rules first (default) | diagnostic | 2,449 | 94.92% | 86.24% |
+| Dense audio set, rules only | diagnostic (stale/superseded) | 2,493 | 93.39% | 52.71% |
+| Dense audio set, Whisper | diagnostic (stale/superseded) | 2,449 | 97.13% | 80.16% |
+| Dense audio set, Whisper first | diagnostic (stale/superseded) | 2,449 | 96.40% | 87.59% |
+| Dense audio set, rules first (default) | diagnostic (stale/superseded) | 2,449 | 94.92% | 86.24% |
 
 Development rows are in-sample.
 No held-out test score is available.
-Rows marked stale/superseded are historical diagnostics, not current-code benchmark results. Current evaluator fingerprints: rules 5548:39:jocd34, aux 8hsabx, engine 1y8z46n.
+Rows marked stale/superseded are historical diagnostics, not current-code benchmark results. Current evaluator fingerprints: rules 4356:39:d9bx96, aux 7bu55f, engine vtg6vh.
 <!-- evaluation-metrics:end -->
 
 The later [frozen audio comparison](docs/FROZEN_AUDIO_EXPERIMENT.md) is documented
@@ -90,8 +90,8 @@ differences can still introduce alignment error.
 
 Caption, audio, and DOM state are scoped by video, track, and navigation
 generation. In hybrid mode, deterministic rules provide immediate provisional
-fills while full-vocabulary Whisper checks every slot. A Whisper result replaces
-the fill; if Whisper abstains, the provisional rule remains for coverage.
+fills while full-vocabulary Whisper checks every slot. In Whisper first, a word
+already displayed from the rules stays on screen if Whisper later disagrees.
 Rules-only mode continues to
 apply the full deterministic rule set. Decoding and
 the model stop when captions contain no censored slots.
@@ -119,12 +119,14 @@ keeps Whisper's form (`fuck`/`fucking`). Fused changes are labelled
 words" switches it off. If its weights fail to load, Whisper runs without it;
 a weight file without fusion parameters only fills slots where Whisper abstains
 or nearly ties. Measured Whisper-only precision / coverage (2026-11-15, JS
-evaluator, Whisper alone → with fusion):
-manual-auto tier: frozen post-freeze set (the evaluator reports its pair class as
-unknown) 97.15/90.48% → 97.20/94.83%, dense set 97.13/80.16% → 96.82/85.91%; synthetic tier (videos and test creators outside
-training): 216 unseen videos 97.50/87.83% → 97.74/94.43%, 32-creator test split
-96.21/80.79% → 96.47/89.80%. With fusion, Whisper first measures 96.98/95.22%
-(frozen) and 96.49/90.94% (dense); Rules first 88.97/87.38% and 95.15/89.67%.
+evaluator, decoder → fusion):
+
+| Pair class and set | Whisper only, decoder → fusion | Whisper first, fusion | Rules first, fusion |
+| --- | --- | --- | --- |
+| Unknown, frozen set | 97.15/90.48% → 97.20/94.83% | 96.98/95.22% | 88.97/87.38% |
+| Manual-auto, dense set | 97.13/80.16% → 96.82/85.91% | 96.49/90.94% | 95.15/89.67% |
+| Synthetic, 216 unseen videos | 97.50/87.83% → 97.74/94.43% | | |
+| Synthetic, 32-creator test split | 96.21/80.79% → 96.47/89.80% | | |
 
 ### Word vocabularies
 
@@ -245,7 +247,7 @@ text-source notes are in
 ## Build
 
 ```sh
-./build.sh 1.6.1
+./build.sh 1.6.3
 ```
 
 This creates separate Chromium and Firefox ZIPs in `dist/`. See

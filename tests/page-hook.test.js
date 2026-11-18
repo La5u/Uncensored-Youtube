@@ -96,7 +96,9 @@ xhr.finish('{"events":[{"segs":[{"utf8":"[__]"}]}]}');
 assert.ok(xhr.responseText.includes("fuck"));
 assert.strictEqual(xhr.listeners.size, 0);
 
-const firstTrack = timedTextDetails.at(-1).trackId;
+const firstCaption = timedTextDetails.at(-1);
+assert.strictEqual(firstCaption.body, xhr.body);
+const firstTrack = firstCaption.trackId;
 listeners.get("message").call(context, {
   source: context,
   data: {
@@ -131,6 +133,34 @@ for (const evidence of ["acoustic-head", "acoustic-fusion"]) {
     headTrack.finish('{"events":[{"segs":[{"utf8":"[__]"}]}]}');
     assert.strictEqual(patchOverrides.at(-1).length, acousticHead ? 1 : 0, evidence);
   }
+}
+const clearMediaFill = {
+  tokenIndex: 0, word: "", source: "media", evidence: "none", videoId: "test", trackId: firstTrack
+};
+for (const trackId of ["another-track", firstTrack]) {
+  listeners.get("message").call(context, {
+    source: vm.runInContext("globalThis", context),
+    data: { uncensoredWhisperResolution: JSON.stringify({ ...clearMediaFill, trackId }) }
+  });
+  const refreshed = new FakeXHR();
+  refreshed.open("GET", captionUrl);
+  refreshed.finish(xhr.body);
+  assert.strictEqual(patchOverrides.at(-1).length, trackId === firstTrack ? 0 : 1);
+}
+listeners.get("message").call(context, {
+  source: vm.runInContext("globalThis", context),
+  data: { uncensoredWhisperResolution: JSON.stringify({
+    tokenIndex: 0, word: "fuck", source: "deterministic", evidence: "rule", videoId: "test", trackId: firstTrack
+  }) }
+});
+for (const rulesEnabled of [true, false]) {
+  context.dispatchEvent(new context.CustomEvent("uncensored-settings", {
+    detail: JSON.stringify({ rulesEnabled, whisperEnabled: true, videoId: "test" })
+  }));
+  const fallbackTrack = new FakeXHR();
+  fallbackTrack.open("GET", captionUrl);
+  fallbackTrack.finish(xhr.body);
+  assert.strictEqual(patchOverrides.at(-1)[0]?.source, rulesEnabled ? "deterministic" : undefined);
 }
 context.dispatchEvent(new context.CustomEvent("uncensored-settings", {
   detail: JSON.stringify({ rulesEnabled: false, whisperEnabled: true, videoId: "test" })

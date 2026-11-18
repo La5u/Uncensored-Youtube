@@ -421,8 +421,8 @@ async function importTransformers() {
 
 // The bundled tiny.en by default; --model <dir> loads another local export (evaluation only).
 function whisperModel(dir = "") {
-  return dir ? { name: path.basename(resolvePath(dir)), path: `${path.dirname(resolvePath(dir))}/` }
-    : { name: "whisper-tiny.en", path: "./src/models/" };
+  const model = resolvePath(dir || "src/models/whisper-tiny.en");
+  return { name: path.basename(model), path: `${path.dirname(model)}/` };
 }
 
 async function createTranscriber(dir = "") {
@@ -594,8 +594,11 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults, reu
     if (transcribe) {
       const cached = cachedResults && cachedResults.get(token.tokenIndex);
       if (cached) {
-        audioDecision = { word: cached.audioWord || "", evidence: cached.audioWord ? "candidate-score" : "none",
-          score: cached.audioScore };
+        audioDecision = { word: cached.audioWord || "", evidence: cached.audioEvidence, score: cached.audioScore };
+        if (cached.audioDecoderWord !== undefined) {
+          audioDecision.decoderWord = cached.audioDecoderWord;
+          audioDecision.decoderScore = cached.audioDecoderScore;
+        }
       } else {
         audioDecision = audioDecisions.get(token.tokenIndex);
       }
@@ -626,7 +629,16 @@ async function evaluateFixture(args, fixture, getTranscriber, cachedResults, reu
       expected,
       correct
     };
-    if (audioDecision) Object.assign(result, { audioWord: audioDecision.word, audioScore: audioDecision.score ?? null });
+    if (audioDecision) {
+      const switchedWord = audioDecision.decoderWord !== undefined;
+      result.audioWord = audioDecision.word;
+      result.audioEvidence = audioDecision.evidence;
+      result.audioScore = switchedWord ? null : audioDecision.score ?? null;
+      if (switchedWord) {
+        result.audioDecoderWord = audioDecision.decoderWord;
+        result.audioDecoderScore = audioDecision.decoderScore ?? audioDecision.score ?? null;
+      }
+    }
     if (chosen.hybridCrossFamily) result.hybridCrossFamily = true;
     result.classification = classifyResult(result);
     results.push(result);
@@ -709,20 +721,24 @@ function audioFingerprint(audioDir, fixture) {
       ((name.startsWith(`${id}.`) || name.startsWith(`${id}_(`)) && /\.(webm|m4a|opus|mp3|wav)$/i.test(name)) ||
       name === `${id}.source.json`).sort();
     if (!names.some((name) => /\.(webm|m4a|opus|mp3|wav)$/i.test(name))) return "";
-    const hash = crypto.createHash("sha256"), buffer = Buffer.alloc(512 * 1024);
-    for (const name of names) {
-      const file = path.join(dir, name), before = fs.statSync(file);
-      const fd = fs.openSync(file, "r");
-      hash.update(`${name}\0${before.size}\0`);
-      try {
-        let count;
-        while ((count = fs.readSync(fd, buffer, 0, buffer.length, null))) hash.update(buffer.subarray(0, count));
-      } finally { fs.closeSync(fd); }
-      const after = fs.statSync(file);
-      if (["ino", "size", "mtimeMs", "ctimeMs"].some((key) => before[key] !== after[key])) return "";
-    }
-    return hash.digest("hex");
+    return fingerprintFiles(dir, names);
   } catch (_) { return ""; }
+}
+
+function fingerprintFiles(dir, names) {
+  const hash = crypto.createHash("sha256"), buffer = Buffer.alloc(512 * 1024);
+  for (const name of names) {
+    const file = path.join(dir, name), before = fs.statSync(file);
+    const fd = fs.openSync(file, "r");
+    hash.update(`${name}\0${before.size}\0`);
+    try {
+      let count;
+      while ((count = fs.readSync(fd, buffer, 0, buffer.length, null))) hash.update(buffer.subarray(0, count));
+    } finally { fs.closeSync(fd); }
+    const after = fs.statSync(file);
+    if (["ino", "size", "mtimeMs", "ctimeMs"].some((key) => before[key] !== after[key])) return "";
+  }
+  return hash.digest("hex");
 }
 
 function transcriptCacheResults(fixture, currentFingerprint, currentAudioFingerprint) {
@@ -744,8 +760,7 @@ function joinedCaptionText(body) {
 }
 
 function rulesFingerprint() {
-  const value = rules.DETERMINISTIC_RULES.map((rule) =>
-    `${rule.template}|${rule.candidates.join(",")}|`).join("");
+  const value = JSON.stringify([ruleSignature(), ruleData.WORD_CLASSES]);
   return `${rules.DETERMINISTIC_RULES.length}:${rules.RULE_WORDS.length}:${contentFingerprint(value)}`;
 }
 
@@ -755,7 +770,8 @@ function auxiliaryRulesFingerprint() {
     priors: ruleData.CANDIDATE_PRIORS,
     continuing: ruleData.CONTINUING_PREFIX_SETS,
     allowed: ruleData.ALLOWED_WORDS,
-    ruleWords: ruleData.RULE_WORDS
+    ruleWords: ruleData.RULE_WORDS,
+    wordClasses: ruleData.WORD_CLASSES
   }));
 }
 
@@ -772,12 +788,26 @@ function decisionFingerprint() {
   ].map((value) => String(value)).join("\n"));
 }
 
+function modelArtifactsFingerprint(model) {
+  const directory = path.join(model.path, model.name);
+  const onnx = path.join(directory, "onnx");
+  const names = fs.readdirSync(directory).filter(name => name.endsWith(".json"));
+  for (const name of fs.readdirSync(onnx, { recursive: true })) {
+    if (fs.statSync(path.join(onnx, name)).isFile()) names.push(path.join("onnx", name));
+  }
+  const fingerprint = fingerprintFiles(directory, names.sort());
+  if (!fingerprint) throw new Error(`Whisper model changed while hashing: ${directory}`);
+  return fingerprint;
+}
+
 function transcriptGenerationFingerprint(model = "", head = "") {
+  const config = whisperModel(model);
   return contentFingerprint([
-    "candidate-scoring-v3",
+    "candidate-scoring-v4",
+    modelArtifactsFingerprint(config),
     head ? contentFingerprint(fs.readFileSync(resolvePath(head)).toString("base64") +
       fs.readFileSync(path.join(root, "src", "acoustic-head.js"), "utf8")) : "",
-    JSON.stringify(whisperModel(model)),
+    JSON.stringify(rules.ALLOWED_WORDS),
     whisperModel,
     fs.readFileSync(path.join(__dirname, "audio-coverage.js"), "utf8"),
     audioSection,
@@ -790,6 +820,8 @@ function transcriptGenerationFingerprint(model = "", head = "") {
     createTranscriber,
     evaluateFixture,
     shouldTranscribeToken,
+    windowedAudioDecisions,
+    WINDOW_SECONDS,
     String(rules.CENSORED_TOKEN_REGEX),
     fs.readFileSync(path.join(root, "src", "timedtext.js"), "utf8")
   ].map((value) => String(value)).join("\n"));
@@ -798,20 +830,22 @@ function transcriptGenerationFingerprint(model = "", head = "") {
 function ruleSignature() {
   return rules.DETERMINISTIC_RULES.map((rule) => ({
     template: rule.template,
-    candidates: rule.candidates
+    candidates: rule.candidates,
+    kept: rule.kept || []
   }));
 }
 
 function changedRuleTemplates(previous, current) {
-  const previousMap = new Map(previous.map((rule) => [rule.template, rule.candidates]));
-  const currentMap = new Map(current.map((rule) => [rule.template, rule.candidates]));
+  const previousMap = new Map(previous.map((rule) => [rule.template, rule]));
+  const currentMap = new Map(current.map((rule) => [rule.template, rule]));
   const changed = new Set();
-  const sameCandidates = (left, right) => left && right && left.length === right.length &&
-    left.every((candidate, index) => candidate === right[index]);
+  const sameValues = (left, right) => left.length === right.length &&
+    left.every((value, index) => value === right[index]);
 
   current.forEach((rule) => {
     const before = previousMap.get(rule.template);
-    if (!before || !sameCandidates(before, rule.candidates)) changed.add(rule.template);
+    if (!before || !sameValues(before.candidates, rule.candidates) ||
+        !sameValues(before.kept || [], rule.kept || [])) changed.add(rule.template);
   });
 
   const previousCommon = previous.filter((rule) => currentMap.has(rule.template)).map((rule) => rule.template);
@@ -1073,14 +1107,16 @@ async function main(argv = process.argv.slice(2)) {
     throw new Error(`Missing fixture files for: ${missing.map((fixture) => fixture.name).join(", ")}. Run tools/download-whisper-fixtures.js first.`);
   }
 
-  const cachedReport = args.transcripts
+  const cachedReport = args.mode !== "rules-only" && args.transcripts
     ? JSON.parse(fs.readFileSync(resolvePath(args.transcripts), "utf8"))
     : null;
   // --acousticHead <file> (default: the shipped head, as the extension runs it; "none" turns it off):
   // fuses with the decoder (file with fusion parameters) or fills its uncertain slots (without them).
   if (args.acousticHead === "none") args.acousticHead = "";
-  const transcriptGenerationFingerprintValue = transcriptGenerationFingerprint(args.model, args.acousticHead);
-  args.acousticHeadModel = args.acousticHead ? acousticHead.parse(fs.readFileSync(resolvePath(args.acousticHead))) : null;
+  const transcriptGenerationFingerprintValue = args.mode === "rules-only"
+    ? "" : transcriptGenerationFingerprint(args.model, args.acousticHead);
+  args.acousticHeadModel = transcriptGenerationFingerprintValue && args.acousticHead
+    ? acousticHead.parse(fs.readFileSync(resolvePath(args.acousticHead))) : null;
   if (cachedReport) validateTranscriptCache(cachedReport, args, transcriptGenerationFingerprintValue);
   const cachedByFixture = new Map((cachedReport?.fixtures || [])
     .map((fixture) => [fixture.name, fixture]));

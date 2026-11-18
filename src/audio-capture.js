@@ -20,6 +20,7 @@
   var CENSORED_TOKEN_GLOBAL_REGEX = new RegExp(rules.CENSORED_TOKEN_REGEX.source, "gu");
   var pendingTokens = new Map();
   var resolvedTokens = new Map();
+  var audioDecisions = new Map(); // Completed inference, including abstentions.
   var failedTokens = new Set();
   var captionObserver = null;
   var captionObserverTarget = null;
@@ -38,6 +39,8 @@
   // Retained PCM supplies completed dedup; this map owns queued/in-flight work only.
   var decodingSegmentStarts = new Map();
   var whisperModelState = "idle";
+  var whisperWorkerId;
+  var headAttemptGeneration = 0;
   var navigationGeneration = 0;
   var activeVideoId = "";
   var tokenMetadataKnown = false;
@@ -104,6 +107,7 @@
     tokenMetadataKnown = false;
     pendingTokens.clear();
     resolvedTokens.clear();
+    audioDecisions.clear();
     failedTokens.clear();
     mediaAudio.videoId = "";
     mediaAudio.segments = [];
@@ -501,7 +505,7 @@
 
   function tokenCacheKey(token) {
     return token.tokenIndex + "\n" + Math.round(token.timeSeconds * 10) +
-      "\n" + normalizeContext(token.context);
+      "\n" + normalizeContext(token.rawContext || token.context);
   }
 
   function pendingTokenValues() {
@@ -532,7 +536,7 @@
     var detail;
 
     if (typeof token.tokenIndex !== "number" || token.tokenIndex < 0 ||
-        !word || source === "deterministic") {
+        source === "deterministic" && evidence !== "rule") {
       return;
     }
 
@@ -568,7 +572,9 @@
     candidate = { source: source, evidence: evidence, hybridCrossFamily: Boolean(hybridCrossFamily) };
 
     if (existing) {
-      if (resolutionPriority(existing) > resolutionPriority(candidate)) return;
+      if (resolutionPriority(existing) > resolutionPriority(candidate) ||
+          existing.word === word && existing.source === source && existing.evidence === evidence &&
+          existing.hybridCrossFamily === candidate.hybridCrossFamily) return;
       existing.word = word;
       existing.source = source;
       existing.evidence = evidence;
@@ -581,7 +587,6 @@
     notifyTimedTextResolution(token, word, source, evidence);
     watchCaptionMutations();
     scheduleVisibleCaptionResolution();
-    return existing;
   }
 
   function tokenIsCurrent(token) {
@@ -589,31 +594,20 @@
       token.captionGeneration === captionGeneration;
   }
 
+  function hasCompletedAudioDecision(key) {
+    var decision = audioDecisions.get(key);
+    // A skipped head can retry once when a worker or Sound check starts again.
+    return decision && (!options.acousticHead || decision.headConsulted ||
+      decision.headAttemptGeneration === headAttemptGeneration);
+  }
+
   // "Rules first" leaves unambiguous rule fills to the rules; "Whisper first" checks
   // every slot and lets audio replace the provisional fill.
   function shouldResolveWithWhisper(token) {
-    if (!options.whisperEnabled || failedTokens.has(tokenCacheKey(token))) return false;
+    var key = tokenCacheKey(token);
+    if (!options.whisperEnabled || failedTokens.has(key) || hasCompletedAudioDecision(key)) return false;
     return options.whisperFirst || !options.rulesEnabled || !token.deterministicWord ||
       Boolean(token.deterministicAmbiguous);
-  }
-
-  // Automatic mode: "Whisper first" only where a window takes at most 0.74 s + 0.64 s per blank,
-  // the largest cost a lateness replay of a real run fills without late words (docs/DEVELOPMENT.md).
-  // Stores the last windows' cost relative to that budget; content.js applies the choice at the next
-  // video start, never mid-video.
-  var SPEED_WINDOWS = 15;
-  var SPEED_MIN_WINDOWS = 5;
-  function recordWhisperSpeed(seconds, slots) {
-    var storage = runtime && runtime.storage && runtime.storage.local;
-    if (!storage) return;
-    storage.get({ whisperSpeed: [] }).then(function update(values) {
-      var speeds = values.whisperSpeed.concat(seconds / (0.74 + 0.64 * slots)).slice(-SPEED_WINDOWS);
-      var median = speeds.slice().sort(function ascending(a, b) { return a - b; })[Math.floor(speeds.length / 2)];
-      return storage.set({
-        whisperSpeed: speeds,
-        autoMode: speeds.length >= SPEED_MIN_WINDOWS && median <= 1 ? "whisper-first" : "rules-first"
-      });
-    }).catch(function ignoreStorageError() {});
   }
 
   function markWhisperFailed(token) {
@@ -623,6 +617,7 @@
   function resolveGroupFromMedia(group) {
     var startTime = tokenWindow(group[0]).startTime;
     var pcm = readMediaWindow(startTime, tokenWindow(group[group.length - 1]).endTime);
+    var acousticHead = options.acousticHead;
 
     if (!pcm) return Promise.reject(new Error("Incomplete decoded media audio"));
     debugLog("whisper window", {
@@ -630,7 +625,7 @@
       time: mediaTimestamp(startTime)
     });
     return whisperTranscribe(pcm, candidatesForToken(), "", {
-      acousticHead: options.acousticHead,
+      acousticHead: acousticHead,
       slots: group.map(function slot(token) {
         return {
           tokenIndex: token.tokenIndex,
@@ -644,40 +639,44 @@
     }, function canRetryGroup() {
       return group.every(tokenIsCurrent) && options.whisperEnabled && options.audioEnabled;
     }).then(function resolvedDecisions(result) {
-      if (result.inferenceMs) recordWhisperSpeed(result.inferenceMs / 1000, group.length);
+      if (result.workerId && result.workerId !== whisperWorkerId) {
+        if (whisperWorkerId) headAttemptGeneration += 1;
+        whisperWorkerId = result.workerId;
+      }
+      if (result.inferenceMs) {
+        bgMessage("recordSpeed", { seconds: result.inferenceMs / 1000, slots: group.length }).catch(function ignoreStorageError() {});
+      }
       return group.map(function resolution(token, index) {
         var decision = result.decisions[index] || {};
 
         debugLog("whisper decision", Object.assign({ token: token.tokenIndex, word: decision.word || "",
           evidence: decision.evidence }, decision.head ? { head: decision.head.word + " " + decision.head.p.toFixed(2) } : {},
           decision.decoderWord !== undefined ? { decoder: decision.decoderWord } : {}));
-        if (!decision.word) {
-          markWhisperFailed(token);
-          return null;
-        }
-        return {
-          tokenIndex: token.tokenIndex,
-          word: decision.word,
-          source: "media",
-          evidence: decision.evidence,
-          hybridCrossFamily: Boolean(decision.hybridCrossFamily)
-        };
+        return { word: decision.word, evidence: decision.evidence, decoderWord: decision.decoderWord,
+          headConsulted: Boolean(decision.head),
+          headAttemptGeneration: acousticHead ? headAttemptGeneration : undefined };
       });
     });
   }
 
-  function applyResolvedWord(token, resolution) {
-    var word;
-
-    word = resolution && resolution.word;
-
-    if (!word || !tokenIsCurrent(token)) {
-      return;
+  function applyAudioDecision(token, decision, supersedesDecision) {
+    if (!options.whisperEnabled) return;
+    var ruleWord = options.rulesEnabled && (token.deterministicWord || token.contextWord);
+    var useDecoder = !options.acousticHead && decision.decoderWord !== undefined;
+    var audioWord = decision.evidence === "rule" ? "" : useDecoder ? decision.decoderWord : decision.word;
+    if (supersedesDecision) {
+      var key = tokenCacheKey(token);
+      var previous = resolvedTokens.get(key);
+      if (previous && previous.source === "media") resolvedTokens.delete(key);
     }
-
-    token.resolved = true;
-    rememberResolution(token, word, resolution.source, resolution.evidence,
-      resolution.hybridCrossFamily);
+    if (audioWord) {
+      rememberResolution(token, audioWord, "media",
+        useDecoder ? "candidate-score" : decision.evidence, Boolean(ruleWord));
+    } else if (ruleWord) {
+      rememberResolution(token, ruleWord, token.contextWord ? "context" : "deterministic", "rule");
+    } else if (supersedesDecision) {
+      notifyTimedTextResolution(token, "", "media", "none");
+    }
   }
 
   function contextWordForToken(token) {
@@ -706,7 +705,7 @@
   // a window with earlier slots.
   function tokenNeedsAudio(token, startTime, endTime) {
     var window = tokenWindow(token);
-    return shouldResolveWithWhisper(token) && !token.resolved && !tokenPassed(token) &&
+    return shouldResolveWithWhisper(token) && !tokenPassed(token) &&
       endTime > window.endTime - WINDOW_SECONDS && startTime < window.endTime;
   }
 
@@ -716,7 +715,7 @@
   function nextResolvableMediaGroup() {
     var ordered = pendingTokenValues().filter(function resolvable(token) {
       var window = tokenWindow(token);
-      return shouldResolveWithWhisper(token) && !token.resolved && !token.resolving && !tokenPassed(token) &&
+      return shouldResolveWithWhisper(token) && !token.resolving && !tokenPassed(token) &&
         mediaSegmentsForRange(window.startTime, window.endTime).length;
     }).sort(function upcomingFirst(left, right) {
       return left.timeSeconds - right.timeSeconds;
@@ -737,7 +736,7 @@
 
   function compactPendingTokens() {
     pendingTokens.forEach(function deleteResolvedToken(token, key) {
-      if (token.resolved || failedTokens.has(tokenCacheKey(token))) pendingTokens.delete(key);
+      if (hasCompletedAudioDecision(key) || failedTokens.has(key)) pendingTokens.delete(key);
     });
     compactMediaSegments();
   }
@@ -784,96 +783,64 @@
 
     group.forEach(function markResolving(token) { token.resolving = true; });
     whisperBusy = true;
-    resolveGroupFromMedia(group).then(function applyMediaResolutions(resolutions) {
+    var attemptGeneration = headAttemptGeneration;
+    resolveGroupFromMedia(group).then(function applyMediaResolutions(decisions) {
       group.forEach(function applyResolution(token, index) {
-        var resolution = resolutions[index];
-        applyResolvedWord(token, resolution);
-        if (resolution && tokenIsCurrent(token)) {
+        if (!tokenIsCurrent(token)) return;
+        var decision = decisions[index];
+        var key = tokenCacheKey(token);
+        var supersedesDecision = audioDecisions.has(key);
+        audioDecisions.set(key, decision);
+        applyAudioDecision(token, decision, supersedesDecision);
+        if (decision.word && decision.evidence !== "rule") {
           // Positive lead: the word was ready before its caption could be displayed.
-          debugLog("whisper resolved", JSON.stringify(resolution.word),
+          debugLog("whisper resolved", JSON.stringify(decision.word),
             "lead " + (token.timeSeconds - playheadSeconds()).toFixed(1) + "s");
         }
       });
+      if (attemptGeneration !== headAttemptGeneration) rememberTimedTextTokens(captionTokens);
     }).catch(function logMediaResolutionError(error) {
       debugLog("media window unresolved", {
         tokens: group.map(function tokenIndex(token) { return token.tokenIndex; }),
         error: error && (error.message || String(error))
       });
 
-      if (!error || !error.cancelled) group.forEach(function markFailed(token) {
-        if (!token.resolved) markWhisperFailed(token);
-      });
+      if (!error || !error.cancelled) group.forEach(markWhisperFailed);
     }).finally(function clearMediaResolving() {
       whisperBusy = false;
-      group.forEach(function clearResolving(token) {
-        token.resolving = false;
-        if (pendingTokens.get(tokenCacheKey(token)) === token &&
-            (token.resolved || failedTokens.has(tokenCacheKey(token)))) {
-          pendingTokens.delete(tokenCacheKey(token));
-        }
-      });
+      group.forEach(function clearResolving(token) { token.resolving = false; });
       compactPendingTokens();
       scheduleWhisperQueue();
     });
   }
 
   function rememberTimedTextTokens(tokens) {
-    var existing = Object.create(null);
-
     tokenMetadataKnown = true;
     if (!tokens || !tokens.length) {
       compactMediaSegments();
       return;
     }
 
-    pendingTokens.forEach(function markExisting(token) {
-      existing[tokenCacheKey(token)] = true;
-    });
-
-    resolvedTokens.forEach(function markResolved(resolution, key) {
-      if (resolutionEnabled(resolution) && resolution.source === "media") existing[key] = true;
-    });
-
     tokens.forEach(function addPendingToken(token) {
       var key = tokenCacheKey(token);
-      var contextWord = contextWordForToken(token);
-      var resolved = resolvedTokens.get(key);
+      var decision = audioDecisions.get(key);
 
       token.navigationGeneration = navigationGeneration;
       token.captionGeneration = captionGeneration;
-      token.contextWord = contextWord;
+      token.contextWord = options.rulesEnabled ? contextWordForToken(token) : "";
 
-      // A cached rule fill still gets a Whisper check when the mode asks for one.
-      if (resolved && resolved.word && resolutionEnabled(resolved) &&
-          (resolved.source === "media" || !shouldResolveWithWhisper(token))) {
-        if (options.rulesEnabled && (token.deterministicWord || contextWord) &&
-            !options.whisperEnabled &&
-            resolutionPriority(resolved) < 2) {
-          rememberResolution(token, token.deterministicWord || contextWord,
-            contextWord ? "context" : "deterministic", "rule");
-        }
-        scheduleVisibleCaptionResolution();
-        return;
-      }
-
-      if (options.rulesEnabled && token.deterministicWord && !token.deterministicAmbiguous) {
+      if (decision && options.whisperEnabled) {
+        applyAudioDecision(token, decision);
+      } else if (options.rulesEnabled && token.deterministicWord && (!options.whisperEnabled || !token.deterministicAmbiguous)) {
         rememberResolution(token, token.deterministicWord, "deterministic");
-      }
-
-      if (options.rulesEnabled && contextWord) {
-        rememberResolution(token, contextWord, "context");
-        scheduleVisibleCaptionResolution();
+      } else if (token.contextWord) {
+        rememberResolution(token, token.contextWord, "context", "rule");
       }
 
       if (!shouldResolveWithWhisper(token)) {
         pendingTokens.delete(key);
-      } else if (!existing[key]) {
-        existing[key] = true;
-        pendingTokens.set(key, Object.assign({}, token, {
-          navigationGeneration: navigationGeneration,
-          resolved: false,
-          resolving: false
-        }));
+      } else if (!pendingTokens.has(key)) {
+        pendingTokens.set(key, Object.assign({}, token, { resolving: false }));
       }
     });
 
@@ -909,6 +876,7 @@
       captionGeneration += 1;
       pendingTokens.clear();
       resolvedTokens.clear();
+      audioDecisions.clear();
       failedTokens.clear();
       lastPatchedCaptionText = "";
     } else if (data.tokens && data.tokens.length) {
@@ -1192,14 +1160,15 @@
       options.whisperFirst = nextOptions.whisperFirst === true;
       options.audioEnabled = nextOptions.audioEnabled !== false;
       options.acousticHead = nextOptions.acousticHead !== false;
+      if (options.whisperEnabled && options.acousticHead && (!previousWhisperEnabled || !previousAcousticHead)) {
+        headAttemptGeneration += 1;
+      }
       if (previousRulesEnabled !== options.rulesEnabled || previousWhisperEnabled !== options.whisperEnabled ||
           previousWhisperFirst !== options.whisperFirst || previousAcousticHead !== options.acousticHead) {
         captionGeneration += 1;
         pendingTokens.clear();
         failedTokens.clear();
-        resolvedTokens.forEach(function deleteDisabledResolution(resolution, key) {
-          if (!resolutionEnabled(resolution)) resolvedTokens.delete(key);
-        });
+        resolvedTokens.clear();
         rememberTimedTextTokens(captionTokens);
       }
       if (options.whisperEnabled && options.audioEnabled && pendingTokens.size) {

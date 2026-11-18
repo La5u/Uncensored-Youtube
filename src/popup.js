@@ -4,7 +4,7 @@
   var runtime = globalThis.browser || globalThis.chrome;
   var storage = runtime.storage.local;
   // Measured on 154 English videos from creators the rules were not tuned on (frozen 2026-09-20
-  // set, with 345 human audio labels; rounded down).
+  // set, with 345 human audio labels; approximate percentages).
   var MODES = [
     { id: "rules", title: "Rules only", precision: "Up to 81%", coverage: "Up to 37%", cpu: "Minimal",
       description: "Fill words from caption context instantly. Uncertain slots stay hidden." },
@@ -15,6 +15,7 @@
     { id: "whisper-first", title: "Whisper first", precision: "Up to 97%", coverage: "Up to 95%", cpu: "High",
       description: "Rules fill instantly, then Whisper checks every slot and corrects them." },
     { id: "whisper", title: "Whisper only", precision: "Up to 97%", coverage: "Up to 95%", cpu: "High",
+      decoderOnly: { precision: "Up to 97%", coverage: "Up to 90%" },
       description: "Only local Whisper audio recognition; no context rules." }
   ];
   var DEFAULT_MODE = "auto";
@@ -45,21 +46,22 @@
     element("modeControls").disabled = !enabled;
   }
 
-  // Automatic resolves to the mode measured on this device (audio-capture.js).
+  // Automatic uses the next-video recommendation from background.js.
   var current = { autoMode: "rules-first", measured: false };
 
   function show(index) {
     var mode = MODES[index];
     var used = mode.id === "auto" ? find(current.autoMode) || find("rules-first") : mode;
+    var metrics = used.id !== "rules" && !element("acousticHead").checked ? used.decoderOnly : used;
 
     element("mode").value = String(index);
     element("mode").setAttribute("aria-valuetext", mode.title);
     element("modeTitle").textContent = mode.title;
     element("modeDescription").textContent = mode.description;
     element("modeCurrent").hidden = mode.id !== "auto";
-    element("modeCurrent").textContent = "Currently: " + (current.measured ? used.title : "measuring");
-    element("modePrecision").textContent = used.precision;
-    element("modeCoverage").textContent = used.coverage;
+    element("modeCurrent").textContent = "Next video: " + used.title + (current.measured ? "" : " (measuring)");
+    element("modePrecision").textContent = metrics ? metrics.precision : "Not measured";
+    element("modeCoverage").textContent = metrics ? metrics.coverage : "Not measured";
     element("modeCpu").textContent = used.cpu;
     // The sound check only runs where Whisper does.
     element("acousticHead").disabled = used.id === "rules";
@@ -74,9 +76,9 @@
   storage.get({ enabled: true, mode: null, rulesEnabled: true, whisperEnabled: true, acousticHead: true,
     autoMode: "rules-first", whisperSpeed: [] }).then(function loaded(values) {
     current = { autoMode: values.autoMode, measured: values.whisperSpeed.length >= 5 };
+    element("acousticHead").checked = values.acousticHead !== false;
     showMode(storedMode(values));
     showEnabled(storedEnabled(values));
-    element("acousticHead").checked = values.acousticHead !== false;
   }, function useDefault() {
     showMode(DEFAULT_MODE);
   });
@@ -92,6 +94,7 @@
     storage.set({ mode: MODES[Number(element("mode").value)].id });
   });
   element("acousticHead").addEventListener("change", function saveHead() {
+    show(Number(element("mode").value));
     storage.set({ acousticHead: element("acousticHead").checked });
   });
 })();

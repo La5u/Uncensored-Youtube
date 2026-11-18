@@ -5,6 +5,7 @@ import "./acoustic-head.js";
   "use strict";
 
   var whisper = root.UncensoredWhisperLocal;
+  var workerId = root.crypto.randomUUID();
   var inferenceQueue = Promise.resolve();
 
   var runtimeReady = import("./vendor/transformers.min.js").then(function loaded(transformers) {
@@ -63,7 +64,7 @@ import "./acoustic-head.js";
       }).then(function resolved(decision) {
         post(message.id, {
           ok: true,
-          decision: decision
+          decision: Object.assign({ workerId: workerId }, decision)
         });
       }, function failed(error) {
         post(message.id, {

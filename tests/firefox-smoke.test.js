@@ -8,7 +8,7 @@ function fixture() {
     injected: true, webdriver: false, duration: 100, muted: true, volume: 0, ad: false, paused: false, ready: 4, text: 'shit', selectedTrack: {languageCode: 'en', kind: 'asr'}, ccButton: {pressed: 'true'} });
   return [{ type: 'mode', mode: 'whisper' },
     { type: 'captions', videoId: 'target', trackId: 'lang=en&kind=asr', blanks: 1, slots: [[7, 9, '[__]']] },
-    { type: 'log', videoId: 'target', text: 'whisper model started' }, ...[0, 1, 2, 3, 4, 5].map(time => sample(time, 0, time * 1000)),
+    { type: 'log', videoId: 'target', text: 'whisper model started {"acousticHead":"loaded"}' }, ...[0, 1, 2, 3, 4, 5].map(time => sample(time, 0, time * 1000)),
     sample(6, 1, 6000), { type: 'log', text: 'whisper resolved "shit" lead 1.0s', time: 6, epoch: 1, videoId: 'target', at: 6500 },
     ...[7, 8, 9, 10, 11, 12].map(time => sample(time, 1, time * 1000))];
 }
@@ -28,10 +28,13 @@ test('runtime pin detects changed packaged code', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'uncensored-hashes-'));
   try {
     fs.writeFileSync(path.join(dir, 'runtime.js'), 'original');
+    const missingHead = runtimeHashes(dir);
+    fs.writeFileSync(path.join(dir, 'head.bin'), 'original');
     const original = runtimeHashes(dir);
+    assert.notDeepEqual(missingHead, original);
     fs.writeFileSync(path.join(dir, 'note.txt'), 'not packaged');
     assert.deepEqual(runtimeHashes(dir), original);
-    fs.writeFileSync(path.join(dir, 'runtime.js'), 'changed');
+    fs.writeFileSync(path.join(dir, 'head.bin'), 'changed');
     assert.notDeepEqual(runtimeHashes(dir), original);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
@@ -44,7 +47,8 @@ for (const [name, change, expected] of [
   ['manual raw track', e => { if (e.type === 'captions') e.trackId = 'lang=en&kind='; }, /timedtext/],
   ['not muted', e => { if (e.type === 'sample') e.muted = false; }, /not muted/],
   ['nonzero volume', e => { if (e.type === 'sample') e.volume = 0.1; }, /not muted/],
-  ['worker missing', e => { if (e.text === 'whisper model started') e.text = ''; }, /Worker/],
+  ['worker missing', e => { if (e.text?.startsWith('whisper model started')) e.text = ''; }, /Worker/],
+  ['head missing', e => { if (e.text?.startsWith('whisper model started')) e.text = 'whisper model started {"acousticHead":"unavailable: missing"}'; }, /Sound check/],
   ['post-seek missing', e => { if (e.type === 'log') e.epoch = 0; }, /post-decision/],
   ['natural word outside slot', e => { if (e.type === 'captions') e.slots = [[30, 32]]; }, /visible replacement/],
   ['no original blanks', e => { if (e.type === 'captions') e.blanks = 0; }, /timedtext/],
@@ -155,5 +159,5 @@ for (const [name, change] of [
   ['paused', e => {if(e.type === 'sample') e.paused = true;}],
   ['not ready', e => {if(e.type === 'sample') e.ready = 0;}],
   ['video error', e => {if(e.type === 'sample') e.error = 3;}],
-  ['worker error', e => {if(e.text === 'whisper model started') e.text += ' worker failed';}]
+  ['worker error', e => {if(e.text?.startsWith('whisper model started')) e.text += ' worker failed';}]
 ]) test('strict gate rejects ' + name, () => {const events = fixture(); events.forEach(change); assert.throws(() => validate(events, config));});

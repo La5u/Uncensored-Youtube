@@ -60,8 +60,11 @@ context.addEventListener = function addEventListener(type, listener) {
 context.dispatchEvent = function dispatchEvent(event) {
   if (event.type === "uncensored-settings") settingsEvents.push({ injected, detail: JSON.parse(event.detail) });
 };
+const analyses = [];
+const rememberedTracks = [];
 context.UncensoredTimedText = {
-  collectTimedTextData(body) {
+  collectTimedTextData(body, rules) {
+    analyses.push([body, rules]);
     return body === "clean" ? { parsed: true, tokens: [] } : { parsed: true, tokens: [{}] };
   }
 };
@@ -70,7 +73,7 @@ context.UncensoredSabrParser = {
   createStreamDecoder() { return { reset() { decoderResets += 1; }, push() { return []; } }; }
 };
 context.UncensoredAudioInference = {
-  rememberTimedTextData() {}
+  rememberTimedTextData(data, trackId) { rememberedTracks.push([data, trackId]); }
 };
 
 vm.runInNewContext(fs.readFileSync("src/content.js", "utf8"), context);
@@ -102,6 +105,17 @@ assert.strictEqual(decoderResets, resetsWhileActive + 1);
   assert.strictEqual(last.detail.acousticHead, false);
   storageListener({ acousticHead: { newValue: true } }, "local");
   assert.strictEqual(settingsEvents.at(-1).detail.acousticHead, true);
+
+  storageListener({ enabled: { newValue: false } }, "local");
+  analyses.length = 0;
+  const beforeReplacement = rememberedTracks.length;
+  sendTrack("old", "lang=fr");
+  sendTrack("censored", "lang=en");
+  assert.deepStrictEqual(analyses, [], "Off retains raw captions without analyzing them");
+  assert.strictEqual(rememberedTracks.length, beforeReplacement, "Off defers forwarding track data");
+  storageListener({ enabled: { newValue: true }, mode: { newValue: "whisper" } }, "local");
+  assert.deepStrictEqual(analyses, [["censored", false]], "reenabling uses the latest track");
+  storageListener({ mode: { newValue: null } }, "local");
 
   // Automatic mode: no explicit choice uses the measured mode, changed only at video start.
   const mode = () => settingsEvents.at(-1).detail.whisperFirst;

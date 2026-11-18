@@ -1,6 +1,7 @@
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
+const test = require("node:test");
 
 function read(file) {
   return fs.readFileSync(path.join(__dirname, "..", file), "utf8");
@@ -44,26 +45,34 @@ assert.deepStrictEqual(popupModes, ["rules", "rules-first", "auto", "whisper-fir
 assert.ok(popupModes.every((mode) => mode === "auto" || content.includes(`${mode.includes("-") ? `"${mode}"` : mode}: [`)));
 assert.ok(popupScript.includes('var DEFAULT_MODE = "auto";'));
 
-// Popup: stored values pick the slider stop; Automatic shows what it currently uses.
-async function popupShows(stored) {
-  const elements = {};
-  const element = (id) => elements[id] || (elements[id] = { setAttribute() {}, addEventListener() {} });
+// Popup: stored values pick the slider stop; Automatic shows the next video’s recommendation.
+async function popupShows(stored, toggleHead = false) {
+  const elements = {}, listeners = {};
+  const element = (id) => elements[id] || (elements[id] = {
+    setAttribute() {}, addEventListener(type, listener) { listeners[id + type] = listener; }
+  });
   require("vm").runInNewContext(popupScript, {
     document: { getElementById: element },
     chrome: { runtime: { getManifest: () => ({ version: "1" }) },
-      storage: { local: { get: (defaults) => Promise.resolve(Object.assign({}, defaults, stored)) } } }
+      storage: { local: { get: (defaults) => Promise.resolve(Object.assign({}, defaults, stored)), set() {} } } }
   });
   await new Promise((resolve) => setImmediate(resolve));
-  return { mode: popupModes[elements.mode.value], current: elements.modeCurrent.hidden ? null : elements.modeCurrent.textContent,
+  if (toggleHead) {
+    elements.acousticHead.checked = !elements.acousticHead.checked;
+    listeners.acousticHeadchange();
+  }
+  return { precision: elements.modePrecision.textContent, coverage: elements.modeCoverage.textContent, mode: popupModes[elements.mode.value], current: elements.modeCurrent.hidden ? null : elements.modeCurrent.textContent,
     cpu: elements.modeCpu.textContent, soundCheck: !elements.acousticHead.disabled, enabled: !elements.modeControls.disabled };
 }
 (async () => {
-  assert.deepStrictEqual(await popupShows({}), { mode: "auto", current: "Currently: measuring", cpu: "Moderate", soundCheck: true, enabled: true });
+  assert.deepStrictEqual(await popupShows({}), { precision: "Up to 89%", coverage: "Up to 87%", mode: "auto", current: "Next video: Rules first (measuring)", cpu: "Moderate", soundCheck: true, enabled: true });
   assert.deepStrictEqual(await popupShows({ autoMode: "whisper-first", whisperSpeed: [1, 1, 1, 1, 1] }),
-    { mode: "auto", current: "Currently: Whisper first", cpu: "High", soundCheck: true, enabled: true });
+    { precision: "Up to 97%", coverage: "Up to 95%", mode: "auto", current: "Next video: Whisper first", cpu: "High", soundCheck: true, enabled: true });
   assert.strictEqual((await popupShows({ rulesEnabled: true, whisperEnabled: true })).mode, "auto");
   assert.strictEqual((await popupShows({ whisperEnabled: false })).mode, "rules");
-  assert.deepStrictEqual(await popupShows({ mode: "rules" }), { mode: "rules", current: null, cpu: "Minimal", soundCheck: false, enabled: true });
+  assert.deepStrictEqual(await popupShows({ mode: "rules" }), { precision: "Up to 81%", coverage: "Up to 37%", mode: "rules", current: null, cpu: "Minimal", soundCheck: false, enabled: true });
+  assert.strictEqual((await popupShows({ mode: "whisper", acousticHead: false })).coverage, "Up to 90%");
+  assert.strictEqual((await popupShows({ mode: "whisper" }, true)).coverage, "Up to 90%");
   // Stored "off" and legacy both-off become the switch off with the slider at Automatic.
   for (const stored of [{ mode: "off" }, { rulesEnabled: false, whisperEnabled: false }]) {
     const shown = await popupShows(stored);
@@ -74,6 +83,31 @@ async function popupShows(stored) {
   console.error(error);
   process.exitCode = 1;
 });
+
+test("7. Sound check off shows figures only for measured combinations", async () => {
+  for (const stored of [
+    { mode: "whisper-first" }, { mode: "rules-first" },
+    { mode: "auto", autoMode: "whisper-first" }, { mode: "auto", autoMode: "rules-first" }
+  ]) {
+    const { precision, coverage } = await popupShows(stored, true);
+    assert.deepStrictEqual([precision, coverage], ["Not measured", "Not measured"], JSON.stringify(stored));
+  }
+  const decoder = await popupShows({ mode: "whisper", acousticHead: false });
+  assert.deepStrictEqual([decoder.precision, decoder.coverage], ["Up to 97%", "Up to 90%"]);
+});
+
+test("9. AMO source notes name both current release archives", () => {
+  assert.deepStrictEqual(read("AMO_SOURCE.md").match(/dist\/uncensored-youtube-(?:firefox|chromium)-[\d.]+\.zip/g), [
+    `dist/uncensored-youtube-firefox-${firefoxManifest.version}.zip`,
+    `dist/uncensored-youtube-chromium-${chromiumManifest.version}.zip`
+  ]);
+});
+
+for (const file of ["docs/RULES.md", "docs/SESSION_HANDOFF.md"]) {
+  test(`11. ${file} documents the generated rule group's release status`, () => {
+    assert.match(read(file), /1\.6\.3 disables the generated word-class group and retains the diagnostic miner/);
+  });
+}
 // The acoustic head: one popup switch, on by default, loaded where Whisper runs (both browsers' worker).
 assert.ok(popup.includes('id="acousticHead" type="checkbox" checked'));
 assert.ok(popupScript.includes("acousticHead: true") && content.includes("acousticHead: true"));
