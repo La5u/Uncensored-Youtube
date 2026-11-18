@@ -38,7 +38,7 @@ assert.ok(injectedScripts.every((script, index) => index === injectedScripts.len
   content.indexOf(`"${script}"`) < content.indexOf(`"${injectedScripts[index + 1]}"`)));
 assert.ok(popup.includes('id="mode" type="range" min="0" max="4"'));
 assert.ok(popup.includes('id="versionLabel"'));
-assert.ok(popup.includes('id="enabled" type="checkbox" role="switch" checked'));
+assert.ok(popup.includes('id="enabled" class="switch" type="checkbox" role="switch" aria-label="Uncensor captions"'));
 // The popup's five slider stops and content.js's mode table must stay in step.
 const popupModes = [...popupScript.matchAll(/\{ id: "([a-z-]+)"/gu)].map((match) => match[1]);
 assert.deepStrictEqual(popupModes, ["rules", "rules-first", "auto", "whisper-first", "whisper"]);
