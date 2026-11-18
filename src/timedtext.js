@@ -344,7 +344,7 @@
     };
   }
 
-  function patchTimedTextJsonWithOverrides(payload, overrides, useDeterministic, body, resolveAmbiguous) {
+  function patchTimedTextJsonWithOverrides(payload, overrides, useDeterministic, body, resolveAmbiguous, preferDeterministic) {
     if (!payload || !Array.isArray(payload.events)) {
       return {
         payload: payload,
@@ -365,13 +365,17 @@
       }
     }
 
-    result.replacements.forEach(function mapDeterministicReplacement(replacement) {
-      if (resolveAmbiguous !== false || !isAmbiguousRule(replacement.rule)) mapReplacement(replacement);
-    });
+    function mapDeterministicReplacements() {
+      result.replacements.forEach(function mapDeterministicReplacement(replacement) {
+        if (resolveAmbiguous !== false || !isAmbiguousRule(replacement.rule)) mapReplacement(replacement);
+      });
+    }
 
+    if (!preferDeterministic) mapDeterministicReplacements();
     (overrides || []).forEach(function mapOverride(override) {
       if (override && typeof override.tokenIndex === "number" && override.word) mapReplacement(override);
     });
+    if (preferDeterministic) mapDeterministicReplacements();
 
     if (!replacementByTokenIndex.size) return { payload: payload, patchCount: 0 };
 
@@ -397,10 +401,12 @@
     };
   }
 
-  function patchTimedTextBodyWithOverrides(body, overrides, useDeterministic, resolveAmbiguous) {
+  function patchTimedTextBodyWithOverrides(body, overrides, useDeterministic, resolveAmbiguous, preferDeterministic) {
     if (useDeterministic === false && !(overrides && overrides.length)) return body;
     try {
-      var result = patchTimedTextJsonWithOverrides(JSON.parse(body), overrides, useDeterministic !== false, body, resolveAmbiguous);
+      var result = patchTimedTextJsonWithOverrides(
+        JSON.parse(body), overrides, useDeterministic !== false, body, resolveAmbiguous, preferDeterministic
+      );
       return result.patchCount > 0 ? JSON.stringify(result.payload) : body;
     } catch (error) {
       return body;

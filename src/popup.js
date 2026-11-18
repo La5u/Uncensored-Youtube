@@ -13,7 +13,7 @@
     { id: "auto", title: "Automatic",
       description: "Whisper first on devices fast enough for it, Rules first otherwise." },
     { id: "whisper-first", title: "Whisper first", precision: "Up to 97%", coverage: "Up to 95%", cpu: "High",
-      description: "Whisper checks every slot; rules fill instantly until it has answered." },
+      description: "Whisper checks every slot; a rule word already shown stays on screen." },
     { id: "whisper", title: "Whisper only", precision: "Up to 97%", coverage: "Up to 95%", cpu: "High",
       decoderOnly: { precision: "Up to 97%", coverage: "Up to 90%" },
       description: "Only local Whisper audio recognition; no context rules." }

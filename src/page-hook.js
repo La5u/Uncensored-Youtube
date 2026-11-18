@@ -6,6 +6,7 @@
   var settings = {
     rulesEnabled: false,
     whisperEnabled: true,
+    whisperFirst: false,
     acousticHead: true,
     audioEnabled: null
   };
@@ -64,6 +65,7 @@
       syncVideo(detail.videoId || currentVideoId());
       settings.rulesEnabled = detail.rulesEnabled !== false;
       settings.whisperEnabled = detail.whisperEnabled !== false;
+      settings.whisperFirst = detail.whisperFirst === true;
       settings.acousticHead = detail.acousticHead !== false;
       settings.audioEnabled = detail.audioEnabled;
       if (settings.audioEnabled !== null) {
@@ -86,6 +88,11 @@
     if (detail.word === "" && detail.source === "media") {
       audioReplacements.delete(key);
       return;
+    }
+    var previous = audioReplacements.get(key);
+    if (previous && previous.source === "media" && detail.evidence === "rule" &&
+        (detail.source === "deterministic" || detail.source === "context")) {
+      audioReplacements.delete(key);
     }
 
     var allowed = globalThis.UncensoredRules && globalThis.UncensoredRules.ALLOWED_WORDS;
@@ -391,7 +398,8 @@
             this.responseText,
             replacementsForCurrentVideo(),
             settings.rulesEnabled,
-            !settings.whisperEnabled
+            !settings.whisperEnabled,
+            settings.rulesEnabled && settings.whisperEnabled && !settings.whisperFirst
           );
         if (patchedBody === this.responseText) return;
 

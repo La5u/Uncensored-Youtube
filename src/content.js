@@ -63,7 +63,7 @@
     });
   }
 
-  function dispatchSettings() {
+  function dispatchSettings(data) {
     var detail = Object.assign({}, settings, {
       audioEnabled: audioEnabled,
       videoId: activeVideoId
@@ -74,7 +74,7 @@
     }));
 
     if (globalThis.UncensoredAudioInference && globalThis.UncensoredAudioInference.setOptions) {
-      globalThis.UncensoredAudioInference.setOptions(detail);
+      globalThis.UncensoredAudioInference.setOptions(detail, data, data && rawTrack.trackId);
     }
   }
 
@@ -104,17 +104,21 @@
     updateAudioNeeded();
   }
 
-  function updateAudioNeeded() {
+  function updateAudioNeeded(data, forceSettings) {
     var enabled = settings.whisperEnabled && Boolean(activeVideoId) && hasCensoredSlots !== false;
 
-    if (audioEnabled === enabled) return;
+    if (audioEnabled === enabled) {
+      if (forceSettings) dispatchSettings(data);
+      else if (data) globalThis.UncensoredAudioInference.rememberTimedTextData(data, rawTrack.trackId, activeVideoId);
+      return;
+    }
     audioEnabled = enabled;
     // End messages are dropped while disabled, so open streams would hold parser slots.
     if (!enabled && sabrDecoder) sabrDecoder.reset();
     if (!enabled && hasCensoredSlots !== null) {
       debugLog("audio decoding stopped", { reason: "no censored captions" });
     }
-    dispatchSettings();
+    dispatchSettings(data);
     setExtensionHostActive(enabled);
   }
 
@@ -203,9 +207,7 @@
         applyMode(storedMode);
       }
       if (changes.acousticHead) settings.acousticHead = changes.acousticHead.newValue !== false;
-      updateAudioNeeded();
-      dispatchSettings();
-      analyzeTrack();
+      updateAudioNeeded(analyzeTrack(), true);
     });
   }
 
@@ -219,10 +221,8 @@
   }).then(function scriptsInjected() {
     // Navigation may have changed the audio decision before the page hook existed, so
     // updateAudioNeeded() can return early; always hand the hook the current settings.
-    updateAudioNeeded();
-    dispatchSettings();
-    analyzeTrack();
-  }, dispatchSettings);
+    updateAudioNeeded(analyzeTrack(), true);
+  }, function scriptsFailed() { dispatchSettings(); });
 
   function analyzeTrack() {
     var timedText = globalThis.UncensoredTimedText;
@@ -237,10 +237,7 @@
     debugLog("captions analyzed", { trackId: rawTrack.trackId, count: data.tokens.length });
     if (data.tokens.length) hasCensoredSlots = true;
     else if (data.parsed) hasCensoredSlots = false;
-    updateAudioNeeded();
-    if (audioInference.rememberTimedTextData) {
-      audioInference.rememberTimedTextData(data, rawTrack.trackId, activeVideoId);
-    }
+    return data;
   }
 
   window.addEventListener("uncensored-timedtext", function rememberTimedText(event) {
@@ -256,7 +253,8 @@
 
     if (typeof track.body !== "string") return;
     rawTrack = track;
-    analyzeTrack();
+    var data = analyzeTrack();
+    if (data) updateAudioNeeded(data);
   });
 
   window.addEventListener("uncensored-no-captions", function stopNoCaptionAudio(event) {

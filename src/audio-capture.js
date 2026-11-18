@@ -603,11 +603,14 @@
 
   // "Rules first" leaves unambiguous rule fills to the rules; "Whisper first" checks
   // every slot and lets audio replace the provisional fill.
+  function preferDeterministicRule(token) {
+    return options.rulesEnabled && !options.whisperFirst && token.deterministicWord && !token.deterministicAmbiguous;
+  }
+
   function shouldResolveWithWhisper(token) {
     var key = tokenCacheKey(token);
     if (!options.whisperEnabled || failedTokens.has(key) || hasCompletedAudioDecision(key)) return false;
-    return options.whisperFirst || !options.rulesEnabled || !token.deterministicWord ||
-      Boolean(token.deterministicAmbiguous);
+    return !preferDeterministicRule(token);
   }
 
   function markWhisperFailed(token) {
@@ -829,7 +832,7 @@
       token.captionGeneration = captionGeneration;
       token.contextWord = options.rulesEnabled ? contextWordForToken(token) : "";
 
-      if (decision && options.whisperEnabled) {
+      if (decision && options.whisperEnabled && !preferDeterministicRule(token)) {
         applyAudioDecision(token, decision);
       } else if (options.rulesEnabled && token.deterministicWord && (!options.whisperEnabled || !token.deterministicAmbiguous)) {
         rememberResolution(token, token.deterministicWord, "deterministic");
@@ -1147,7 +1150,7 @@
 
   var exports = Object.freeze({
     setSabrAudioData: setSabrAudioData,
-    setOptions: function setOptions(nextOptions) {
+    setOptions: function setOptions(nextOptions, data, trackId) {
       var previousRulesEnabled = options.rulesEnabled;
       var previousWhisperEnabled = options.whisperEnabled;
       var previousWhisperFirst = options.whisperFirst;
@@ -1163,14 +1166,16 @@
       if (options.whisperEnabled && options.acousticHead && (!previousWhisperEnabled || !previousAcousticHead)) {
         headAttemptGeneration += 1;
       }
-      if (previousRulesEnabled !== options.rulesEnabled || previousWhisperEnabled !== options.whisperEnabled ||
-          previousWhisperFirst !== options.whisperFirst || previousAcousticHead !== options.acousticHead) {
+      var changed = previousRulesEnabled !== options.rulesEnabled || previousWhisperEnabled !== options.whisperEnabled ||
+        previousWhisperFirst !== options.whisperFirst || previousAcousticHead !== options.acousticHead;
+      if (changed) {
         captionGeneration += 1;
         pendingTokens.clear();
         failedTokens.clear();
         resolvedTokens.clear();
-        rememberTimedTextTokens(captionTokens);
       }
+      if (data) rememberTimedTextData(data, trackId, nextOptions.videoId);
+      else if (changed) rememberTimedTextTokens(captionTokens);
       if (options.whisperEnabled && options.audioEnabled && pendingTokens.size) {
         preloadWhisper();
         scheduleWhisperQueue();

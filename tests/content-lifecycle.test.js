@@ -73,6 +73,9 @@ context.UncensoredSabrParser = {
   createStreamDecoder() { return { reset() { decoderResets += 1; }, push() { return []; } }; }
 };
 context.UncensoredAudioInference = {
+  setOptions(options, data, trackId) {
+    if (data) this.rememberTimedTextData(data, trackId);
+  },
   rememberTimedTextData(data, trackId) { rememberedTracks.push([data, trackId]); }
 };
 

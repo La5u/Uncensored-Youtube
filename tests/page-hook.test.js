@@ -186,6 +186,60 @@ rulesTrack.open("GET", captionUrl + "&name=rules");
 rulesTrack.finish('{"events":[{"segs":[{"utf8":"[__]"}]}]}');
 assert.strictEqual(deterministicModes.at(-1), true);
 
+// Use the real patcher to check which word a caption reload displays.
+const mockTimedText = context.UncensoredTimedText;
+context.UncensoredTimedText = require("../src/timedtext");
+context.UncensoredRules = require("../src/rules");
+function setCaptionMode(rulesEnabled, whisperEnabled, whisperFirst, acousticHead = true) {
+  context.dispatchEvent(new context.CustomEvent("uncensored-settings", {
+    detail: JSON.stringify({ rulesEnabled, whisperEnabled, whisperFirst, acousticHead, videoId: "test" })
+  }));
+}
+function reloadCaption(name, utf8) {
+  const request = new FakeXHR();
+  request.open("GET", captionUrl + "&name=" + name);
+  request.finish(JSON.stringify({ events: [{ segs: [{ utf8 }] }] }));
+  return JSON.parse(request.responseText).events[0].segs[0].utf8;
+}
+function publishCaptionWord(word, source, evidence) {
+  const { trackId, videoId } = timedTextDetails.at(-1);
+  const detail = { tokenIndex: 0, word, source, evidence, trackId, videoId };
+  listeners.get("message").call(context, {
+    source: vm.runInContext("globalThis", context),
+    data: { uncensoredWhisperResolution: JSON.stringify(detail) }
+  });
+}
+
+setCaptionMode(true, true, true, false);
+const question = "what the [__]?";
+const questionRuleFill = reloadCaption("retry", question);
+assert.match(questionRuleFill, /^what the fuck\?/);
+publishCaptionWord("shit", "media", "candidate-score");
+assert.strictEqual(reloadCaption("retry", question), "what the shit?");
+setCaptionMode(true, true, true);
+publishCaptionWord("fuck?", "deterministic", "rule");
+assert.strictEqual(reloadCaption("retry", question), questionRuleFill,
+  "a punctuated rule fallback retires the superseded decoder word");
+
+const unambiguous = "what the [__]";
+assert.strictEqual(reloadCaption("mode-cycle", unambiguous), "what the fuck");
+publishCaptionWord("shit", "media", "candidate-score");
+assert.strictEqual(reloadCaption("mode-cycle", unambiguous), "what the shit");
+setCaptionMode(true, false, false);
+assert.strictEqual(reloadCaption("mode-cycle", unambiguous), "what the fuck");
+setCaptionMode(true, true, false);
+assert.strictEqual(reloadCaption("mode-cycle", unambiguous), "what the fuck",
+  "Rules first gives an unambiguous rule priority over cached Whisper");
+setCaptionMode(true, true, true);
+assert.strictEqual(reloadCaption("mode-cycle", unambiguous), "what the shit");
+
+const ambiguous = "are you [__] me";
+assert.strictEqual(reloadCaption("ambiguous", ambiguous), ambiguous);
+publishCaptionWord("fucking", "media", "candidate-score");
+setCaptionMode(true, true, false);
+assert.strictEqual(reloadCaption("ambiguous", ambiguous), "are you fucking me");
+context.UncensoredTimedText = mockTimedText;
+
 // Reopening a patched XHR restores native responses for the next request.
 xhr.open("GET", "https://www.youtube.com/youtubei/v1/player");
 xhr.finish("next response");

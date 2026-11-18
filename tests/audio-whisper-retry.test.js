@@ -127,6 +127,73 @@ function timedCue(text, startTime, endTime, firstTokenIndex = 0) {
   return { text, startTime, endTime, firstTokenIndex };
 }
 
+async function startContentTrack(h, mode, captions) {
+  const { context, listeners } = h;
+  let changeStorage;
+  Object.assign(context.UncensoredRules, require("../src/rules"));
+  context.UncensoredTimedText = require("../src/timedtext");
+  context.window = context;
+  context.CustomEvent = class CustomEvent {};
+  context.dispatchEvent = () => {};
+  context.document.createElement = () => ({ remove() {} });
+  context.document.documentElement = { appendChild: (script) => script.onload() };
+  context.browser = {
+    runtime: { getURL: (path) => path, sendMessage: () => Promise.resolve() },
+    storage: {
+      local: { get: (defaults) => Promise.resolve({ ...defaults, mode }) },
+      onChanged: { addListener: (listener) => { changeStorage = listener; } }
+    }
+  };
+  vm.runInContext(fs.readFileSync(require.resolve("../src/content"), "utf8"), context);
+  await new Promise((resolve) => setImmediate(resolve));
+  const body = JSON.stringify({ events: captions.map((utf8, index) => ({
+    tStartMs: index * 2000, dDurationMs: 2000, segs: [{ utf8 }]
+  })) });
+  listeners["uncensored-timedtext"]({ detail: JSON.stringify({ body, trackId: "track-a", videoId: "video-a" }) });
+  return (newValue) => changeStorage({ mode: { newValue } }, "local");
+}
+
+test("Mode cycling queues Whisper with the freshly analyzed split-cue rule", async () => {
+  const h = makeHarness([(callback) => callback({ decision: { decisions: [{ word: "", evidence: "none" }] } })]);
+  const raw = "are you [__]";
+  const changeMode = await startContentTrack(h, "rules-first", [raw, "me"]);
+  changeMode("whisper");
+  changeMode("rules-first");
+  h.addAudio();
+  await h.advance(0);
+  assert.strictEqual(h.renderCaption(raw), "are you shitting");
+  const request = h.messages.find((message) => message.type === "transcribe");
+  assert.strictEqual(request.data.options.slots[0].hybridRuleWord, "shitting");
+});
+
+test("Switching to Rules only fills a visible split cue from the full track", async () => {
+  const h = makeHarness([]);
+  const raw = "might be [__]";
+  const changeMode = await startContentTrack(h, "whisper", [raw, "with"]);
+  assert.strictEqual(h.renderCaption(raw), raw);
+  changeMode("rules");
+  assert.strictEqual(h.segments[0].textContent, "might be fucking");
+});
+
+test("Rules first uses an unambiguous rule after cycling through Rules only", async () => {
+  const h = makeHarness([(callback) => callback({ decision: { decisions: [
+    { word: "shit", evidence: "candidate-score", head: { word: "shit", p: 0.98 } }
+  ] } })]);
+  const raw = "what the [__]";
+  const changeMode = await startContentTrack(h, "whisper-first", [raw]);
+  h.addAudio();
+  h.listeners.seeked();
+  await h.advance(0);
+  assert.strictEqual(h.renderCaption(raw), "what the shit");
+  changeMode("rules");
+  assert.strictEqual(h.renderCaption(raw), "what the fuck");
+  changeMode("rules-first");
+  assert.strictEqual(h.renderCaption(raw), "what the fuck");
+  changeMode("whisper-first");
+  assert.strictEqual(h.renderCaption(raw), "what the shit");
+  assert.strictEqual(h.messages.filter((message) => message.type === "transcribe").length, 1);
+});
+
 test("1. Rules only preserves a scored multi-candidate fill", () => {
   const timedText = require("../src/timedtext");
   const raw = JSON.stringify({ events: [
