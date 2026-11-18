@@ -43,9 +43,9 @@ function visibleSlotMatch(raw, visible, word) {
 function validate(events, config) {
   const assert = (ok, message) => { if (!ok) throw Error(message); };
   assert(events.some(e => e.type === 'mode' && e.mode === config.mode), 'Mode not confirmed');
-  const samples = events.filter(e => e.type === 'sample');
+  const samples = events.filter(e => e.type === 'sample' && !e.ad); // pre-roll ads play before the video
   assert(samples.length > 2, 'Missing playback telemetry');
-  assert(samples.every(e => e.injected && e.webdriver === false && e.videoId === config.videoId && e.duration > config.until && !e.ad), 'Non-native, wrong video, ad, or invalid duration');
+  assert(samples.every(e => e.injected && e.webdriver === false && e.videoId === config.videoId && e.duration > config.until), 'Non-native, wrong video, or invalid duration');
   assert(samples.every(e => e.muted && e.volume === 0), 'Playback not muted at zero volume');
   assert(samples.some(e => e.time >= config.until), 'Playback target not reached');
   for (const epoch of config.seek ? [0, 1] : [0]) {
